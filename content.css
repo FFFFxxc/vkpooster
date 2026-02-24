@@ -1,0 +1,98 @@
+/* Кнопка на постах */
+.vkr-btn {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  background: linear-gradient(135deg, #5181b8, #3f6fa0) !important;
+  color: #fff !important;
+  border-radius: 6px;
+  font-size: 12px !important;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  margin-left: 8px;
+  user-select: none;
+  border: none;
+  text-decoration: none !important;
+  vertical-align: middle;
+  line-height: 1.2;
+}
+
+.vkr-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(81, 129, 184, 0.4);
+  background: linear-gradient(135deg, #6a9bd2, #5181b8) !important;
+}
+
+.vkr-btn:active {
+  transform: translateY(0);
+}
+
+
+/* Кнопка накрутки на комменты */
+.vkr-boost-btn {
+  background: transparent !important;
+  border: none !important;
+  font-size: 16px !important;
+  cursor: pointer !important;
+  opacity: 0.7 !important;
+  transition: all 0.2s ease !important;
+  margin-left: 6px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 4px !important;
+  vertical-align: middle !important;
+  flex-shrink: 0 !important;
+  min-width: 24px !important;
+  min-height: 24px !important;
+  position: relative !important;
+  z-index: 10 !important;
+}
+
+.vkr-boost-btn:hover {
+  opacity: 1 !important;
+  transform: scale(1.15) !important;
+  filter: drop-shadow(0 2px 4px rgba(0,0,0,0.2)) !important;
+}
+
+.vkr-boost-btn:disabled {
+  opacity: 0.5 !important;
+  cursor: not-allowed !important;
+}
+
+/* Уведомление об успехе внизу экрана */
+.vkr-toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #2c2c2e;
+  color: #fff;
+  padding: 12px 24px;
+  border-radius: 12px;
+  z-index: 9999999;
+  font-size: 14px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.1);
+  animation: vkr-toast-in 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+  pointer-events: none;
+}
+
+@keyframes vkr-toast-in {
+  0% { bottom: 0; opacity: 0; transform: translateX(-50%) scale(0.9); }
+  100% { bottom: 24px; opacity: 1; transform: translateX(-50%) scale(1); }
+}
+
+/* Кнопка случайного коммента */
+.vkr-btn-comment {
+  background: linear-gradient(135deg, #34c759, #2ebd4e) !important;
+  box-shadow: 0 2px 8px rgba(52, 199, 89, 0.3) !important;
+}
+
+.vkr-btn-comment:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(52, 199, 89, 0.4) !important;
+  background: linear-gradient(135deg, #3ada62, #34c759) !important;
+}

@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VK Reposter Pro</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="popup-container">
+    <!-- Header -->
+    <div class="header">
+      <div class="logo">
+        <span class="logo-icon">🔄</span>
+        <div class="logo-text">
+          <span class="logo-title">VK Reposter Pro</span>
+          <span class="logo-subtitle">Автоматизация 24/7</span>
+        </div>
+      </div>
+      <button class="settings-btn" id="settingsBtn" title="Настройки сервера">⚙️</button>
+    </div>
+
+    <!-- Server Status -->
+    <div class="server-status" id="serverStatus">
+      <div class="status-indicator offline" id="statusIndicator"></div>
+      <span id="statusText">Сервер не подключён</span>
+    </div>
+
+    <!-- Main Content -->
+    <div class="main-content" id="mainContent">
+      <!-- Accounts Section -->
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">👤 Аккаунты</span>
+          <button class="add-btn" id="addAccountBtn">+ Добавить</button>
+        </div>
+        <div class="accounts-list" id="accountsList">
+          <!-- Accounts will be loaded here -->
+        </div>
+      </div>
+
+      <!-- Quick Actions -->
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">⚡ Быстрые действия</span>
+        </div>
+        <div class="quick-actions">
+          <button class="action-btn" id="syncBtn">
+            <span class="action-icon">🔄</span>
+            <span class="action-text">Синхронизировать</span>
+          </button>
+          <button class="action-btn" id="historyBtn">
+            <span class="action-icon">📋</span>
+            <span class="action-text">История</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Stats -->
+      <div class="section" id="statsSection" style="display: none;">
+        <div class="section-header">
+          <span class="section-title">📊 Статистика сервера</span>
+        </div>
+        <div class="stats-grid">
+          <div class="stat-item">
+            <span class="stat-value" id="scheduledPosts">0</span>
+            <span class="stat-label">Отлож. постов</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-value" id="scheduledComments">0</span>
+            <span class="stat-label">Отлож. комм.</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-value" id="serverUptime">0ч</span>
+            <span class="stat-label">Uptime</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Settings Panel -->
+    <div class="settings-panel" id="settingsPanel" style="display: none;">
+      <div class="settings-header">
+        <span class="settings-title">⚙️ Настройки сервера</span>
+        <button class="close-btn" id="closeSettings">×</button>
+      </div>
+      <div class="settings-content">
+        <div class="form-group">
+          <label>URL сервера:</label>
+          <input type="text" id="serverUrlInput" placeholder="https://your-server.onrender.com">
+          <small>Введите адрес вашего сервера на Render.com</small>
+        </div>
+        <div class="button-group">
+          <button class="primary-btn" id="saveServerBtn">💾 Сохранить</button>
+          <button class="secondary-btn" id="testServerBtn">🔌 Проверить</button>
+        </div>
+        <div class="server-help">
+          <h4>📖 Как получить сервер:</h4>
+          <ol>
+            <li>Загрузите проект на GitHub</li>
+            <li>Подключите к Render.com</li>
+            <li>Скопируйте URL сервера</li>
+          </ol>
+        </div>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="footer">
+      <span>v2.0.0</span>
+      <span>•</span>
+      <span id="connectionStatus">Локальный режим</span>
+    </div>
+  </div>
+
+  <script src="popup-auth.js"></script>
+</body>
+</html>

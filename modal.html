@@ -1,0 +1,72 @@
+<!-- Этот файл будет инжектиться в DOM страницы ВК -->
+<div id="vkr-modal-overlay" style="display:none">
+  <div id="vkr-modal">
+    <div id="vkr-modal-header">
+      <span>📋 VK Reposter Pro</span>
+      <button id="vkr-close">✕</button>
+    </div>
+    
+    <div id="vkr-modal-body">
+      <!-- Левая часть: превью поста -->
+      <div id="vkr-preview">
+        <div class="vkr-section-title">Превью поста</div>
+        <div id="vkr-post-content"></div>
+      </div>
+      
+      <!-- Правая часть: настройки и группы -->
+      <div id="vkr-settings">
+        <!-- Режим -->
+        <div class="vkr-section">
+          <div class="vkr-section-title">📝 Режим</div>
+          <div class="vkr-mode-toggle">
+            <button class="vkr-mode-btn active" data-mode="copy">📋 Копия</button>
+            <button class="vkr-mode-btn" data-mode="repost">🔄 Репост</button>
+          </div>
+        </div>
+        
+        <!-- Текст -->
+        <div class="vkr-section" id="vkr-text-section">
+          <div class="vkr-section-title">✏️ Текст поста</div>
+          <textarea id="vkr-post-text" placeholder="Введите текст..."></textarea>
+        </div>
+        
+        <!-- Отложка -->
+        <div class="vkr-section">
+          <div class="vkr-section-title">⏰ Отложенный постинг</div>
+          <label class="vkr-checkbox">
+            <input type="checkbox" id="vkr-schedule">
+            <span>Отложить публикацию</span>
+          </label>
+          <div id="vkr-schedule-inputs" style="display:none">
+            <input type="date" id="vkr-date">
+            <input type="time" id="vkr-time">
+          </div>
+        </div>
+        
+        <!-- Группы -->
+        <div class="vkr-section">
+          <div class="vkr-section-title">📢 Группы</div>
+          <input type="text" id="vkr-search" placeholder="🔍 Поиск...">
+          <div class="vkr-group-actions">
+            <button id="vkr-select-all">Все</button>
+            <button id="vkr-select-none">Снять</button>
+          </div>
+          <div id="vkr-group-count">0 выбрано</div>
+          <div id="vkr-groups-list"></div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Футер с кнопками -->
+    <div id="vkr-modal-footer">
+      <div id="vkr-status"></div>
+      <div id="vkr-progress" style="display:none">
+        <div id="vkr-progress-bar"></div>
+      </div>
+      <div class="vkr-footer-buttons">
+        <button id="vkr-cancel" class="vkr-btn-secondary">Отмена</button>
+        <button id="vkr-submit" class="vkr-btn-primary">🚀 Репост</button>
+      </div>
+    </div>
+  </div>
+</div>
