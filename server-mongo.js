@@ -666,9 +666,13 @@ cron.schedule('* * * * *', async () => {
       try {
         let uploadServer;
         if (task.fileType === 'video') {
-          uploadServer = await vkApi('stories.getVideoUploadServer', { group_id: task.groupId }, account.token);
+          uploadServer = await vkApi('stories.getVideoUploadServer', { 
+            group_id: task.groupId
+          }, account.token);
         } else {
-          uploadServer = await vkApi('stories.getPhotoUploadServer', { group_id: task.groupId }, account.token);
+          uploadServer = await vkApi('stories.getPhotoUploadServer', { 
+            group_id: task.groupId
+          }, account.token);
         }
         
         if (!uploadServer?.upload_url) {
@@ -691,7 +695,11 @@ cron.schedule('* * * * *', async () => {
         });
         const uploadResult = await uploadResp.json();
         
-        const saveResult = await vkApi('stories.save', { ...uploadResult }, account.token);
+        // Save story with add_to_news parameter
+        const saveResult = await vkApi('stories.save', { 
+          ...uploadResult,
+          add_to_news: 1
+        }, account.token);
         
         if (useMongoDB) {
           await ScheduledStory.updateOne({ id: task.id }, {
