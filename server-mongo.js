@@ -237,7 +237,7 @@ app.get('/', async (req, res) => {
 
     res.json({
       status: 'online',
-      version: '3.1.0-fixed-stories',
+      version: '3.2.0-fixed-stories',
       uptime: Math.floor(process.uptime()),
       database: useMongoDB ? 'MongoDB' : 'Memory',
       accounts: counts.accounts,
@@ -429,6 +429,105 @@ app.post('/api/test-story', async (req, res) => {
       hint: e.code === 15 ? 'Нет прав на истории (нужен токен с правом stories)' :
             e.code === 7  ? 'Нет прав администратора в группе' :
             e.code === 5  ? 'Токен недействителен' : 'Неизвестная ошибка'
+    });
+  }
+});
+
+// ==================== ПОЛНЫЙ ТЕСТ ЗАГРУЗКИ ИСТОРИИ ====================
+app.post('/api/test-story-upload', async (req, res) => {
+  const { groupId, fileData, fileType } = req.body;
+  if (!groupId || !fileData) {
+    return res.status(400).json({ ok: false, error: 'groupId and fileData required' });
+  }
+
+  const account = await getFirstAccount();
+  if (!account) {
+    return res.status(400).json({ ok: false, error: 'No accounts' });
+  }
+
+  const log = []; // Собираем лог каждого шага
+
+  try {
+    // ШАГ 1: Получаем upload URL
+    log.push('Step 1: Getting upload URL...');
+    const uploadServer = await vkApi('stories.getPhotoUploadServer', {
+      group_id: groupId,
+      add_to_news: 1
+    }, account.token);
+    log.push(`Step 1 OK: upload_url received`);
+
+    // ШАГ 2: Декодируем файл
+    log.push('Step 2: Decoding base64...');
+    let base64Data = fileData;
+    if (base64Data.includes(',')) {
+      base64Data = base64Data.split(',')[1];
+    }
+    const fileBuffer = Buffer.from(base64Data, 'base64');
+    log.push(`Step 2 OK: buffer size = ${fileBuffer.length} bytes`);
+
+    // ШАГ 3: Загружаем на VK
+    log.push('Step 3: Uploading to VK...');
+    const form = new FormData();
+    form.append('photo', fileBuffer, {
+      filename: 'story.jpg',
+      contentType: 'image/jpeg'
+    });
+
+    const uploadResp = await fetch(uploadServer.upload_url, {
+      method: 'POST',
+      body: form,
+      headers: form.getHeaders()
+    });
+
+    const uploadResultText = await uploadResp.text();
+    log.push(`Step 3 response: ${uploadResultText.substring(0, 300)}`);
+
+    let uploadResult;
+    try {
+      uploadResult = JSON.parse(uploadResultText);
+    } catch(e) {
+      return res.json({ ok: false, log, error: 'Upload response is not JSON', raw: uploadResultText.substring(0, 300) });
+    }
+
+    if (uploadResult.error) {
+      return res.json({ ok: false, log, error: 'Upload error', detail: uploadResult.error });
+    }
+
+    if (!uploadResult.upload_result) {
+      return res.json({ 
+        ok: false, log, 
+        error: 'No upload_result field',
+        uploadResultKeys: Object.keys(uploadResult),
+        uploadResult: uploadResult
+      });
+    }
+
+    log.push(`Step 3 OK: upload_result length = ${uploadResult.upload_result.length}`);
+
+    // ШАГ 4: Сохраняем историю
+    log.push('Step 4: Calling stories.save (POST)...');
+    const saveResult = await vkApiPost('stories.save', {
+      upload_results: uploadResult.upload_result
+    }, account.token);
+    log.push(`Step 4 result: ${JSON.stringify(saveResult).substring(0, 300)}`);
+
+    const storyId = saveResult?.items?.[0]?.id || 'unknown';
+    log.push(`Step 4 OK: storyId = ${storyId}`);
+
+    return res.json({ 
+      ok: true, 
+      log,
+      storyId,
+      message: 'Story published successfully!'
+    });
+
+  } catch (e) {
+    log.push(`ERROR: ${e.message} (code: ${e.code})`);
+    return res.json({ 
+      ok: false, 
+      log, 
+      error: e.message,
+      errorCode: e.code
     });
   }
 });
