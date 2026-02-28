@@ -664,14 +664,18 @@ cron.schedule('* * * * *', async () => {
       }
       
       try {
+        // Get upload server with add_to_news parameter
+        // IMPORTANT: add_to_news must be passed to getUploadServer, not to stories.save!
         let uploadServer;
         if (task.fileType === 'video') {
           uploadServer = await vkApi('stories.getVideoUploadServer', { 
-            group_id: task.groupId
+            group_id: task.groupId,
+            add_to_news: 1
           }, account.token);
         } else {
           uploadServer = await vkApi('stories.getPhotoUploadServer', { 
-            group_id: task.groupId
+            group_id: task.groupId,
+            add_to_news: 1
           }, account.token);
         }
         
@@ -688,6 +692,8 @@ cron.schedule('* * * * *', async () => {
           contentType: task.fileType === 'video' ? 'video/mp4' : 'image/jpeg'
         });
         
+        // Upload file - VK automatically saves the story after upload!
+        // No need to call stories.save separately
         const uploadResp = await fetch(uploadServer.upload_url, {
           method: 'POST',
           body: form,
@@ -695,22 +701,26 @@ cron.schedule('* * * * *', async () => {
         });
         const uploadResult = await uploadResp.json();
         
-        // Save story with add_to_news parameter
-        const saveResult = await vkApi('stories.save', { 
-          ...uploadResult,
-          add_to_news: 1
-        }, account.token);
+        console.log(`[CRON] Story upload result:`, JSON.stringify(uploadResult));
+        
+        // Check if upload was successful
+        if (uploadResult.error) {
+          throw new Error(uploadResult.error.error_msg || 'Upload failed');
+        }
+        
+        // The response contains the story info directly
+        const storyId = uploadResult.response?.items?.[0]?.id || uploadResult.id || 'unknown';
         
         if (useMongoDB) {
           await ScheduledStory.updateOne({ id: task.id }, {
             status: 'completed',
             result: 'Story published',
             completedAt: now,
-            storyId: saveResult?.id
+            storyId: storyId
           });
           await TaskHistory.create({
             type: 'story', taskId: task.id, groupId: task.groupId,
-            storyId: saveResult?.id, success: true, timestamp: now
+            storyId: storyId, success: true, timestamp: now
           });
         } else {
           task.status = 'completed';
@@ -718,7 +728,7 @@ cron.schedule('* * * * *', async () => {
           task.completedAt = now;
           memoryData.taskHistory.push({
             type: 'story', taskId: task.id, groupId: task.groupId,
-            storyId: saveResult?.id, success: true, timestamp: now
+            storyId: storyId, success: true, timestamp: now
           });
         }
         
