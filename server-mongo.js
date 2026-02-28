@@ -493,21 +493,26 @@ app.post('/api/test-story-upload', async (req, res) => {
       return res.json({ ok: false, log, error: 'Upload error', detail: uploadResult.error });
     }
 
-    if (!uploadResult.upload_result) {
+    // ИСПРАВЛЕНИЕ: VK оборачивает upload_result в response
+    const actualUploadResult = uploadResult.upload_result 
+      || uploadResult.response?.upload_result;
+
+    if (!actualUploadResult) {
       return res.json({ 
         ok: false, log, 
         error: 'No upload_result field',
         uploadResultKeys: Object.keys(uploadResult),
+        responseKeys: uploadResult.response ? Object.keys(uploadResult.response) : 'no response',
         uploadResult: uploadResult
       });
     }
 
-    log.push(`Step 3 OK: upload_result length = ${uploadResult.upload_result.length}`);
+    log.push(`Step 3 OK: upload_result length = ${actualUploadResult.length}`);
 
     // ШАГ 4: Сохраняем историю
     log.push('Step 4: Calling stories.save (POST)...');
     const saveResult = await vkApiPost('stories.save', {
-      upload_results: uploadResult.upload_result
+      upload_results: actualUploadResult
     }, account.token);
     log.push(`Step 4 result: ${JSON.stringify(saveResult).substring(0, 300)}`);
 
@@ -648,7 +653,7 @@ async function getFirstAccount() {
 }
 
 // ==================== ГЛАВНАЯ ФУНКЦИЯ ПУБЛИКАЦИИ ИСТОРИИ ====================
-// ИСПРАВЛЕНО: правильная последовательность вызовов VK API
+// ИСПРАВЛЕНО: VK возвращает upload_result внутри response!
 
 async function publishStory(task, account) {
   const isVideo = task.fileType === 'video';
@@ -656,7 +661,6 @@ async function publishStory(task, account) {
   console.log(`[STORY] Starting publish for group ${task.groupId}, type: ${task.fileType}`);
 
   // ШАГ 1: Получаем upload URL
-  // add_to_news=1 обязателен, иначе история не появится в ленте группы
   const uploadServerMethod = isVideo
     ? 'stories.getVideoUploadServer'
     : 'stories.getPhotoUploadServer';
@@ -666,44 +670,37 @@ async function publishStory(task, account) {
     add_to_news: 1
   }, account.token);
 
-  console.log(`[STORY] Got upload server, url exists: ${!!uploadServer?.upload_url}`);
+  console.log(`[STORY] Got upload server: ${!!uploadServer?.upload_url}`);
 
-  if (!uploadServer || !uploadServer.upload_url) {
-    throw new Error(`No upload_url in response: ${JSON.stringify(uploadServer)}`);
+  if (!uploadServer?.upload_url) {
+    throw new Error(`No upload_url: ${JSON.stringify(uploadServer)}`);
   }
 
-  // ШАГ 2: Декодируем base64 → Buffer
+  // ШАГ 2: Декодируем base64
   let base64Data = task.fileData;
   if (base64Data.includes(',')) {
-    // Убираем "data:image/jpeg;base64," префикс
     base64Data = base64Data.split(',')[1];
   }
   const fileBuffer = Buffer.from(base64Data, 'base64');
-
   console.log(`[STORY] File buffer: ${fileBuffer.length} bytes`);
 
   if (fileBuffer.length < 1000) {
-    throw new Error(`File too small (${fileBuffer.length} bytes) — вероятно повреждён base64`);
+    throw new Error(`File too small: ${fileBuffer.length} bytes`);
   }
 
-  // ШАГ 3: Загружаем файл на сервер VK
-  // ИСПРАВЛЕНИЕ #2: для фото поле называется "photo", для видео "video_file"
+  // ШАГ 3: Загружаем файл
   const form = new FormData();
-
   if (isVideo) {
     form.append('video_file', fileBuffer, {
       filename: 'story.mp4',
       contentType: 'video/mp4'
     });
   } else {
-    // ВАЖНО: VK Stories upload server ожидает именно поле "photo"
     form.append('photo', fileBuffer, {
       filename: 'story.jpg',
       contentType: 'image/jpeg'
     });
   }
-
-  console.log(`[STORY] Uploading file to VK...`);
 
   const uploadResp = await fetch(uploadServer.upload_url, {
     method: 'POST',
@@ -712,16 +709,16 @@ async function publishStory(task, account) {
   });
 
   const uploadResultText = await uploadResp.text();
-  console.log(`[STORY] Upload raw response (first 500 chars): ${uploadResultText.substring(0, 500)}`);
+  console.log(`[STORY] Upload response: ${uploadResultText.substring(0, 300)}`);
 
   let uploadResult;
   try {
     uploadResult = JSON.parse(uploadResultText);
   } catch (e) {
-    throw new Error(`VK upload вернул не JSON: ${uploadResultText.substring(0, 200)}`);
+    throw new Error(`Not JSON: ${uploadResultText.substring(0, 200)}`);
   }
 
-  // Проверяем ошибку загрузки
+  // Проверяем ошибку
   if (uploadResult.error) {
     const errMsg = typeof uploadResult.error === 'object'
       ? (uploadResult.error.error_msg || JSON.stringify(uploadResult.error))
@@ -729,38 +726,45 @@ async function publishStory(task, account) {
     throw new Error(`Upload error: ${errMsg}`);
   }
 
-  // ШАГ 4: Вызываем stories.save
-  // ИСПРАВЛЕНИЕ #1: используем POST-запрос, т.к. upload_result может быть очень длинным
-  // ИСПРАВЛЕНИЕ #3: параметр называется upload_results (множественное число!)
+  // ======================================================
+  // ИСПРАВЛЕНИЕ: VK возвращает upload_result внутри response
+  // Проверяем оба варианта:
+  // 1. uploadResult.upload_result  (старый формат)
+  // 2. uploadResult.response.upload_result  (новый формат go_upload)
+  // ======================================================
+  const actualUploadResult = uploadResult.upload_result
+    || uploadResult.response?.upload_result;
 
-  if (!uploadResult.upload_result) {
-    // Иногда VK возвращает уже готовый ответ с items
+  console.log(`[STORY] upload_result found: ${!!actualUploadResult}`);
+
+  if (!actualUploadResult) {
+    // Проверяем автосохранение
     if (uploadResult.response?.items?.length > 0) {
       const storyId = uploadResult.response.items[0].id;
       console.log(`[STORY] Auto-published, storyId: ${storyId}`);
       return String(storyId);
     }
-    // Логируем что именно пришло
-    console.log(`[STORY] Upload result keys: ${Object.keys(uploadResult).join(', ')}`);
-    throw new Error(`Нет upload_result в ответе. Ключи: ${Object.keys(uploadResult).join(', ')}. Ответ: ${uploadResultText.substring(0, 300)}`);
+    throw new Error(
+      `Нет upload_result. Ключи: ${Object.keys(uploadResult).join(', ')}. ` +
+      `Response ключи: ${Object.keys(uploadResult.response || {}).join(', ')}`
+    );
   }
 
-  console.log(`[STORY] Calling stories.save (via POST)...`);
+  // ШАГ 4: Вызываем stories.save через POST
+  console.log(`[STORY] Calling stories.save...`);
 
-  // ИСПРАВЛЕНИЕ #1: используем vkApiPost вместо vkApi
   const saveResult = await vkApiPost('stories.save', {
-    upload_results: uploadResult.upload_result  // upload_results — множественное число!
+    upload_results: actualUploadResult
   }, account.token);
 
   console.log(`[STORY] stories.save result: ${JSON.stringify(saveResult)}`);
 
-  // Достаём ID опубликованной истории
   const storyId = saveResult?.items?.[0]?.id
     || saveResult?.[0]?.id
     || saveResult?.id
     || 'published';
 
-  console.log(`[STORY] ✅ Published successfully, storyId: ${storyId}`);
+  console.log(`[STORY] ✅ Done, storyId: ${storyId}`);
   return String(storyId);
 }
 
