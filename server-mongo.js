@@ -692,8 +692,7 @@ cron.schedule('* * * * *', async () => {
           contentType: task.fileType === 'video' ? 'video/mp4' : 'image/jpeg'
         });
         
-        // Upload file - VK automatically saves the story after upload!
-        // No need to call stories.save separately
+        // Upload file to VK server
         const uploadResp = await fetch(uploadServer.upload_url, {
           method: 'POST',
           body: form,
@@ -708,8 +707,40 @@ cron.schedule('* * * * *', async () => {
           throw new Error(uploadResult.error.error_msg || 'Upload failed');
         }
         
-        // The response contains the story info directly
-        const storyId = uploadResult.response?.items?.[0]?.id || uploadResult.id || 'unknown';
+        // IMPORTANT: Must call stories.save after upload!
+        // The upload result contains: upload_result (base64 encoded JSON with upload_url, server, photos_list, etc)
+        let storyId = 'unknown';
+        
+        if (uploadResult.upload_result) {
+          // Parse upload_result - it's a JSON string with upload data
+          console.log(`[CRON] Calling stories.save with upload_result`);
+          
+          const saveParams = {
+            upload_results: uploadResult.upload_result
+          };
+          
+          try {
+            const saveResult = await vkApi('stories.save', saveParams, account.token);
+            console.log(`[CRON] stories.save result:`, JSON.stringify(saveResult));
+            
+            // Get story ID from save result - VK returns { items: [{ id, owner_id, ... }] }
+            if (saveResult && saveResult.items && saveResult.items.length > 0) {
+              storyId = saveResult.items[0].id;
+              console.log(`[CRON] Story saved with ID: ${storyId}`);
+            }
+          } catch (saveError) {
+            console.error(`[CRON] stories.save error:`, saveError.message);
+            throw saveError;
+          }
+        } else if (uploadResult.response?.items?.[0]?.id) {
+          // Some responses have items directly (auto-saved)
+          storyId = uploadResult.response.items[0].id;
+          console.log(`[CRON] Story auto-saved with ID: ${storyId}`);
+        } else {
+          console.log(`[CRON] Warning: Unexpected upload response format, uploadResult:`, JSON.stringify(uploadResult));
+          // Try to log all keys in the response
+          console.log(`[CRON] Upload result keys:`, Object.keys(uploadResult));
+        }
         
         if (useMongoDB) {
           await ScheduledStory.updateOne({ id: task.id }, {
