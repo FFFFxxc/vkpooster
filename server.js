@@ -2,6 +2,7 @@
  * VK Automation Server
  * Сервер для автоматизации VK Reposter Pro
  * Работает 24/7 даже когда браузер выключен
+ * Поддержка: посты, комментарии, удаления, автолайки, истории
  */
 
 const express = require('express');
@@ -10,13 +11,14 @@ const cron = require('node-cron');
 const fetch = require('node-fetch');
 const fs = require('fs');
 const path = require('path');
+const FormData = require('form-data');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Middleware
 app.use(cors());
-app.use(express.json({ limit: '50mb' }));
+app.use(express.json({ limit: '100mb' }));
 
 // VK API версия
 const VK_VERSION = '5.199';
@@ -39,6 +41,7 @@ function loadData() {
     scheduledPosts: [],
     scheduledComments: [],
     scheduledDeletions: [],
+    scheduledStories: [],
     autolikeSettings: null,
     taskHistory: []
   };
@@ -91,12 +94,13 @@ function delay(ms) {
 app.get('/', (req, res) => {
   res.json({
     status: 'online',
-    version: '1.0.0',
+    version: '2.0.0',
     uptime: Math.floor(process.uptime()),
     accounts: data.accounts.length,
     scheduledPosts: data.scheduledPosts.length,
     scheduledComments: data.scheduledComments.length,
-    scheduledDeletions: data.scheduledDeletions.length
+    scheduledDeletions: data.scheduledDeletions.length,
+    scheduledStories: data.scheduledStories.length
   });
 });
 
@@ -189,8 +193,6 @@ app.post('/api/scheduled-posts', (req, res) => {
     saveData();
     
     console.log(`[POST] Scheduled post for group ${groupId} at ${new Date(publishDate).toISOString()}`);
-    if (autoDeleteAfter) console.log(`[POST] Auto-delete after ${autoDeleteAfter}ms`);
-    if (autoCommentText) console.log(`[POST] Auto-comment: "${autoCommentText.substring(0, 30)}..."`);
     
     res.json({ ok: true, task });
   } catch (e) {
@@ -212,9 +214,57 @@ app.delete('/api/scheduled-posts/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+// ==================== ОТЛОЖЕННЫЕ ИСТОРИИ ====================
+
+// Добавить отложенную историю
+app.post('/api/scheduled-stories', (req, res) => {
+  try {
+    const { groupId, groupName, fileData, fileType, publishDate, caption } = req.body;
+    
+    if (!groupId || !fileData || !publishDate) {
+      return res.status(400).json({ ok: false, error: 'groupId, fileData and publishDate required' });
+    }
+    
+    const task = {
+      id: Date.now().toString() + '_' + Math.random().toString(36).substr(2, 9),
+      groupId,
+      groupName: groupName || '',
+      fileData,
+      fileType: fileType || 'photo', // 'photo' or 'video'
+      publishDate,
+      caption: caption || '',
+      status: 'pending',
+      createdAt: Date.now(),
+      result: null
+    };
+    
+    data.scheduledStories.push(task);
+    saveData();
+    
+    console.log(`[STORY] Scheduled story for group ${groupId} at ${new Date(publishDate).toISOString()}`);
+    
+    res.json({ ok: true, task });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// Получить все отложенные истории
+app.get('/api/scheduled-stories', (req, res) => {
+  const stories = data.scheduledStories.filter(s => s.status === 'pending');
+  res.json({ ok: true, stories });
+});
+
+// Удалить отложенную историю
+app.delete('/api/scheduled-stories/:id', (req, res) => {
+  const { id } = req.params;
+  data.scheduledStories = data.scheduledStories.filter(s => s.id !== id);
+  saveData();
+  res.json({ ok: true });
+});
+
 // ==================== ОТЛОЖЕННЫЕ КОММЕНТАРИИ ====================
 
-// Добавить отложенный комментарий
 app.post('/api/scheduled-comments', (req, res) => {
   try {
     const { ownerId, postId, commentText, commentAt, fromGroup } = req.body;
@@ -238,20 +288,18 @@ app.post('/api/scheduled-comments', (req, res) => {
     data.scheduledComments.push(task);
     saveData();
     
-    console.log(`[COMMENT] Scheduled comment for post ${ownerId}_${postId} at ${new Date(commentAt).toISOString()}`);
+    console.log(`[COMMENT] Scheduled comment for post ${ownerId}_${postId}`);
     res.json({ ok: true, task });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
   }
 });
 
-// Получить все отложенные комментарии
 app.get('/api/scheduled-comments', (req, res) => {
   const comments = data.scheduledComments.filter(c => c.status === 'pending');
   res.json({ ok: true, comments });
 });
 
-// Удалить отложенный комментарий
 app.delete('/api/scheduled-comments/:id', (req, res) => {
   const { id } = req.params;
   data.scheduledComments = data.scheduledComments.filter(c => c.id !== id);
@@ -261,7 +309,6 @@ app.delete('/api/scheduled-comments/:id', (req, res) => {
 
 // ==================== АВТОУДАЛЕНИЕ ====================
 
-// Добавить задачу на автоудаление
 app.post('/api/scheduled-deletions', (req, res) => {
   try {
     const { ownerId, postId, deleteAt } = req.body;
@@ -282,7 +329,7 @@ app.post('/api/scheduled-deletions', (req, res) => {
     data.scheduledDeletions.push(task);
     saveData();
     
-    console.log(`[DELETE] Scheduled deletion for post ${ownerId}_${postId} at ${new Date(deleteAt).toISOString()}`);
+    console.log(`[DELETE] Scheduled deletion for post ${ownerId}_${postId}`);
     res.json({ ok: true, task });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
@@ -291,7 +338,6 @@ app.post('/api/scheduled-deletions', (req, res) => {
 
 // ==================== АВТОЛАЙКИ ====================
 
-// Сохранить настройки автолайков
 app.post('/api/autolike-settings', (req, res) => {
   try {
     data.autolikeSettings = {
@@ -305,28 +351,8 @@ app.post('/api/autolike-settings', (req, res) => {
   }
 });
 
-// Получить настройки автолайков
 app.get('/api/autolike-settings', (req, res) => {
   res.json({ ok: true, settings: data.autolikeSettings });
-});
-
-// ==================== VK API PROXY ====================
-
-// Прокси для VK API запросов (для обхода CORS)
-app.post('/api/vk/:method', async (req, res) => {
-  try {
-    const { method } = req.params;
-    const { token, ...params } = req.body;
-    
-    if (!token) {
-      return res.status(400).json({ ok: false, error: 'Token required' });
-    }
-    
-    const result = await vkApi(method, params, token);
-    res.json({ ok: true, response: result });
-  } catch (e) {
-    res.status(500).json({ ok: false, error: e.message, code: e.code });
-  }
 });
 
 // ==================== ИСТОРИЯ ====================
@@ -342,6 +368,93 @@ app.get('/api/history', (req, res) => {
 cron.schedule('* * * * *', async () => {
   const now = Date.now();
   
+  // ===== Отложенные истории =====
+  const pendingStories = data.scheduledStories.filter(s => 
+    s.status === 'pending' && s.publishDate <= now
+  );
+  
+  for (const task of pendingStories) {
+    console.log(`[CRON] Processing scheduled story ${task.id}`);
+    
+    const account = data.accounts[0];
+    if (!account) {
+      task.status = 'error';
+      task.result = 'No accounts available';
+      continue;
+    }
+    
+    try {
+      // Get upload server
+      let uploadServer;
+      if (task.fileType === 'video') {
+        uploadServer = await vkApi('stories.getVideoUploadServer', {
+          group_id: task.groupId
+        }, account.token);
+      } else {
+        uploadServer = await vkApi('stories.getPhotoUploadServer', {
+          group_id: task.groupId
+        }, account.token);
+      }
+      
+      if (!uploadServer?.upload_url) {
+        throw new Error('Failed to get upload URL');
+      }
+      
+      // Upload file
+      const fileData = task.fileData.split(',')[1] || task.fileData;
+      const fileBuffer = Buffer.from(fileData, 'base64');
+      
+      const form = new FormData();
+      form.append('file', fileBuffer, {
+        filename: task.fileType === 'video' ? 'video.mp4' : 'photo.jpg',
+        contentType: task.fileType === 'video' ? 'video/mp4' : 'image/jpeg'
+      });
+      
+      const uploadResp = await fetch(uploadServer.upload_url, {
+        method: 'POST',
+        body: form,
+        headers: form.getHeaders()
+      });
+      const uploadResult = await uploadResp.json();
+      
+      // Save story
+      const saveResult = await vkApi('stories.save', {
+        ...uploadResult
+      }, account.token);
+      
+      task.status = 'completed';
+      task.result = 'Story published';
+      task.completedAt = now;
+      task.storyId = saveResult?.id;
+      
+      data.taskHistory.push({
+        type: 'story',
+        taskId: task.id,
+        groupId: task.groupId,
+        storyId: saveResult?.id,
+        success: true,
+        timestamp: now
+      });
+      
+      console.log(`[CRON] Story ${task.id} published successfully`);
+    } catch (e) {
+      task.status = 'error';
+      task.result = e.message;
+      console.error(`[CRON] Story ${task.id} error:`, e.message);
+      
+      data.taskHistory.push({
+        type: 'story',
+        taskId: task.id,
+        groupId: task.groupId,
+        success: false,
+        error: e.message,
+        timestamp: now
+      });
+    }
+    
+    await delay(1000);
+  }
+  
   // ===== Отложенные посты =====
   const pendingPosts = data.scheduledPosts.filter(p => 
     p.status === 'pending' && p.publishDate <= now
@@ -350,7 +463,7 @@ cron.schedule('* * * * *', async () => {
   for (const task of pendingPosts) {
     console.log(`[CRON] Processing scheduled post ${task.id}`);
     
-    const account = data.accounts[0]; // Используем первый аккаунт
+    const account = data.accounts[0];
     if (!account) {
       task.status = 'error';
       task.result = 'No accounts available';
@@ -360,9 +473,7 @@ cron.schedule('* * * * *', async () => {
     try {
       let publishedPostId = null;
       
-      // Если есть исходный пост - копируем его
       if (task.sourcePost) {
-        // Получаем пост
         const postData = await vkApi('wall.getById', {
           posts: `${task.sourcePost.ownerId}_${task.sourcePost.postId}`
         }, account.token);
@@ -370,29 +481,23 @@ cron.schedule('* * * * *', async () => {
         const post = postData.items?.[0];
         if (!post) throw new Error('Source post not found');
         
-        // Копируем вложения (перезагружаем фото!)
         let attachments = [];
         if (post.attachments) {
           for (const att of post.attachments) {
             const type = att.type;
             const obj = att[type];
             if (type === 'photo') {
-              // Перезагружаем фото, чтобы убрать привязку к исходному сообществу
               try {
                 const sizes = obj.sizes || [];
                 const best = sizes[sizes.length - 1];
                 if (best && best.url) {
-                  // Скачиваем фото
                   const imgResp = await fetch(best.url);
                   const imgBuffer = await imgResp.buffer();
                   
-                  // Получаем сервер для загрузки
                   const uploadServer = await vkApi('photos.getWallUploadServer', {
                     group_id: task.groupId
                   }, account.token);
                   
-                  // Загружаем фото на сервер VK
-                  const FormData = require('form-data');
                   const form = new FormData();
                   form.append('photo', imgBuffer, { filename: 'photo.jpg', contentType: 'image/jpeg' });
                   
@@ -403,7 +508,6 @@ cron.schedule('* * * * *', async () => {
                   });
                   const uploadResult = await uploadResp.json();
                   
-                  // Сохраняем фото
                   if (uploadResult && uploadResult.photo && uploadResult.server !== undefined && uploadResult.hash) {
                     const saved = await vkApi('photos.saveWallPhoto', {
                       group_id: task.groupId,
@@ -414,15 +518,12 @@ cron.schedule('* * * * *', async () => {
                     
                     if (saved && saved[0]) {
                       attachments.push(`photo${saved[0].owner_id}_${saved[0].id}`);
-                      console.log(`[CRON] Photo re-uploaded: photo${saved[0].owner_id}_${saved[0].id}`);
                     }
                   }
                   await delay(400);
                 }
               } catch (photoErr) {
                 console.error(`[CRON] Photo re-upload error:`, photoErr.message);
-                // Если не получилось перезагрузить - используем оригинал
-                attachments.push(`photo${obj.owner_id}_${obj.id}`);
               }
             } else if (type === 'video') {
               const ak = obj.access_key ? `_${obj.access_key}` : '';
@@ -433,7 +534,6 @@ cron.schedule('* * * * *', async () => {
           }
         }
         
-        // Публикуем
         const result = await vkApi('wall.post', {
           owner_id: `-${task.groupId}`,
           from_group: 1,
@@ -442,7 +542,6 @@ cron.schedule('* * * * *', async () => {
         }, account.token);
         publishedPostId = result.post_id;
       } else {
-        // Обычный пост
         const result = await vkApi('wall.post', {
           owner_id: `-${task.groupId}`,
           from_group: 1,
@@ -457,23 +556,20 @@ cron.schedule('* * * * *', async () => {
       task.completedAt = now;
       task.publishedPostId = publishedPostId;
       
-      // Создаём задачу на автокомментарий
       if (task.autoCommentText && publishedPostId) {
         const commentTask = {
           id: Date.now().toString() + '_comment',
           ownerId: `-${task.groupId}`,
           postId: publishedPostId,
           commentText: task.autoCommentText,
-          commentAt: now + 5000, // Через 5 секунд после публикации
+          commentAt: now + 5000,
           fromGroup: true,
           status: 'pending',
           createdAt: now
         };
         data.scheduledComments.push(commentTask);
-        console.log(`[CRON] Auto-comment scheduled for post ${publishedPostId}`);
       }
       
-      // Создаём задачу на автоудаление
       if (task.autoDeleteAfter && publishedPostId) {
         const deleteTask = {
           id: Date.now().toString() + '_delete',
@@ -484,10 +580,8 @@ cron.schedule('* * * * *', async () => {
           createdAt: now
         };
         data.scheduledDeletions.push(deleteTask);
-        console.log(`[CRON] Auto-delete scheduled for post ${publishedPostId} at ${new Date(deleteTask.deleteAt).toISOString()}`);
       }
       
-      // Добавляем в историю
       data.taskHistory.push({
         type: 'post',
         taskId: task.id,
@@ -497,11 +591,10 @@ cron.schedule('* * * * *', async () => {
         timestamp: now
       });
       
-      console.log(`[CRON] Post ${task.id} completed, postId: ${publishedPostId}`);
+      console.log(`[CRON] Post ${task.id} completed`);
     } catch (e) {
       task.status = 'error';
       task.result = e.message;
-      console.error(`[CRON] Post ${task.id} error:`, e.message);
       
       data.taskHistory.push({
         type: 'post',
@@ -522,8 +615,6 @@ cron.schedule('* * * * *', async () => {
   );
   
   for (const task of pendingComments) {
-    console.log(`[CRON] Processing scheduled comment ${task.id}`);
-    
     const account = data.accounts[0];
     if (!account) {
       task.status = 'error';
@@ -540,37 +631,17 @@ cron.schedule('* * * * *', async () => {
       }, account.token);
       
       task.status = 'completed';
-      task.result = 'Comment posted';
       task.completedAt = now;
-      
-      data.taskHistory.push({
-        type: 'comment',
-        taskId: task.id,
-        postId: `${task.ownerId}_${task.postId}`,
-        success: true,
-        timestamp: now
-      });
       
       console.log(`[CRON] Comment ${task.id} completed`);
     } catch (e) {
-      // Повторяем до 3 раз
       if (task.retries < 3) {
         task.retries++;
-        task.commentAt = now + 60000; // Через минуту
-        console.log(`[CRON] Comment ${task.id} retry ${task.retries}`);
+        task.commentAt = now + 60000;
       } else {
         task.status = 'error';
         task.result = e.message;
-        console.error(`[CRON] Comment ${task.id} error:`, e.message);
       }
-      
-      data.taskHistory.push({
-        type: 'comment',
-        taskId: task.id,
-        success: false,
-        error: e.message,
-        timestamp: now
-      });
     }
     
     await delay(1000);
@@ -582,8 +653,6 @@ cron.schedule('* * * * *', async () => {
   );
   
   for (const task of pendingDeletions) {
-    console.log(`[CRON] Processing scheduled deletion ${task.id}`);
-    
     const account = data.accounts[0];
     if (!account) {
       task.status = 'error';
@@ -598,22 +667,12 @@ cron.schedule('* * * * *', async () => {
       }, account.token);
       
       task.status = 'completed';
-      task.result = 'Post deleted';
       task.completedAt = now;
-      
-      data.taskHistory.push({
-        type: 'deletion',
-        taskId: task.id,
-        postId: `${task.ownerId}_${task.postId}`,
-        success: true,
-        timestamp: now
-      });
       
       console.log(`[CRON] Deletion ${task.id} completed`);
     } catch (e) {
       task.status = 'error';
       task.result = e.message;
-      console.error(`[CRON] Deletion ${task.id} error:`, e.message);
     }
     
     await delay(500);
@@ -623,12 +682,11 @@ cron.schedule('* * * * *', async () => {
   if (data.autolikeSettings?.enabled && data.accounts.length > 0 && data.autolikeSettings.groups?.length > 0) {
     const settings = data.autolikeSettings;
     
-    // Проверяем интервал - запускаем только когда прошло достаточно времени
     const intervalMs = (settings.intervalMinutes || 10) * 60 * 1000;
     if (settings.lastCheck && (now - settings.lastCheck) < intervalMs) {
-      // Ещё не время для проверки - пропускаем
+      // Skip
     } else {
-      console.log(`[AUTOLIKE] Starting autolike check (interval: ${settings.intervalMinutes}min)`);
+      console.log(`[AUTOLIKE] Starting autolike check`);
       const processedSet = new Set(settings.processedPosts || []);
       const newProcessed = [];
       let likesAdded = 0;
@@ -672,7 +730,6 @@ cron.schedule('* * * * *', async () => {
         }
       }
       
-      // Обновляем настройки
       settings.processedPosts = [...(settings.processedPosts || []), ...newProcessed].slice(-500);
       settings.lastCheck = now;
       
@@ -686,24 +743,19 @@ cron.schedule('* * * * *', async () => {
       };
       
       if (likesAdded > 0) {
-        console.log(`[AUTOLIKE] Added ${likesAdded} likes (total: ${settings.stats.total}, today: ${settings.stats.today})`);
-      }
-      if (isNewDay) {
-        console.log(`[AUTOLIKE] New day started, reset today counter`);
+        console.log(`[AUTOLIKE] Added ${likesAdded} likes`);
       }
     }
   }
   
-  // Сохраняем изменения
   saveData();
   
-  // Очищаем старую историю (оставляем последние 1000 записей)
   if (data.taskHistory.length > 1000) {
     data.taskHistory = data.taskHistory.slice(-1000);
   }
 });
 
-// Очистка выполненных задач (каждый час)
+// Очистка выполненных задач
 cron.schedule('0 * * * *', () => {
   const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
   
@@ -719,6 +771,10 @@ cron.schedule('0 * * * *', () => {
     d.status === 'pending' || d.completedAt > oneDayAgo
   );
   
+  data.scheduledStories = data.scheduledStories.filter(s => 
+    s.status === 'pending' || s.completedAt > oneDayAgo
+  );
+  
   saveData();
   console.log('[CRON] Cleaned up old tasks');
 });
@@ -730,10 +786,9 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`📊 Status: http://localhost:${PORT}`);
   console.log(`🔑 Accounts: ${data.accounts.length}`);
   console.log(`📋 Scheduled posts: ${data.scheduledPosts.filter(p => p.status === 'pending').length}`);
-  console.log(`💬 Scheduled comments: ${data.scheduledComments.filter(c => c.status === 'pending').length}`);
+  console.log(`📸 Scheduled stories: ${data.scheduledStories.filter(s => s.status === 'pending').length}`);
 });
 
-// Сохраняем данные при завершении
 process.on('SIGINT', () => {
   saveData();
   console.log('Data saved. Exiting...');
