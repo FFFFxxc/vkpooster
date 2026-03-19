@@ -541,19 +541,18 @@ cron.schedule('* * * * *', async () => {
           saveParams.link_url = task.linkUrl;
           saveParams.link_text = task.linkText || 'go_to';
           
-          // ОПЦИОНАЛЬНО: Данные рекламодателя (раскомментируй если API требует)
-          // Обычно не требуется, но некоторые аккаунты могут требовать
-          /*
+          // === ОБЯЗАТЕЛЬНЫЙ ПАРАМЕТР ads_items (Данные ОРД) ===
+          // VK требует эти данные для рекламных историй. Без этого is_ads будет false.
           saveParams.ads_items = JSON.stringify({
-            "type": "physical",
-            "fio": "Иванов Иван Иванович",
-            "inn": "1234567890",
-            "stories_summ": "0",
-            "person": ["advertiser"]
+            "type": "physical", // Тип: physical (физлицо), ip (ИП), legal (юрлицо)
+            "fio": "Мищенко Никита Андреевич",
+            "inn": "503127946895",
+            "stories_summ": "0", // Сумма (можно 0)
+            "person": ["advertiser"],
+            "foreign": "false"
           });
-          */
           
-          console.log(`[STORY] Adding AD story with link: ${saveParams.link_url} (${saveParams.link_text})`);
+          console.log(`[STORY] Adding AD story with link and ads_items: ${saveParams.link_url} (${saveParams.link_text})`);
           
           // ЗАПАСНОЙ ВАРИАНТ: Также добавляем ссылку в описание
           // Если кнопка не сработает, хотя бы ссылка будет в тексте
