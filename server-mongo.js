@@ -1,6 +1,7 @@
 /**
- * VK Automation Server - MongoDB Version
+ * VK Automation Server v3.0 - MongoDB Version
  * ИСПРАВЛЕНО: публикация историй ВК
+ * v3.0 - Добавлена поддержка рекламных историй с кнопками-ссылками
  */
 
 const express = require('express');
@@ -12,6 +13,9 @@ const mongoose = require('mongoose');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+console.log('=== VK AUTOMATION SERVER v3.0 (MongoDB) ===');
+console.log('=== AD STORIES WITH LINK BUTTONS ENABLED ===');
 
 app.use(cors());
 app.use(express.json({ limit: '100mb' }));
@@ -58,6 +62,8 @@ const scheduledStorySchema = new mongoose.Schema({
   fileType: { type: String, default: 'photo' },
   publishDate: { type: Number, required: true },
   caption: String,
+  linkUrl: { type: String, default: null },
+  linkText: { type: String, default: 'go_to' },
   status: { type: String, default: 'pending' },
   createdAt: { type: Date, default: Date.now },
   completedAt: Date,
@@ -357,7 +363,21 @@ app.delete('/api/scheduled-posts/:id', async (req, res) => {
 
 app.post('/api/scheduled-stories', async (req, res) => {
   try {
-    const { groupId, groupName, fileData, fileType, publishDate, caption } = req.body;
+    const { groupId, groupName, fileData, fileType, publishDate, caption, linkUrl, linkText } = req.body;
+    
+    // ДОБАВЛЕНО: Логирование запроса
+    console.log('[API] Received scheduled story request:', {
+      groupId,
+      groupName,
+      fileType,
+      publishDate,
+      hasFileData: !!fileData,
+      fileDataLength: fileData?.length,
+      caption,
+      linkUrl,
+      linkText
+    });
+    
     if (!groupId || !fileData || !publishDate) {
       return res.status(400).json({ ok: false, error: 'groupId, fileData and publishDate required' });
     }
@@ -366,11 +386,13 @@ app.post('/api/scheduled-stories', async (req, res) => {
       groupId, groupName: groupName || '',
       fileData, fileType: fileType || 'photo',
       publishDate, caption: caption || '',
+      linkUrl: linkUrl || null,
+      linkText: linkText || 'go_to',
       status: 'pending', createdAt: Date.now()
     };
     if (useMongoDB) await ScheduledStory.create(task);
     else memoryData.scheduledStories.push(task);
-    console.log(`[STORY] Scheduled for group ${groupId} at ${new Date(publishDate).toISOString()}`);
+    console.log(`[STORY] Scheduled for group ${groupId} at ${new Date(publishDate).toISOString()}${linkUrl ? ' with link: ' + linkUrl : ''}`);
     res.json({ ok: true, task });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
@@ -659,8 +681,15 @@ async function publishStory(task, account) {
   const isVideo = task.fileType === 'video';
 
   console.log(`[STORY] Starting publish for group ${task.groupId}, type: ${task.fileType}`);
+  console.log(`[STORY] Task data:`, {
+    groupId: task.groupId,
+    fileType: task.fileType,
+    hasLinkUrl: !!task.linkUrl,
+    linkUrl: task.linkUrl,
+    linkText: task.linkText
+  });
 
-  // ШАГ 1: Получаем upload URL
+  // ШАГ 1: Получаем upload URL (БЕЗ параметров ссылки!)
   const uploadServerMethod = isVideo
     ? 'stories.getVideoUploadServer'
     : 'stories.getPhotoUploadServer';
@@ -726,12 +755,7 @@ async function publishStory(task, account) {
     throw new Error(`Upload error: ${errMsg}`);
   }
 
-  // ======================================================
-  // ИСПРАВЛЕНИЕ: VK возвращает upload_result внутри response
-  // Проверяем оба варианта:
-  // 1. uploadResult.upload_result  (старый формат)
-  // 2. uploadResult.response.upload_result  (новый формат go_upload)
-  // ======================================================
+  // Получаем upload_result
   const actualUploadResult = uploadResult.upload_result
     || uploadResult.response?.upload_result;
 
@@ -750,12 +774,71 @@ async function publishStory(task, account) {
     );
   }
 
-  // ШАГ 4: Вызываем stories.save через POST
+  // ШАГ 4: Подготавливаем параметры для stories.save
   console.log(`[STORY] Calling stories.save...`);
-
-  const saveResult = await vkApiPost('stories.save', {
+  
+  const saveParams = {
     upload_results: actualUploadResult
-  }, account.token);
+  };
+  
+  // ДОБАВЛЯЕМ ССЫЛКУ С МАРКИРОВКОЙ КАК РЕКЛАМА
+  if (task.linkUrl) {
+    try {
+      // Валидация URL
+      new URL(task.linkUrl);
+      
+      // Маркируем как рекламу и добавляем кнопку
+      saveParams.mark_as_ads = 1;
+      saveParams.link_url = task.linkUrl;
+      saveParams.link_text = task.linkText || 'go_to';
+      
+      console.log(`[STORY] Adding AD story with link: ${saveParams.link_url} (${saveParams.link_text})`);
+      
+      // ЗАПАСНОЙ ВАРИАНТ: Также добавляем ссылку в описание
+      const buttonTextRu = {
+        'go_to': 'Перейти',
+        'open': 'Открыть',
+        'more': 'Ещё',
+        'buy': 'Купить',
+        'book': 'Забронировать',
+        'order': 'Заказать',
+        'enroll': 'Записаться',
+        'signup': 'Зарегистрироваться',
+        'fill': 'Заполнить',
+        'ticket': 'Купить билет',
+        'write': 'Написать',
+        'learn_more': 'Подробнее',
+        'view': 'Посмотреть',
+        'contact': 'Связаться',
+        'watch': 'Смотреть',
+        'install': 'Установить',
+        'read': 'Читать',
+        'game': 'Играть',
+        'to_store': 'В магазин'
+      };
+      
+      const buttonText = buttonTextRu[task.linkText] || 'Перейти';
+      let caption = task.caption || '';
+      
+      if (caption) {
+        caption += `\n\n🔗 ${buttonText}: ${task.linkUrl}`;
+      } else {
+        caption = `🔗 ${buttonText}: ${task.linkUrl}`;
+      }
+      
+      saveParams.caption = caption;
+      
+      console.log(`[STORY] Also added link to caption as fallback`);
+    } catch (e) {
+      console.error('[STORY] Invalid URL, skipping link:', task.linkUrl);
+    }
+  } else if (task.caption) {
+    saveParams.caption = task.caption;
+  }
+  
+  console.log('[STORY] Calling stories.save with params:', Object.keys(saveParams));
+
+  const saveResult = await vkApiPost('stories.save', saveParams, account.token);
 
   console.log(`[STORY] stories.save result: ${JSON.stringify(saveResult)}`);
 
