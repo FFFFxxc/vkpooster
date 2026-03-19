@@ -1,8 +1,10 @@
 /**
- * VK Automation Server
+ * VK Automation Server v2.0
  * Сервер для автоматизации VK Reposter Pro
  * Работает 24/7 даже когда браузер выключен
  * Поддержка: посты, комментарии, удаления, автолайки, истории
+ * 
+ * v2.0 - Добавлена поддержка рекламных историй с кнопками-ссылками
  */
 
 const express = require('express');
@@ -15,6 +17,9 @@ const FormData = require('form-data');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+console.log('=== VK AUTOMATION SERVER v2.0 ===');
+console.log('=== AD STORIES WITH LINK BUTTONS ENABLED ===');
 
 // Middleware
 app.use(cors());
@@ -531,25 +536,69 @@ cron.schedule('* * * * *', async () => {
           // Валидация URL
           new URL(task.linkUrl);
           
-          // КЛЮЧЕВОЙ МОМЕНТ: Маркируем как рекламу!
+          // ПОПЫТКА 1: Маркируем как рекламу и добавляем кнопку
           saveParams.mark_as_ads = 1;
-          
-          // Добавляем ссылку
           saveParams.link_url = task.linkUrl;
           saveParams.link_text = task.linkText || 'go_to';
           
+          // ОПЦИОНАЛЬНО: Данные рекламодателя (раскомментируй если API требует)
+          // Обычно не требуется, но некоторые аккаунты могут требовать
+          /*
+          saveParams.ads_items = JSON.stringify({
+            "type": "physical",
+            "fio": "Иванов Иван Иванович",
+            "inn": "1234567890",
+            "stories_summ": "0",
+            "person": ["advertiser"]
+          });
+          */
+          
           console.log(`[STORY] Adding AD story with link: ${saveParams.link_url} (${saveParams.link_text})`);
+          
+          // ЗАПАСНОЙ ВАРИАНТ: Также добавляем ссылку в описание
+          // Если кнопка не сработает, хотя бы ссылка будет в тексте
+          const buttonTextRu = {
+            'go_to': 'Перейти',
+            'open': 'Открыть',
+            'more': 'Ещё',
+            'buy': 'Купить',
+            'book': 'Забронировать',
+            'order': 'Заказать',
+            'enroll': 'Записаться',
+            'signup': 'Зарегистрироваться',
+            'fill': 'Заполнить',
+            'ticket': 'Купить билет',
+            'write': 'Написать',
+            'learn_more': 'Подробнее',
+            'view': 'Посмотреть',
+            'contact': 'Связаться',
+            'watch': 'Смотреть',
+            'install': 'Установить',
+            'read': 'Читать',
+            'game': 'Играть',
+            'to_store': 'В магазин'
+          };
+          
+          const buttonText = buttonTextRu[task.linkText] || 'Перейти';
+          let caption = task.caption || '';
+          
+          if (caption) {
+            caption += `\n\n🔗 ${buttonText}: ${task.linkUrl}`;
+          } else {
+            caption = `🔗 ${buttonText}: ${task.linkUrl}`;
+          }
+          
+          saveParams.caption = caption;
+          
+          console.log(`[STORY] Also added link to caption as fallback`);
         } catch (e) {
           console.error('[STORY] Invalid URL, skipping link:', task.linkUrl);
         }
-      }
-      
-      // Добавляем описание если есть
-      if (task.caption) {
+      } else if (task.caption) {
         saveParams.caption = task.caption;
       }
       
-      console.log('[STORY] Calling stories.save...');
+      console.log('[STORY] Calling stories.save with params:', Object.keys(saveParams));
       const saveResult = await vkApi('stories.save', saveParams, account.token);
       
       console.log('[STORY] stories.save result:', JSON.stringify(saveResult, null, 2));
@@ -557,19 +606,19 @@ cron.schedule('* * * * *', async () => {
       task.status = 'completed';
       task.result = 'Story published';
       task.completedAt = now;
-      task.storyId = saveResult?.id;
+      task.storyId = saveResult?.items?.[0]?.id;
       
       data.taskHistory.push({
         type: 'story',
         taskId: task.id,
         groupId: task.groupId,
-        storyId: saveResult?.id,
+        storyId: saveResult?.items?.[0]?.id,
         success: true,
         hasLink: !!task.linkUrl,
         timestamp: now
       });
       
-      console.log(`[STORY] ✅ Done, storyId: ${saveResult?.id}`);
+      console.log(`[STORY] ✅ Done, storyId: ${saveResult?.items?.[0]?.id}`);
       console.log(`[CRON] ✅ Story ${task.id} published`);
     } catch (e) {
       task.status = 'error';
