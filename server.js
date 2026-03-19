@@ -71,16 +71,79 @@ async function vkApi(method, params, token) {
     }
   }
   
-  const response = await fetch(url.toString());
-  const result = await response.json();
-  
-  if (result.error) {
-    const error = new Error(result.error.error_msg);
-    error.code = result.error.error_code;
+  try {
+    const response = await fetch(url.toString());
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    const result = await response.json();
+    
+    if (result.error) {
+      const error = new Error(result.error.error_msg);
+      error.code = result.error.error_code;
+      error.vkError = result.error;
+      throw error;
+    }
+    
+    return result.response;
+  } catch (error) {
+    console.error(`[VKR Server] API error in ${method}:`, error);
     throw error;
   }
+}
+
+// ========== Account Status Management ==========
+const AccountStatus = {
+  ACTIVE: 'active',
+  FROZEN: 'frozen',
+  BANNED: 'banned',
+  TOKEN_INVALID: 'token_invalid',
+  ACCESS_DENIED: 'access_denied',
+  ERROR: 'error'
+};
+
+const VK_ERROR_CODES = {
+  5: { status: AccountStatus.TOKEN_INVALID, message: 'Токен недействителен' },
+  15: { status: AccountStatus.ACCESS_DENIED, message: 'Доступ запрещён' },
+  18: { status: AccountStatus.BANNED, message: 'Страница удалена или заблокирована' },
+  37: { status: AccountStatus.BANNED, message: 'Аккаунт заблокирован' },
+  113: { status: AccountStatus.TOKEN_INVALID, message: 'Неверный идентификатор пользователя' }
+};
+
+function analyzeVkError(error) {
+  const errorCode = error?.code;
+  const errorMsg = error?.message || '';
   
-  return result.response;
+  if (VK_ERROR_CODES[errorCode]) {
+    return {
+      status: VK_ERROR_CODES[errorCode].status,
+      message: VK_ERROR_CODES[errorCode].message,
+      code: errorCode
+    };
+  }
+  
+  const lowerMsg = errorMsg.toLowerCase();
+  if (lowerMsg.includes('deleted') || lowerMsg.includes('banned') || lowerMsg.includes('deactivated')) {
+    return {
+      status: AccountStatus.BANNED,
+      message: 'Аккаунт удалён или заблокирован',
+      code: errorCode
+    };
+  }
+  
+  if (lowerMsg.includes('invalid') || lowerMsg.includes('token')) {
+    return {
+      status: AccountStatus.TOKEN_INVALID,
+      message: 'Токен недействителен',
+      code: errorCode
+    };
+  }
+  
+  return {
+    status: AccountStatus.ERROR,
+    message: errorMsg || 'Неизвестная ошибка',
+    code: errorCode
+  };
 }
 
 // Задержка
@@ -231,7 +294,7 @@ app.delete('/api/scheduled-posts/:id', (req, res) => {
 // Добавить отложенную историю
 app.post('/api/scheduled-stories', (req, res) => {
   try {
-    const { groupId, groupName, fileData, fileType, publishDate, caption } = req.body;
+    const { groupId, groupName, fileData, fileType, publishDate, caption, linkUrl, linkText } = req.body;
     
     if (!groupId || !fileData || !publishDate) {
       return res.status(400).json({ ok: false, error: 'groupId, fileData and publishDate required' });
@@ -245,6 +308,8 @@ app.post('/api/scheduled-stories', (req, res) => {
       fileType: fileType || 'photo', // 'photo' or 'video'
       publishDate,
       caption: caption || '',
+      linkUrl: linkUrl || null,
+      linkText: linkText || 'open',
       status: 'pending',
       createdAt: Date.now(),
       result: null
@@ -253,7 +318,7 @@ app.post('/api/scheduled-stories', (req, res) => {
     data.scheduledStories.push(task);
     saveData();
     
-    console.log(`[STORY] Scheduled story for group ${groupId} at ${new Date(publishDate).toISOString()}`);
+    console.log(`[STORY] Scheduled story for group ${groupId} at ${new Date(publishDate).toISOString()}${linkUrl ? ' with link: ' + linkUrl : ''}`);
     
     res.json({ ok: true, task });
   } catch (e) {
@@ -430,9 +495,17 @@ cron.schedule('* * * * *', async () => {
       const uploadResult = await uploadResp.json();
       
       // Save story
-      const saveResult = await vkApi('stories.save', {
+      const saveParams = {
         ...uploadResult
-      }, account.token);
+      };
+      
+      // Add link parameters if provided
+      if (task.linkUrl) {
+        saveParams.link_url = task.linkUrl;
+        saveParams.link_text = task.linkText || 'open';
+      }
+      
+      const saveResult = await vkApi('stories.save', saveParams, account.token);
       
       task.status = 'completed';
       task.result = 'Story published';
@@ -703,42 +776,63 @@ cron.schedule('* * * * *', async () => {
       const newProcessed = [];
       let likesAdded = 0;
       
-      for (const groupId of (settings.groups || [])) {
-        try {
-          const result = await vkApi('wall.get', {
-            owner_id: `-${groupId}`,
-            count: 10,
-            filter: settings.onlyFromGroup ? 'owner' : 'all'
-          }, data.accounts[0].token);
-          
-          for (const post of (result.items || [])) {
-            const postKey = `wall${post.owner_id}_${post.id}`;
+      // Фильтруем только активные аккаунты
+      const activeAccounts = data.accounts.filter(acc => 
+        !acc.status || acc.status === AccountStatus.ACTIVE
+      );
+      
+      if (activeAccounts.length === 0) {
+        console.log(`[AUTOLIKE] No active accounts available`);
+      } else {
+        for (const groupId of (settings.groups || [])) {
+          try {
+            const result = await vkApi('wall.get', {
+              owner_id: `-${groupId}`,
+              count: 10,
+              filter: settings.onlyFromGroup ? 'owner' : 'all'
+            }, activeAccounts[0].token);
             
-            if (processedSet.has(postKey) || post.marked_as_ads || post.is_pinned === 1) continue;
-            if (post.date < (now / 1000) - (14 * 24 * 60 * 60)) continue;
-            
-            for (const acc of data.accounts) {
-              try {
-                await vkApi('likes.add', {
-                  type: 'post',
-                  owner_id: post.owner_id,
-                  item_id: post.id
-                }, acc.token);
-                
-                likesAdded++;
-                await delay(Math.random() * 1500 + 1500);
-              } catch (e) {
-                if (!e.message.includes('Already liked')) {
-                  console.log(`[AUTOLIKE] Error: ${e.message}`);
+            for (const post of (result.items || [])) {
+              const postKey = `wall${post.owner_id}_${post.id}`;
+              
+              if (processedSet.has(postKey) || post.marked_as_ads || post.is_pinned === 1) continue;
+              if (post.date < (now / 1000) - (14 * 24 * 60 * 60)) continue;
+              
+              for (const acc of activeAccounts) {
+                try {
+                  await vkApi('likes.add', {
+                    type: 'post',
+                    owner_id: post.owner_id,
+                    item_id: post.id
+                  }, acc.token);
+                  
+                  likesAdded++;
+                  
+                  // Обновляем статус аккаунта
+                  acc.status = AccountStatus.ACTIVE;
+                  acc.lastChecked = now;
+                  acc.lastError = null;
+                  
+                  await delay(Math.random() * 1500 + 1500);
+                } catch (e) {
+                  if (!e.message.includes('Already liked')) {
+                    console.log(`[AUTOLIKE] Account ${acc.userId} error: ${e.message}`);
+                    
+                    // Анализируем ошибку
+                    const errorInfo = analyzeVkError(e);
+                    acc.status = errorInfo.status;
+                    acc.lastError = errorInfo.message;
+                    acc.lastChecked = now;
+                  }
                 }
               }
+              
+              newProcessed.push(postKey);
+              await delay(1000);
             }
-            
-            newProcessed.push(postKey);
-            await delay(1000);
+          } catch (e) {
+            console.error(`[AUTOLIKE] Group ${groupId} error:`, e.message);
           }
-        } catch (e) {
-          console.error(`[AUTOLIKE] Group ${groupId} error:`, e.message);
         }
       }
       
