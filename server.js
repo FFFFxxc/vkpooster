@@ -296,6 +296,18 @@ app.post('/api/scheduled-stories', (req, res) => {
   try {
     const { groupId, groupName, fileData, fileType, publishDate, caption, linkUrl, linkText } = req.body;
     
+    console.log('[API] Received scheduled story request:', {
+      groupId,
+      groupName,
+      fileType,
+      publishDate,
+      hasFileData: !!fileData,
+      fileDataLength: fileData?.length,
+      caption,
+      linkUrl,
+      linkText
+    });
+    
     if (!groupId || !fileData || !publishDate) {
       return res.status(400).json({ ok: false, error: 'groupId, fileData and publishDate required' });
     }
@@ -318,7 +330,7 @@ app.post('/api/scheduled-stories', (req, res) => {
     data.scheduledStories.push(task);
     saveData();
     
-    console.log(`[STORY] Scheduled story for group ${groupId} at ${new Date(publishDate).toISOString()}${linkUrl ? ' with link: ' + linkUrl : ''}`);
+    console.log(`[STORY] Scheduled for group ${groupId} at ${new Date(publishDate).toISOString()}${linkUrl ? ' with link: ' + linkUrl : ''}`);
     
     res.json({ ok: true, task });
   } catch (e) {
