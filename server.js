@@ -533,10 +533,34 @@ cron.schedule('* * * * *', async () => {
       const uploadResult = await uploadResp.json();
       
       // Save story
-      // Параметры ссылки уже учтены при получении upload server
       const saveParams = {
         ...uploadResult
       };
+      
+      // Добавляем кнопку, если указана ссылка
+      if (task.linkUrl) {
+        try {
+          // Проверяем валидность URL
+          new URL(task.linkUrl);
+          
+          // Добавляем кнопку в формате JSON
+          saveParams.button = JSON.stringify({
+            title: task.linkText || 'Открыть',
+            link: {
+              url: task.linkUrl
+            }
+          });
+          
+          console.log('[STORY] Button added:', {
+            title: task.linkText || 'Открыть',
+            url: task.linkUrl,
+            buttonJson: saveParams.button
+          });
+        } catch (urlError) {
+          console.error('[STORY] Invalid URL:', task.linkUrl, urlError.message);
+          // Продолжаем без кнопки
+        }
+      }
       
       console.log('[STORY] Saving story with params:', Object.keys(saveParams));
       
