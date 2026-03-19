@@ -792,48 +792,21 @@ async function publishStory(task, account) {
       saveParams.link_url = task.linkUrl;
       saveParams.link_text = task.linkText || 'go_to';
       
-      console.log(`[STORY] Adding AD story with link: ${saveParams.link_url} (${saveParams.link_text})`);
+      // === ОБЯЗАТЕЛЬНЫЙ ПАРАМЕТР ads_items (Данные ОРД) ===
+      // VK требует эти данные для рекламных историй. Без этого is_ads будет false.
+      saveParams.ads_items = JSON.stringify({
+        "type": "physical", // Тип: physical (физлицо), ip (ИП), legal (юрлицо)
+        "fio": "Мищенко Никита Андреевич",
+        "inn": "503127946895",
+        "stories_summ": "0", // Сумма (можно 0)
+        "person": ["advertiser"],
+        "foreign": "false"
+      });
       
-      // ЗАПАСНОЙ ВАРИАНТ: Также добавляем ссылку в описание
-      const buttonTextRu = {
-        'go_to': 'Перейти',
-        'open': 'Открыть',
-        'more': 'Ещё',
-        'buy': 'Купить',
-        'book': 'Забронировать',
-        'order': 'Заказать',
-        'enroll': 'Записаться',
-        'signup': 'Зарегистрироваться',
-        'fill': 'Заполнить',
-        'ticket': 'Купить билет',
-        'write': 'Написать',
-        'learn_more': 'Подробнее',
-        'view': 'Посмотреть',
-        'contact': 'Связаться',
-        'watch': 'Смотреть',
-        'install': 'Установить',
-        'read': 'Читать',
-        'game': 'Играть',
-        'to_store': 'В магазин'
-      };
-      
-      const buttonText = buttonTextRu[task.linkText] || 'Перейти';
-      let caption = task.caption || '';
-      
-      if (caption) {
-        caption += `\n\n🔗 ${buttonText}: ${task.linkUrl}`;
-      } else {
-        caption = `🔗 ${buttonText}: ${task.linkUrl}`;
-      }
-      
-      saveParams.caption = caption;
-      
-      console.log(`[STORY] Also added link to caption as fallback`);
+      console.log(`[STORY] Adding AD story with link and ads_items: ${saveParams.link_url} (${saveParams.link_text})`);
     } catch (e) {
       console.error('[STORY] Invalid URL, skipping link:', task.linkUrl);
     }
-  } else if (task.caption) {
-    saveParams.caption = task.caption;
   }
   
   console.log('[STORY] Calling stories.save with params:', Object.keys(saveParams));
