@@ -155,6 +155,18 @@ app.get('/api/accounts', (req, res) => {
   res.json({ ok: true, accounts });
 });
 
+// Получить все аккаунты С токенами (для синхронизации расширения)
+app.get('/api/accounts/full', (req, res) => {
+  const accounts = data.accounts.map(a => ({
+    userId: a.userId,
+    token: a.token,
+    name: a.name,
+    photo: a.photo,
+    addedAt: a.addedAt
+  }));
+  res.json({ ok: true, accounts });
+});
+
 // Удалить аккаунт
 app.delete('/api/accounts/:userId', (req, res) => {
   const { userId } = req.params;
