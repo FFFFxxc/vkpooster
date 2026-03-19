@@ -468,56 +468,29 @@ cron.schedule('* * * * *', async () => {
     }
     
     try {
-      // Get upload server
+      // 1. Получаем сервер загрузки (БЕЗ параметров ссылки!)
       let uploadServer;
       if (task.fileType === 'video') {
-        const uploadParams = {
-          group_id: task.groupId
-        };
-        
-        // Добавляем параметры ссылки при получении upload server
-        if (task.linkUrl) {
-          uploadParams.link_text = task.linkText || 'open';
-          uploadParams.link_url = task.linkUrl;
-          console.log('[STORY] Adding link params to getVideoUploadServer:', {
-            link_url: task.linkUrl,
-            link_text: task.linkText || 'open'
-          });
-        }
-        
-        console.log('[STORY] Calling getVideoUploadServer with params:', uploadParams);
-        uploadServer = await vkApi('stories.getVideoUploadServer', uploadParams, account.token);
+        uploadServer = await vkApi('stories.getVideoUploadServer', { 
+          group_id: task.groupId 
+        }, account.token);
       } else {
-        const uploadParams = {
-          group_id: task.groupId
-        };
-        
-        // Добавляем параметры ссылки при получении upload server
-        if (task.linkUrl) {
-          uploadParams.link_text = task.linkText || 'open';
-          uploadParams.link_url = task.linkUrl;
-          console.log('[STORY] Adding link params to getPhotoUploadServer:', {
-            link_url: task.linkUrl,
-            link_text: task.linkText || 'open'
-          });
-        }
-        
-        console.log('[STORY] Calling getPhotoUploadServer with params:', uploadParams);
-        uploadServer = await vkApi('stories.getPhotoUploadServer', uploadParams, account.token);
+        uploadServer = await vkApi('stories.getPhotoUploadServer', { 
+          group_id: task.groupId 
+        }, account.token);
       }
       
       if (!uploadServer?.upload_url) {
         throw new Error('Failed to get upload URL');
       }
       
-      console.log('[STORY] Upload server response:', {
-        hasUploadUrl: !!uploadServer.upload_url,
-        uploadUrl: uploadServer.upload_url?.substring(0, 50) + '...'
-      });
+      console.log('[STORY] Got upload server:', !!uploadServer.upload_url);
       
-      // Upload file
+      // 2. Загружаем файл
       const fileData = task.fileData.split(',')[1] || task.fileData;
       const fileBuffer = Buffer.from(fileData, 'base64');
+      
+      console.log('[STORY] File buffer:', fileBuffer.length, 'bytes');
       
       const form = new FormData();
       form.append('file', fileBuffer, {
@@ -532,41 +505,33 @@ cron.schedule('* * * * *', async () => {
       });
       const uploadResult = await uploadResp.json();
       
-      // Save story
+      console.log('[STORY] Upload response:', JSON.stringify(uploadResult));
+      console.log('[STORY] upload_result found:', !!uploadResult.response?.upload_result);
+      
+      // 3. Сохраняем историю с кнопкой
       const saveParams = {
-        ...uploadResult
+        ...uploadResult.response
       };
       
-      // Добавляем кнопку, если указана ссылка
+      // ПРАВИЛЬНОЕ добавление ссылки - простые параметры link_url и link_text
       if (task.linkUrl) {
         try {
-          // Проверяем валидность URL
+          // Валидация URL
           new URL(task.linkUrl);
           
-          // Добавляем кнопку в формате JSON
-          saveParams.button = JSON.stringify({
-            title: task.linkText || 'Открыть',
-            link: {
-              url: task.linkUrl
-            }
-          });
+          saveParams.link_url = task.linkUrl;
+          saveParams.link_text = task.linkText || 'open';
           
-          console.log('[STORY] Button added:', {
-            title: task.linkText || 'Открыть',
-            url: task.linkUrl,
-            buttonJson: saveParams.button
-          });
-        } catch (urlError) {
-          console.error('[STORY] Invalid URL:', task.linkUrl, urlError.message);
-          // Продолжаем без кнопки
+          console.log(`[STORY] Link added: ${saveParams.link_url} (${saveParams.link_text})`);
+        } catch (e) {
+          console.error('[STORY] Invalid URL, skipping link:', task.linkUrl);
         }
       }
       
-      console.log('[STORY] Saving story with params:', Object.keys(saveParams));
-      
+      console.log('[STORY] Calling stories.save...');
       const saveResult = await vkApi('stories.save', saveParams, account.token);
       
-      console.log('[STORY] Save result:', JSON.stringify(saveResult, null, 2));
+      console.log('[STORY] stories.save result:', JSON.stringify(saveResult, null, 2));
       
       task.status = 'completed';
       task.result = 'Story published';
@@ -579,15 +544,16 @@ cron.schedule('* * * * *', async () => {
         groupId: task.groupId,
         storyId: saveResult?.id,
         success: true,
+        hasLink: !!task.linkUrl,
         timestamp: now
       });
       
-      console.log(`[CRON] Story ${task.id} published successfully`);
+      console.log(`[STORY] ✅ Done, storyId: ${saveResult?.id}`);
+      console.log(`[CRON] ✅ Story ${task.id} published`);
     } catch (e) {
       task.status = 'error';
       task.result = e.message;
       console.error(`[CRON] Story ${task.id} error:`, e.message);
-      console.error('[CRON] Full error:', JSON.stringify(e, null, 2));
       
       data.taskHistory.push({
         type: 'story',
