@@ -452,6 +452,13 @@ cron.schedule('* * * * *', async () => {
   
   for (const task of pendingStories) {
     console.log(`[CRON] Processing scheduled story ${task.id}`);
+    console.log(`[STORY] Task data:`, {
+      groupId: task.groupId,
+      fileType: task.fileType,
+      hasLinkUrl: !!task.linkUrl,
+      linkUrl: task.linkUrl,
+      linkText: task.linkText
+    });
     
     const account = data.accounts[0];
     if (!account) {
@@ -464,18 +471,49 @@ cron.schedule('* * * * *', async () => {
       // Get upload server
       let uploadServer;
       if (task.fileType === 'video') {
-        uploadServer = await vkApi('stories.getVideoUploadServer', {
+        const uploadParams = {
           group_id: task.groupId
-        }, account.token);
+        };
+        
+        // Добавляем параметры ссылки при получении upload server
+        if (task.linkUrl) {
+          uploadParams.link_text = task.linkText || 'open';
+          uploadParams.link_url = task.linkUrl;
+          console.log('[STORY] Adding link params to getVideoUploadServer:', {
+            link_url: task.linkUrl,
+            link_text: task.linkText || 'open'
+          });
+        }
+        
+        console.log('[STORY] Calling getVideoUploadServer with params:', uploadParams);
+        uploadServer = await vkApi('stories.getVideoUploadServer', uploadParams, account.token);
       } else {
-        uploadServer = await vkApi('stories.getPhotoUploadServer', {
+        const uploadParams = {
           group_id: task.groupId
-        }, account.token);
+        };
+        
+        // Добавляем параметры ссылки при получении upload server
+        if (task.linkUrl) {
+          uploadParams.link_text = task.linkText || 'open';
+          uploadParams.link_url = task.linkUrl;
+          console.log('[STORY] Adding link params to getPhotoUploadServer:', {
+            link_url: task.linkUrl,
+            link_text: task.linkText || 'open'
+          });
+        }
+        
+        console.log('[STORY] Calling getPhotoUploadServer with params:', uploadParams);
+        uploadServer = await vkApi('stories.getPhotoUploadServer', uploadParams, account.token);
       }
       
       if (!uploadServer?.upload_url) {
         throw new Error('Failed to get upload URL');
       }
+      
+      console.log('[STORY] Upload server response:', {
+        hasUploadUrl: !!uploadServer.upload_url,
+        uploadUrl: uploadServer.upload_url?.substring(0, 50) + '...'
+      });
       
       // Upload file
       const fileData = task.fileData.split(',')[1] || task.fileData;
@@ -495,17 +533,16 @@ cron.schedule('* * * * *', async () => {
       const uploadResult = await uploadResp.json();
       
       // Save story
+      // Параметры ссылки уже учтены при получении upload server
       const saveParams = {
         ...uploadResult
       };
       
-      // Add link parameters if provided
-      if (task.linkUrl) {
-        saveParams.link_url = task.linkUrl;
-        saveParams.link_text = task.linkText || 'open';
-      }
+      console.log('[STORY] Saving story with params:', Object.keys(saveParams));
       
       const saveResult = await vkApi('stories.save', saveParams, account.token);
+      
+      console.log('[STORY] Save result:', JSON.stringify(saveResult, null, 2));
       
       task.status = 'completed';
       task.result = 'Story published';
@@ -526,6 +563,7 @@ cron.schedule('* * * * *', async () => {
       task.status = 'error';
       task.result = e.message;
       console.error(`[CRON] Story ${task.id} error:`, e.message);
+      console.error('[CRON] Full error:', JSON.stringify(e, null, 2));
       
       data.taskHistory.push({
         type: 'story',
