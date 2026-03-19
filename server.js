@@ -321,7 +321,7 @@ app.post('/api/scheduled-stories', (req, res) => {
       publishDate,
       caption: caption || '',
       linkUrl: linkUrl || null,
-      linkText: linkText || 'open',
+      linkText: linkText || 'go_to',
       status: 'pending',
       createdAt: Date.now(),
       result: null
@@ -520,24 +520,33 @@ cron.schedule('* * * * *', async () => {
       console.log('[STORY] Upload response:', JSON.stringify(uploadResult));
       console.log('[STORY] upload_result found:', !!uploadResult.response?.upload_result);
       
-      // 3. Сохраняем историю с кнопкой
+      // 3. Сохраняем историю с кнопкой-ссылкой (для рекламных историй)
       const saveParams = {
         ...uploadResult.response
       };
       
-      // ПРАВИЛЬНОЕ добавление ссылки - простые параметры link_url и link_text
+      // Добавляем ссылку с маркировкой как реклама
       if (task.linkUrl) {
         try {
           // Валидация URL
           new URL(task.linkUrl);
           
-          saveParams.link_url = task.linkUrl;
-          saveParams.link_text = task.linkText || 'open';
+          // КЛЮЧЕВОЙ МОМЕНТ: Маркируем как рекламу!
+          saveParams.mark_as_ads = 1;
           
-          console.log(`[STORY] Link added: ${saveParams.link_url} (${saveParams.link_text})`);
+          // Добавляем ссылку
+          saveParams.link_url = task.linkUrl;
+          saveParams.link_text = task.linkText || 'go_to';
+          
+          console.log(`[STORY] Adding AD story with link: ${saveParams.link_url} (${saveParams.link_text})`);
         } catch (e) {
           console.error('[STORY] Invalid URL, skipping link:', task.linkUrl);
         }
+      }
+      
+      // Добавляем описание если есть
+      if (task.caption) {
+        saveParams.caption = task.caption;
       }
       
       console.log('[STORY] Calling stories.save...');
