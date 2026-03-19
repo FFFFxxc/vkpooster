@@ -303,6 +303,34 @@ app.get('/api/accounts', async (req, res) => {
   }
 });
 
+// Получить все аккаунты С ТОКЕНАМИ (для синхронизации расширения)
+app.get('/api/accounts/full', async (req, res) => {
+  try {
+    let accounts;
+    if (useMongoDB) {
+      const docs = await Account.find({});
+      accounts = docs.map(a => ({
+        userId: a.userId,
+        token: a.token,
+        name: a.name,
+        photo: a.photo,
+        addedAt: a.addedAt
+      }));
+    } else {
+      accounts = memoryData.accounts.map(a => ({
+        userId: a.userId,
+        token: a.token,
+        name: a.name,
+        photo: a.photo,
+        addedAt: a.addedAt
+      }));
+    }
+    res.json({ ok: true, accounts });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
 app.delete('/api/accounts/:userId', async (req, res) => {
   try {
     if (useMongoDB) await Account.deleteOne({ userId: parseInt(req.params.userId) });
