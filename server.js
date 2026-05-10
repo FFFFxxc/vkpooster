@@ -294,6 +294,133 @@ app.delete('/api/scheduled-posts/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+// Редактировать отложенный пост (текст и/или автокоммент)
+app.patch('/api/scheduled-posts/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    const { message, autoCommentText } = req.body || {};
+
+    const task = data.scheduledPosts.find(p => p.id === id);
+    if (!task) return res.status(404).json({ ok: false, error: 'Task not found' });
+    if (task.status !== 'pending') {
+      return res.status(400).json({ ok: false, error: 'Task already processed' });
+    }
+
+    if (typeof message === 'string') task.message = message;
+    if (autoCommentText === null || autoCommentText === '') {
+      task.autoCommentText = null;
+    } else if (typeof autoCommentText === 'string') {
+      task.autoCommentText = autoCommentText;
+    }
+
+    saveData();
+    console.log(`[PATCH] Updated post ${id}`);
+    res.json({ ok: true, task });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// Перенести отложенный пост в нативную отложку VK
+// (публикуем через wall.post с publish_date и удаляем задачу со стороны сервера)
+app.post('/api/scheduled-posts/:id/move-to-vk', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const task = data.scheduledPosts.find(p => p.id === id);
+
+    if (!task) return res.status(404).json({ ok: false, error: 'Task not found' });
+    if (task.status !== 'pending') {
+      return res.status(400).json({ ok: false, error: 'Task already processed' });
+    }
+
+    const account = data.accounts[0];
+    if (!account) return res.status(400).json({ ok: false, error: 'No accounts on server' });
+
+    const publishUnix = Math.floor(task.publishDate / 1000);
+    if (publishUnix <= Math.floor(Date.now() / 1000)) {
+      return res.status(400).json({ ok: false, error: 'Publish date is in the past' });
+    }
+
+    let attachments = [];
+    let messageText = task.message || '';
+
+    if (task.sourcePost) {
+      const postData = await vkApi('wall.getById', {
+        posts: `${task.sourcePost.ownerId}_${task.sourcePost.postId}`
+      }, account.token);
+      const src = postData.items?.[0];
+      if (!src) throw new Error('Source post not found');
+
+      if (!messageText) messageText = src.text || '';
+
+      if (src.attachments) {
+        for (const att of src.attachments) {
+          const type = att.type;
+          const obj = att[type];
+          if (type === 'photo') {
+            try {
+              const sizes = obj.sizes || [];
+              const best = sizes[sizes.length - 1];
+              if (best?.url) {
+                const imgResp = await fetch(best.url);
+                const imgBuffer = await imgResp.buffer();
+                const uploadServer = await vkApi('photos.getWallUploadServer', {
+                  group_id: task.groupId
+                }, account.token);
+                const form = new FormData();
+                form.append('photo', imgBuffer, { filename: 'photo.jpg', contentType: 'image/jpeg' });
+                const upResp = await fetch(uploadServer.upload_url, {
+                  method: 'POST', body: form, headers: form.getHeaders()
+                });
+                const upResult = await upResp.json();
+                if (upResult.photo && upResult.server !== undefined && upResult.hash) {
+                  const saved = await vkApi('photos.saveWallPhoto', {
+                    group_id: task.groupId,
+                    photo: upResult.photo,
+                    server: upResult.server,
+                    hash: upResult.hash
+                  }, account.token);
+                  if (saved?.[0]) attachments.push(`photo${saved[0].owner_id}_${saved[0].id}`);
+                }
+                await delay(400);
+              }
+            } catch (photoErr) {
+              console.error('[MOVE] photo re-upload error:', photoErr.message);
+            }
+          } else if (type === 'video') {
+            const ak = obj.access_key ? `_${obj.access_key}` : '';
+            attachments.push(`video${obj.owner_id}_${obj.id}${ak}`);
+          } else if (type === 'doc') {
+            attachments.push(`doc${obj.owner_id}_${obj.id}`);
+          }
+        }
+      }
+    } else if (Array.isArray(task.attachments)) {
+      attachments = task.attachments;
+    }
+
+    const result = await vkApi('wall.post', {
+      owner_id: `-${task.groupId}`,
+      from_group: 1,
+      message: messageText,
+      attachments: attachments.join(','),
+      publish_date: publishUnix
+    }, account.token);
+
+    task.status = 'moved_to_vk';
+    task.completedAt = Date.now();
+    task.publishedPostId = result.post_id || null;
+    data.scheduledPosts = data.scheduledPosts.filter(p => p.id !== id);
+    saveData();
+
+    console.log(`[MOVE] Post ${id} -> VK native scheduled (post_id=${result.post_id})`);
+    res.json({ ok: true, postId: result.post_id });
+  } catch (e) {
+    console.error('[MOVE] error:', e.message);
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
 // ==================== ОТЛОЖЕННЫЕ ИСТОРИИ ====================
 
 // Добавить отложенную историю
