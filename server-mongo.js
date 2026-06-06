@@ -1192,10 +1192,9 @@ cron.schedule('* * * * *', async () => {
         }
 
         if (useMongoDB) {
-          await ScheduledPost.updateOne({ id: task.id }, {
-            status: 'completed', result: 'Posted successfully',
-            completedAt: now, publishedPostId
-          });
+          // ✅ Пост выложен — сразу удаляем из MongoDB, не копим мусор
+          // История сохраняется в TaskHistory
+          await ScheduledPost.deleteOne({ id: task.id });
           await TaskHistory.create({ type: 'post', taskId: task.id, groupId: task.groupId, postId: publishedPostId, success: true, timestamp: now });
         } else {
           task.status = 'completed'; task.result = 'Posted successfully';
@@ -1395,17 +1394,28 @@ cron.schedule('0 * * * *', async () => {
   const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
   try {
     if (useMongoDB) {
-      await ScheduledPost.deleteMany({ status: { $ne: 'pending' }, completedAt: { $lt: oneDayAgo } });
-      await ScheduledComment.deleteMany({ status: { $ne: 'pending' }, completedAt: { $lt: oneDayAgo } });
-      await ScheduledDeletion.deleteMany({ status: { $ne: 'pending' }, completedAt: { $lt: oneDayAgo } });
-      await ScheduledStory.deleteMany({ status: { $ne: 'pending' }, completedAt: { $lt: oneDayAgo } });
+      // Удаляем только 'completed' и 'error' — НЕ трогаем 'pending' и 'processing'
+      const doneStatuses = { status: { $in: ['completed', 'error'] }, completedAt: { $lt: oneDayAgo } };
+      const r1 = await ScheduledPost.deleteMany(doneStatuses);
+      const r2 = await ScheduledComment.deleteMany(doneStatuses);
+      const r3 = await ScheduledDeletion.deleteMany(doneStatuses);
+      const r4 = await ScheduledStory.deleteMany(doneStatuses);
+
+      // Зависшие 'processing' задачи (не завершились за 10+ минут) — откатываем в 'pending'
+      const stuckThreshold = Date.now() - 10 * 60 * 1000;
+      await ScheduledPost.updateMany(
+        { status: 'processing', createdAt: { $lt: stuckThreshold } },
+        { status: 'pending' }
+      );
+
+      console.log(`[CRON] Cleanup done. Deleted: posts=${r1.deletedCount}, comments=${r2.deletedCount}, deletions=${r3.deletedCount}, stories=${r4.deletedCount}`);
     } else {
-      memoryData.scheduledPosts = memoryData.scheduledPosts.filter(p => p.status === 'pending' || p.completedAt > oneDayAgo);
-      memoryData.scheduledComments = memoryData.scheduledComments.filter(c => c.status === 'pending' || c.completedAt > oneDayAgo);
-      memoryData.scheduledDeletions = memoryData.scheduledDeletions.filter(d => d.status === 'pending' || d.completedAt > oneDayAgo);
-      memoryData.scheduledStories = memoryData.scheduledStories.filter(s => s.status === 'pending' || s.completedAt > oneDayAgo);
+      memoryData.scheduledPosts = memoryData.scheduledPosts.filter(p => p.status === 'pending' || p.status === 'processing' || p.completedAt > oneDayAgo);
+      memoryData.scheduledComments = memoryData.scheduledComments.filter(c => c.status === 'pending' || c.status === 'processing' || c.completedAt > oneDayAgo);
+      memoryData.scheduledDeletions = memoryData.scheduledDeletions.filter(d => d.status === 'pending' || d.status === 'processing' || d.completedAt > oneDayAgo);
+      memoryData.scheduledStories = memoryData.scheduledStories.filter(s => s.status === 'pending' || s.status === 'processing' || s.completedAt > oneDayAgo);
+      console.log('[CRON] Cleanup done (memory mode)');
     }
-    console.log('[CRON] Cleanup done');
   } catch (e) {
     console.error('[CRON] Cleanup error:', e.message);
   }
