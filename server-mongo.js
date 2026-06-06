@@ -1068,6 +1068,25 @@ cron.schedule('* * * * *', async () => {
 
     for (const task of pendingPosts) {
       console.log(`[CRON] Processing post ${task.id}`);
+
+      // 🔒 ФИКС ДУБЛИРОВАНИЯ: помечаем как 'processing' ДО любых async-операций
+      // Без этого следующий тик cron (через 1 мин) снова видит статус 'pending'
+      // и публикует тот же пост повторно, пока первый тик ещё не завершил wall.post
+      if (useMongoDB) {
+        const claimed = await ScheduledPost.findOneAndUpdate(
+          { id: task.id, status: 'pending' },
+          { status: 'processing' },
+          { new: false }
+        );
+        if (!claimed) {
+          console.warn(`[CRON] Post ${task.id} already claimed by another process, skipping`);
+          continue;
+        }
+      } else {
+        if (task.status !== 'pending') continue; // уже обрабатывается
+        task.status = 'processing';
+      }
+
       const account = await getFirstAccount();
       if (!account) {
         if (useMongoDB) await ScheduledPost.updateOne({ id: task.id }, { status: 'error', result: 'No accounts' });
@@ -1207,6 +1226,22 @@ cron.schedule('* * * * *', async () => {
     }
 
     for (const task of pendingComments) {
+      // 🔒 ФИКС ДУБЛИРОВАНИЯ: захватываем задачу атомарно
+      if (useMongoDB) {
+        const claimed = await ScheduledComment.findOneAndUpdate(
+          { id: task.id, status: 'pending' },
+          { status: 'processing' },
+          { new: false }
+        );
+        if (!claimed) {
+          console.warn(`[CRON] Comment ${task.id} already claimed, skipping`);
+          continue;
+        }
+      } else {
+        if (task.status !== 'pending') continue;
+        task.status = 'processing';
+      }
+
       const account = await getFirstAccount();
       if (!account) {
         if (useMongoDB) await ScheduledComment.updateOne({ id: task.id }, { status: 'error', result: 'No accounts' });
