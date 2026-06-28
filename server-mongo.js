@@ -51,7 +51,9 @@ const scheduledPostSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now },
   completedAt: Date,
   result: String,
-  publishedPostId: Number
+  publishedPostId: Number,
+  failedAt: Number,
+  retryCount: { type: Number, default: 0 }
 });
 
 const scheduledStorySchema = new mongoose.Schema({
@@ -68,7 +70,9 @@ const scheduledStorySchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now },
   completedAt: Date,
   result: String,
-  storyId: String
+  storyId: String,
+  failedAt: Number,
+  retryCount: { type: Number, default: 0 }
 });
 
 const scheduledCommentSchema = new mongoose.Schema({
@@ -368,9 +372,11 @@ app.post('/api/scheduled-posts', async (req, res) => {
 
 app.get('/api/scheduled-posts', async (req, res) => {
   try {
+    // Включаем error/processing, чтобы клиент мог показать упавшие задачи и кнопку «Выложить ещё раз»
+    const visibleStatuses = ['pending', 'error', 'processing'];
     const posts = useMongoDB
-      ? await ScheduledPost.find({ status: 'pending' })
-      : memoryData.scheduledPosts.filter(p => p.status === 'pending');
+      ? await ScheduledPost.find({ status: { $in: visibleStatuses } })
+      : memoryData.scheduledPosts.filter(p => visibleStatuses.includes(p.status));
     res.json({ ok: true, posts });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
@@ -529,6 +535,56 @@ app.post('/api/scheduled-posts/:id/move-to-vk', async (req, res) => {
   }
 });
 
+// Перевыложить упавший / висящий пост
+app.post('/api/scheduled-posts/:id/reschedule', async (req, res) => {
+  try {
+    const { id } = req.params;
+    let { publishDate } = req.body || {};
+
+    // Если время не передали или оно в прошлом — публикуем максимально скоро (через минуту)
+    const minDate = Date.now() + 60 * 1000;
+    if (!publishDate || publishDate < minDate) {
+      publishDate = minDate;
+    }
+
+    const update = {
+      status: 'pending',
+      publishDate,
+      result: null,
+      completedAt: null,
+      failedAt: null
+    };
+
+    if (useMongoDB) {
+      const task = await ScheduledPost.findOne({ id });
+      if (!task) return res.status(404).json({ ok: false, error: 'Task not found' });
+      if (task.status === 'completed') {
+        return res.status(400).json({ ok: false, error: 'Task already published' });
+      }
+      await ScheduledPost.updateOne({ id }, {
+        $set: update,
+        $inc: { retryCount: 1 }
+      });
+      const updated = await ScheduledPost.findOne({ id });
+      console.log(`[RESCHEDULE] Post ${id} -> ${new Date(publishDate).toISOString()} (retry #${updated.retryCount})`);
+      res.json({ ok: true, task: updated });
+    } else {
+      const task = memoryData.scheduledPosts.find(p => p.id === id);
+      if (!task) return res.status(404).json({ ok: false, error: 'Task not found' });
+      if (task.status === 'completed') {
+        return res.status(400).json({ ok: false, error: 'Task already published' });
+      }
+      Object.assign(task, update);
+      task.retryCount = (task.retryCount || 0) + 1;
+      console.log(`[RESCHEDULE] Post ${id} -> ${new Date(publishDate).toISOString()} (retry #${task.retryCount})`);
+      res.json({ ok: true, task });
+    }
+  } catch (e) {
+    console.error('[RESCHEDULE] error:', e.message);
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
 // ==================== ИСТОРИИ ====================
 
 app.post('/api/scheduled-stories', async (req, res) => {
@@ -571,9 +627,10 @@ app.post('/api/scheduled-stories', async (req, res) => {
 
 app.get('/api/scheduled-stories', async (req, res) => {
   try {
+    const visibleStatuses = ['pending', 'error', 'processing'];
     const stories = useMongoDB
-      ? await ScheduledStory.find({ status: 'pending' })
-      : memoryData.scheduledStories.filter(s => s.status === 'pending');
+      ? await ScheduledStory.find({ status: { $in: visibleStatuses } })
+      : memoryData.scheduledStories.filter(s => visibleStatuses.includes(s.status));
     res.json({ ok: true, stories });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
@@ -586,6 +643,55 @@ app.delete('/api/scheduled-stories/:id', async (req, res) => {
     else memoryData.scheduledStories = memoryData.scheduledStories.filter(s => s.id !== req.params.id);
     res.json({ ok: true });
   } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// Перевыложить упавшую историю
+app.post('/api/scheduled-stories/:id/reschedule', async (req, res) => {
+  try {
+    const { id } = req.params;
+    let { publishDate } = req.body || {};
+
+    const minDate = Date.now() + 60 * 1000;
+    if (!publishDate || publishDate < minDate) {
+      publishDate = minDate;
+    }
+
+    const update = {
+      status: 'pending',
+      publishDate,
+      result: null,
+      completedAt: null,
+      failedAt: null
+    };
+
+    if (useMongoDB) {
+      const task = await ScheduledStory.findOne({ id });
+      if (!task) return res.status(404).json({ ok: false, error: 'Task not found' });
+      if (task.status === 'completed') {
+        return res.status(400).json({ ok: false, error: 'Story already published' });
+      }
+      await ScheduledStory.updateOne({ id }, {
+        $set: update,
+        $inc: { retryCount: 1 }
+      });
+      const updated = await ScheduledStory.findOne({ id });
+      console.log(`[RESCHEDULE] Story ${id} -> ${new Date(publishDate).toISOString()} (retry #${updated.retryCount})`);
+      res.json({ ok: true, task: updated });
+    } else {
+      const task = memoryData.scheduledStories.find(s => s.id === id);
+      if (!task) return res.status(404).json({ ok: false, error: 'Task not found' });
+      if (task.status === 'completed') {
+        return res.status(400).json({ ok: false, error: 'Story already published' });
+      }
+      Object.assign(task, update);
+      task.retryCount = (task.retryCount || 0) + 1;
+      console.log(`[RESCHEDULE] Story ${id} -> ${new Date(publishDate).toISOString()} (retry #${task.retryCount})`);
+      res.json({ ok: true, task });
+    }
+  } catch (e) {
+    console.error('[RESCHEDULE story] error:', e.message);
     res.status(500).json({ ok: false, error: e.message });
   }
 });
@@ -1206,10 +1312,10 @@ cron.schedule('* * * * *', async () => {
       } catch (e) {
         console.error(`[CRON] ❌ Post ${task.id} failed:`, e.message);
         if (useMongoDB) {
-          await ScheduledPost.updateOne({ id: task.id }, { status: 'error', result: e.message });
+          await ScheduledPost.updateOne({ id: task.id }, { status: 'error', result: e.message, failedAt: now });
           await TaskHistory.create({ type: 'post', taskId: task.id, groupId: task.groupId, success: false, error: e.message, timestamp: now });
         } else {
-          task.status = 'error'; task.result = e.message;
+          task.status = 'error'; task.result = e.message; task.failedAt = now;
           memoryData.taskHistory.push({ type: 'post', taskId: task.id, groupId: task.groupId, success: false, error: e.message, timestamp: now });
         }
       }
@@ -1373,7 +1479,7 @@ cron.schedule('* * * * *', async () => {
 async function markStoryError(task, errorMsg, now) {
   const safeMsg = String(errorMsg).substring(0, 500);
   if (useMongoDB) {
-    await ScheduledStory.updateOne({ id: task.id }, { status: 'error', result: safeMsg });
+    await ScheduledStory.updateOne({ id: task.id }, { status: 'error', result: safeMsg, failedAt: now });
     await TaskHistory.create({
       type: 'story', taskId: task.id, groupId: task.groupId,
       success: false, error: safeMsg, timestamp: now
@@ -1381,6 +1487,7 @@ async function markStoryError(task, errorMsg, now) {
   } else {
     task.status = 'error';
     task.result = safeMsg;
+    task.failedAt = now;
     memoryData.taskHistory.push({
       type: 'story', taskId: task.id, groupId: task.groupId,
       success: false, error: safeMsg, timestamp: now
@@ -1394,12 +1501,18 @@ cron.schedule('0 * * * *', async () => {
   const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
   try {
     if (useMongoDB) {
-      // Удаляем только 'completed' и 'error' — НЕ трогаем 'pending' и 'processing'
-      const doneStatuses = { status: { $in: ['completed', 'error'] }, completedAt: { $lt: oneDayAgo } };
+      // Удаляем только успешно завершённые задачи. Упавшие ('error') оставляем — у пользователя
+      // должна быть возможность перевыложить их через кнопку в интерфейсе.
+      const doneStatuses = { status: 'completed', completedAt: { $lt: oneDayAgo } };
       const r1 = await ScheduledPost.deleteMany(doneStatuses);
       const r2 = await ScheduledComment.deleteMany(doneStatuses);
       const r3 = await ScheduledDeletion.deleteMany(doneStatuses);
       const r4 = await ScheduledStory.deleteMany(doneStatuses);
+
+      // Комментарии и автоудаления — служебные задачи, упавшие 24+ часов назад чистим
+      const errOld = { status: 'error', completedAt: { $lt: oneDayAgo } };
+      await ScheduledComment.deleteMany(errOld);
+      await ScheduledDeletion.deleteMany(errOld);
 
       // Зависшие 'processing' задачи (не завершились за 10+ минут) — откатываем в 'pending'
       const stuckThreshold = Date.now() - 10 * 60 * 1000;
@@ -1410,10 +1523,12 @@ cron.schedule('0 * * * *', async () => {
 
       console.log(`[CRON] Cleanup done. Deleted: posts=${r1.deletedCount}, comments=${r2.deletedCount}, deletions=${r3.deletedCount}, stories=${r4.deletedCount}`);
     } else {
-      memoryData.scheduledPosts = memoryData.scheduledPosts.filter(p => p.status === 'pending' || p.status === 'processing' || p.completedAt > oneDayAgo);
-      memoryData.scheduledComments = memoryData.scheduledComments.filter(c => c.status === 'pending' || c.status === 'processing' || c.completedAt > oneDayAgo);
-      memoryData.scheduledDeletions = memoryData.scheduledDeletions.filter(d => d.status === 'pending' || d.status === 'processing' || d.completedAt > oneDayAgo);
-      memoryData.scheduledStories = memoryData.scheduledStories.filter(s => s.status === 'pending' || s.status === 'processing' || s.completedAt > oneDayAgo);
+      const keepPost = p => p.status === 'pending' || p.status === 'processing' || p.status === 'error' || (p.completedAt || 0) > oneDayAgo;
+      const keepAux = x => x.status === 'pending' || x.status === 'processing' || (x.completedAt || 0) > oneDayAgo;
+      memoryData.scheduledPosts = memoryData.scheduledPosts.filter(keepPost);
+      memoryData.scheduledStories = memoryData.scheduledStories.filter(keepPost);
+      memoryData.scheduledComments = memoryData.scheduledComments.filter(keepAux);
+      memoryData.scheduledDeletions = memoryData.scheduledDeletions.filter(keepAux);
       console.log('[CRON] Cleanup done (memory mode)');
     }
   } catch (e) {
