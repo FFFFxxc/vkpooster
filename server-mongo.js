@@ -372,11 +372,11 @@ app.post('/api/scheduled-posts', async (req, res) => {
 
 app.get('/api/scheduled-posts', async (req, res) => {
   try {
-    // Включаем error/processing, чтобы клиент мог показать упавшие задачи и кнопку «Выложить ещё раз»
-    const visibleStatuses = ['pending', 'error', 'processing'];
+    // Здесь возвращаем только реально ожидающие публикации.
+    // Упавшие задачи (status: 'error') показываются на отдельной вкладке через /api/failed-tasks.
     const posts = useMongoDB
-      ? await ScheduledPost.find({ status: { $in: visibleStatuses } })
-      : memoryData.scheduledPosts.filter(p => visibleStatuses.includes(p.status));
+      ? await ScheduledPost.find({ status: 'pending' })
+      : memoryData.scheduledPosts.filter(p => p.status === 'pending');
     res.json({ ok: true, posts });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
@@ -627,10 +627,10 @@ app.post('/api/scheduled-stories', async (req, res) => {
 
 app.get('/api/scheduled-stories', async (req, res) => {
   try {
-    const visibleStatuses = ['pending', 'error', 'processing'];
+    // Только реально ожидающие. Упавшие — через /api/failed-tasks.
     const stories = useMongoDB
-      ? await ScheduledStory.find({ status: { $in: visibleStatuses } })
-      : memoryData.scheduledStories.filter(s => visibleStatuses.includes(s.status));
+      ? await ScheduledStory.find({ status: 'pending' })
+      : memoryData.scheduledStories.filter(s => s.status === 'pending');
     res.json({ ok: true, stories });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
@@ -692,6 +692,108 @@ app.post('/api/scheduled-stories/:id/reschedule', async (req, res) => {
     }
   } catch (e) {
     console.error('[RESCHEDULE story] error:', e.message);
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// ==================== УПАВШИЕ ЗАДАЧИ ====================
+
+// Получить все упавшие посты + истории
+app.get('/api/failed-tasks', async (req, res) => {
+  try {
+    let posts, stories;
+    if (useMongoDB) {
+      posts = await ScheduledPost.find({ status: 'error' });
+      stories = await ScheduledStory.find({ status: 'error' });
+    } else {
+      posts = memoryData.scheduledPosts.filter(p => p.status === 'error');
+      stories = memoryData.scheduledStories.filter(s => s.status === 'error');
+    }
+    const tasks = [
+      ...posts.map(p => ({ ...(p.toObject ? p.toObject() : p), kind: 'post' })),
+      ...stories.map(s => ({ ...(s.toObject ? s.toObject() : s), kind: 'story' }))
+    ].sort((a, b) => (b.failedAt || 0) - (a.failedAt || 0));
+    res.json({ ok: true, tasks });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// Удалить все упавшие задачи
+app.delete('/api/failed-tasks', async (req, res) => {
+  try {
+    let deletedPosts = 0, deletedStories = 0;
+    if (useMongoDB) {
+      const rp = await ScheduledPost.deleteMany({ status: 'error' });
+      const rs = await ScheduledStory.deleteMany({ status: 'error' });
+      deletedPosts = rp.deletedCount || 0;
+      deletedStories = rs.deletedCount || 0;
+    } else {
+      const before1 = memoryData.scheduledPosts.length;
+      memoryData.scheduledPosts = memoryData.scheduledPosts.filter(p => p.status !== 'error');
+      deletedPosts = before1 - memoryData.scheduledPosts.length;
+      const before2 = memoryData.scheduledStories.length;
+      memoryData.scheduledStories = memoryData.scheduledStories.filter(s => s.status !== 'error');
+      deletedStories = before2 - memoryData.scheduledStories.length;
+    }
+    res.json({ ok: true, deletedPosts, deletedStories });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// Перепланировать все упавшие на now + offset
+app.post('/api/failed-tasks/retry-all', async (req, res) => {
+  try {
+    const { spreadMinutes = 0 } = req.body || {};
+    const base = Date.now() + 60 * 1000;
+    let rescheduledPosts = 0, rescheduledStories = 0;
+
+    if (useMongoDB) {
+      const posts = await ScheduledPost.find({ status: 'error' });
+      for (let i = 0; i < posts.length; i++) {
+        const publishDate = base + i * spreadMinutes * 60 * 1000;
+        await ScheduledPost.updateOne({ id: posts[i].id }, {
+          $set: { status: 'pending', publishDate, result: null, completedAt: null, failedAt: null },
+          $inc: { retryCount: 1 }
+        });
+        rescheduledPosts++;
+      }
+      const stories = await ScheduledStory.find({ status: 'error' });
+      for (let i = 0; i < stories.length; i++) {
+        const publishDate = base + (posts.length + i) * spreadMinutes * 60 * 1000;
+        await ScheduledStory.updateOne({ id: stories[i].id }, {
+          $set: { status: 'pending', publishDate, result: null, completedAt: null, failedAt: null },
+          $inc: { retryCount: 1 }
+        });
+        rescheduledStories++;
+      }
+    } else {
+      const failedPosts = memoryData.scheduledPosts.filter(p => p.status === 'error');
+      failedPosts.forEach((p, i) => {
+        p.status = 'pending';
+        p.publishDate = base + i * spreadMinutes * 60 * 1000;
+        p.result = null;
+        p.completedAt = null;
+        p.failedAt = null;
+        p.retryCount = (p.retryCount || 0) + 1;
+        rescheduledPosts++;
+      });
+      const failedStories = memoryData.scheduledStories.filter(s => s.status === 'error');
+      failedStories.forEach((s, i) => {
+        s.status = 'pending';
+        s.publishDate = base + (failedPosts.length + i) * spreadMinutes * 60 * 1000;
+        s.result = null;
+        s.completedAt = null;
+        s.failedAt = null;
+        s.retryCount = (s.retryCount || 0) + 1;
+        rescheduledStories++;
+      });
+    }
+    console.log(`[RETRY-ALL] posts=${rescheduledPosts} stories=${rescheduledStories}`);
+    res.json({ ok: true, rescheduledPosts, rescheduledStories });
+  } catch (e) {
+    console.error('[RETRY-ALL] error:', e.message);
     res.status(500).json({ ok: false, error: e.message });
   }
 });
