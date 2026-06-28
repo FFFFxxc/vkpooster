@@ -1032,9 +1032,10 @@ app.get('/api/autolike-settings', async (req, res) => {
 
 app.get('/api/history', async (req, res) => {
   try {
+    const limit = Math.min(parseInt(req.query.limit, 10) || 500, 5000);
     const history = useMongoDB
-      ? await TaskHistory.find().sort({ timestamp: -1 }).limit(100)
-      : memoryData.taskHistory.slice(-100).reverse();
+      ? await TaskHistory.find().sort({ timestamp: -1 }).limit(limit)
+      : memoryData.taskHistory.slice(-limit).reverse();
     res.json({ ok: true, history });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
