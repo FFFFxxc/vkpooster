@@ -1,0 +1,61 @@
+{
+  "manifest_version": 3,
+  "name": "VK Reposter Pro",
+  "version": "4.0.0",
+  "description": "Безопасная очередь постинга и отложенных комментариев для сообществ ВКонтакте",
+  "permissions": [
+    "storage",
+    "alarms",
+    "notifications",
+    "contextMenus"
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  },
+  "host_permissions": [
+    "https://api.vk.com/*",
+    "https://vk.com/*",
+    "https://vk.ru/*",
+    "*://*.vk.com/*",
+    "*://*.vk.ru/*",
+    "https://*.onrender.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://vk.com/*", "*://*.vk.com/*", "*://vk.ru/*", "*://*.vk.ru/*"],
+      "js": ["content-shadow-dom.js", "content.js"],
+      "css": ["content.css", "modal.css"],
+      "run_at": "document_end"
+    },
+    {
+      "matches": ["*://vk.com/*", "*://*.vk.com/*", "*://vk.ru/*", "*://*.vk.ru/*"],
+      "js": ["main-world-injection.js"],
+      "world": "MAIN",
+      "run_at": "document_start"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["modal.css", "lottie-player.js", "fire-heart.json"],
+      "matches": ["*://vk.com/*", "*://*.vk.com/*", "*://vk.ru/*", "*://*.vk.ru/*"]
+    }
+  ]
+}

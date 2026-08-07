@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Очередь — VK Reposter Pro</title>
+  <link rel="stylesheet" href="animate.min.css">
+  <link rel="stylesheet" href="tabler-icons.min.css">
+  <link rel="stylesheet" href="scheduled.css">
+  <style>
+    .safe-main { max-width: 1280px; margin: 0 auto; padding: 24px; }
+    .safe-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(320px,1fr)); gap: 18px; }
+    .safe-panel { background: var(--color-bg-secondary); border: 1px solid var(--color-border); border-radius: 16px; padding: 18px; }
+    .safe-panel__head { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:14px; }
+    .safe-panel__head h2 { margin:0; font-size:18px; }
+    .safe-card { border:1px solid var(--color-border); background:var(--color-bg-tertiary); border-radius:12px; padding:14px; margin-top:10px; }
+    .safe-card__meta { color:var(--color-text-muted); font-size:12px; margin:6px 0 10px; }
+    .safe-card__text { white-space:pre-wrap; line-height:1.45; max-height:130px; overflow:auto; }
+    .safe-card__image { width:100%; max-height:180px; object-fit:cover; border-radius:10px; margin-bottom:10px; }
+    .safe-actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; }
+    .safe-status { display:inline-flex; padding:4px 8px; border-radius:999px; font-size:11px; background:rgba(59,130,246,.16); color:#93c5fd; }
+    .safe-status--done { background:rgba(16,185,129,.16); color:#6ee7b7; }
+    .safe-status--failed,.safe-status--paused,.safe-status--cancelled { background:rgba(239,68,68,.16); color:#fca5a5; }
+    .safe-empty { color:var(--color-text-muted); text-align:center; padding:32px 10px; }
+    .safe-alert { margin-bottom:18px; padding:12px 16px; border:1px solid rgba(245,158,11,.4); background:rgba(146,64,14,.14); border-radius:12px; line-height:1.5; }
+    dialog { width:min(620px,calc(100vw - 32px)); border:1px solid var(--color-border); border-radius:16px; padding:0; color:var(--color-text-primary); background:var(--color-bg-secondary); box-shadow:0 24px 80px rgba(0,0,0,.55); }
+    dialog::backdrop { background:rgba(2,6,23,.72); backdrop-filter:blur(4px); }
+    .safe-dialog { padding:22px; }
+    .safe-form { display:grid; gap:13px; }
+    .safe-form label { display:grid; gap:6px; color:var(--color-text-secondary); font-size:13px; }
+    .safe-form textarea { min-height:100px; resize:vertical; }
+    .safe-groups { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:8px; max-height:180px; overflow:auto; padding:10px; border:1px solid var(--color-border); border-radius:10px; }
+    .safe-check { display:flex!important; grid-template-columns:none!important; align-items:center; gap:8px!important; padding:7px; background:var(--color-bg-tertiary); border-radius:8px; }
+    .safe-toolbar { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+    @media (max-width:700px){ .safe-main{padding:14px}.header__content{padding:14px}.safe-grid{grid-template-columns:1fr} }
+  </style>
+</head>
+<body>
+  <div class="app animate__animated animate__fadeIn">
+    <header class="header">
+      <div class="header__bg"></div>
+      <div class="header__content">
+        <div class="logo">
+          <div class="logo__icon"><i class="ti ti-list-check" style="font-size:26px;color:#fff"></i></div>
+          <div class="logo__text">
+            <span class="logo__title">Публикации и ожидания</span>
+            <span class="logo__badge">VK Reposter Pro v4 safe</span>
+          </div>
+        </div>
+        <div class="header__actions">
+          <button class="btn btn--secondary" id="refresh-btn"><i class="ti ti-refresh"></i> Обновить</button>
+          <button class="btn btn--secondary" id="settings-btn"><i class="ti ti-settings"></i> Настройки</button>
+        </div>
+      </div>
+    </header>
+
+    <main class="safe-main">
+      <div class="safe-alert" id="pause-alert" hidden>
+        <strong>Очередь остановлена VK.</strong>
+        <span id="pause-message"></span>
+        <div class="safe-actions">
+          <button class="btn btn--primary" id="resume-btn">Продолжить после проверки</button>
+        </div>
+      </div>
+
+      <div class="safe-grid">
+        <section class="safe-panel">
+          <div class="safe-panel__head">
+            <h2><i class="ti ti-pin"></i> Ожидания</h2>
+            <span class="safe-status" id="waiting-count">0</span>
+          </div>
+          <div id="waiting-list"></div>
+        </section>
+
+        <section class="safe-panel">
+          <div class="safe-panel__head">
+            <h2><i class="ti ti-list"></i> Локальная очередь</h2>
+            <div class="safe-toolbar">
+              <span class="safe-status" id="queue-count">0</span>
+              <button class="btn btn--secondary btn--small" id="clear-finished">Очистить готовые</button>
+            </div>
+          </div>
+          <div id="queue-list"></div>
+        </section>
+
+        <section class="safe-panel">
+          <div class="safe-panel__head">
+            <h2><i class="ti ti-message-time"></i> Комментарии 24/7</h2>
+            <span class="safe-status" id="comments-count">0</span>
+          </div>
+          <div id="comments-list"></div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <dialog id="publish-dialog">
+    <form class="safe-dialog safe-form" id="publish-form">
+      <div class="safe-panel__head">
+        <h2>Добавить в очередь</h2>
+        <button type="button" class="btn btn--secondary btn--small" id="close-dialog">Закрыть</button>
+      </div>
+      <div>
+        <div style="font-size:13px;color:var(--color-text-secondary);margin-bottom:6px">Целевые сообщества</div>
+        <div class="safe-groups" id="publish-groups"></div>
+      </div>
+      <label>
+        Режим
+        <select class="input" id="publish-mode">
+          <option value="copy">Копировать пост (токен сообщества)</option>
+          <option value="repost">Оригинальный репост (локальный user token)</option>
+        </select>
+      </label>
+      <label>
+        Текст поста
+        <textarea class="input" id="publish-text"></textarea>
+      </label>
+      <label>
+        Дата публикации (пусто = сейчас)
+        <input class="input" type="datetime-local" id="publish-date">
+      </label>
+      <label>
+        Отложенный комментарий
+        <textarea class="input" id="publish-comment" placeholder="Необязательно"></textarea>
+      </label>
+      <button type="submit" class="btn btn--primary btn--full" id="publish-submit">Поставить в очередь</button>
+    </form>
+  </dialog>
+
+  <script src="scheduled.js"></script>
+</body>
+</html>

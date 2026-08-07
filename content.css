@@ -1,0 +1,801 @@
+/* Content.css - Premium Buttons on VK (v3.1 Enhanced) */
+.vkr-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 6px !important;
+  padding: 10px 18px !important;
+  background: linear-gradient(135deg, #7c3aed 0%, #a855f7 50%, #c084fc 100%) !important;
+  color: #fff !important;
+  border-radius: 24px !important;
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  cursor: pointer !important;
+  transition: all 250ms cubic-bezier(0.4, 0, 0.2, 1) !important;
+  margin: 0 !important;
+  user-select: none !important;
+  border: none !important;
+  text-decoration: none !important;
+  vertical-align: middle !important;
+  line-height: 1.2 !important;
+  flex-shrink: 0 !important;
+  white-space: nowrap !important;
+  box-sizing: border-box !important;
+  position: relative !important;
+  overflow: hidden !important;
+  box-shadow: 0 4px 16px #7c3aed80, 0 0 24px rgba(124, 58, 237, 0.35) !important;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji" !important;
+  letter-spacing: -0.2px !important;
+  z-index: 1 !important;
+}
+
+/* Shimmer-блик проходящий по кнопке при hover */
+.vkr-btn::before {
+  content: '' !important;
+  position: absolute !important;
+  top: 0 !important;
+  left: -100% !important;
+  width: 100% !important;
+  height: 100% !important;
+  background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.18) 50%, transparent 100%) !important;
+  transition: left 0.55s ease !important;
+  z-index: -1 !important;
+  pointer-events: none !important;
+}
+
+.vkr-btn:hover::before {
+  left: 100% !important;
+}
+
+.vkr-btn:hover {
+  transform: translateY(-3px) scale(1.02) !important;
+  box-shadow: 0 8px 32px rgba(124, 58, 237, 0.6), 0 0 40px rgba(124, 58, 237, 0.55) !important;
+}
+
+.vkr-btn:active {
+  transform: translateY(-1px) scale(0.98) !important;
+  transition: all 100ms ease !important;
+}
+
+
+/* Кнопка накрутки на комменты - премиум стили */
+.vkr-boost-btn {
+  background: linear-gradient(135deg, #f59e0b 0%, #fbbf24 50%, #d97706 100%) !important;
+  border: none !important;
+  border-radius: 50% !important;
+  width: 32px !important;
+  height: 32px !important;
+  font-size: 16px !important;
+  cursor: pointer !important;
+  opacity: 0.85 !important;
+  transition: all 250ms cubic-bezier(0.4, 0, 0.2, 1) !important;
+  margin-left: 8px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 0 !important;
+  vertical-align: middle !important;
+  flex-shrink: 0 !important;
+  position: relative !important;
+  box-sizing: border-box !important;
+  line-height: 1 !important;
+  text-align: center !important;
+  box-shadow: 0 4px 16px rgba(245, 158, 11, 0.55) !important;
+  overflow: visible !important;
+}
+
+/* Мягкое blur-свечение за кнопкой при hover */
+.vkr-boost-btn::after {
+  content: '' !important;
+  position: absolute !important;
+  inset: -3px !important;
+  background: linear-gradient(135deg, #f59e0b, #fbbf24, #f59e0b) !important;
+  border-radius: 50% !important;
+  z-index: -1 !important;
+  opacity: 0 !important;
+  filter: blur(10px) !important;
+  transition: opacity 250ms ease !important;
+}
+
+.vkr-boost-btn:hover {
+  opacity: 1 !important;
+  transform: scale(1.18) !important;
+  box-shadow: 0 6px 24px rgba(245, 158, 11, 0.75) !important;
+}
+
+.vkr-boost-btn:hover::after {
+  opacity: 1 !important;
+}
+
+.vkr-boost-btn:active {
+  transform: scale(1.05) !important;
+}
+
+.vkr-boost-btn:disabled {
+  opacity: 0.5 !important;
+  cursor: not-allowed !important;
+  transform: none !important;
+}
+
+.vkr-boost-btn:disabled::after {
+  display: none !important;
+}
+
+.vkr-boost-btn.loading {
+  background: linear-gradient(135deg, #64748b 0%, #94a3b8 50%, #475569 100%) !important;
+  animation: vkr-shimmer-bg 1.5s ease-in-out infinite !important;
+}
+
+.vkr-boost-btn.success {
+  background: linear-gradient(135deg, #ef4444 0%, #f87171 50%, #dc2626 100%) !important;
+  box-shadow: 0 4px 16px rgba(239, 68, 68, 0.65) !important;
+  animation: vkr-pulse-success 0.9s ease-in-out !important;
+}
+
+/* Кнопка TwiBoost накрутки на комменты - премиум стили */
+.vkr-twiboost-btn {
+  background: linear-gradient(135deg, #a855f7 0%, #c084fc 50%, #8b5cf6 100%) !important;
+  border: none !important;
+  border-radius: 50% !important;
+  width: 32px !important;
+  height: 32px !important;
+  font-size: 16px !important;
+  cursor: pointer !important;
+  opacity: 0.85 !important;
+  transition: all 250ms cubic-bezier(0.4, 0, 0.2, 1) !important;
+  margin-left: 8px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 0 !important;
+  vertical-align: middle !important;
+  flex-shrink: 0 !important;
+  position: relative !important;
+  box-sizing: border-box !important;
+  line-height: 1 !important;
+  text-align: center !important;
+  box-shadow: 0 4px 16px rgba(168, 85, 247, 0.55) !important;
+  overflow: visible !important;
+}
+
+.vkr-twiboost-btn::after {
+  content: '' !important;
+  position: absolute !important;
+  inset: -3px !important;
+  background: linear-gradient(135deg, #a855f7, #c084fc, #8b5cf6) !important;
+  border-radius: 50% !important;
+  z-index: -1 !important;
+  opacity: 0 !important;
+  filter: blur(10px) !important;
+  transition: opacity 250ms ease !important;
+}
+
+.vkr-twiboost-btn:hover {
+  opacity: 1 !important;
+  transform: scale(1.18) !important;
+  box-shadow: 0 6px 24px rgba(168, 85, 247, 0.75) !important;
+}
+
+.vkr-twiboost-btn:hover::after {
+  opacity: 1 !important;
+}
+
+.vkr-twiboost-btn:active {
+  transform: scale(1.05) !important;
+}
+
+.vkr-twiboost-btn:disabled {
+  opacity: 0.5 !important;
+  cursor: not-allowed !important;
+  transform: none !important;
+}
+
+.vkr-twiboost-btn:disabled::after {
+  display: none !important;
+}
+
+/* Уведомление об успехе внизу экрана - премиум */
+.vkr-toast-notify {
+  position: fixed !important;
+  bottom: 32px !important;
+  left: 50% !important;
+  transform: translateX(-50%) !important;
+  background: rgba(15, 15, 30, 0.88) !important;
+  color: #fff !important;
+  padding: 16px 32px !important;
+  border-radius: 18px !important;
+  z-index: 99999999 !important;
+  font-size: 15px !important;
+  font-weight: 600 !important;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji" !important;
+  box-shadow: 0 16px 48px rgba(0,0,0,0.6), 0 0 32px rgba(124, 58, 237, 0.45), inset 0 1px 0 rgba(255,255,255,0.08) !important;
+  animation: vkr-toast-in 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) forwards !important;
+  pointer-events: none !important;
+  box-sizing: border-box !important;
+  white-space: nowrap !important;
+  line-height: 1.5 !important;
+  backdrop-filter: blur(16px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(180%) !important;
+  border: 1px solid rgba(124, 58, 237, 0.35) !important;
+  overflow: hidden !important;
+}
+
+/* Пробегающий блик у toast */
+.vkr-toast-notify::before {
+  content: '' !important;
+  position: absolute !important;
+  top: 0 !important;
+  left: -100% !important;
+  width: 100% !important;
+  height: 100% !important;
+  background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.12) 50%, transparent 100%) !important;
+  animation: vkr-shimmer 2.2s ease-in-out infinite !important;
+  pointer-events: none !important;
+}
+
+@keyframes vkr-toast-in {
+  0% { bottom: 0; opacity: 0; transform: translateX(-50%) scale(0.9) translateY(20px); }
+  50% { opacity: 1; }
+  100% { bottom: 32px; opacity: 1; transform: translateX(-50%) scale(1) translateY(0); }
+}
+
+@keyframes vkr-shimmer {
+  0% { left: -100%; }
+  100% { left: 100%; }
+}
+
+@keyframes vkr-shimmer-bg {
+  0%, 100% { filter: brightness(1); }
+  50% { filter: brightness(1.25); }
+}
+
+@keyframes vkr-pulse-success {
+  0%, 100% { transform: scale(1); }
+  25% { transform: scale(1.12); }
+  50% { transform: scale(0.95); }
+  75% { transform: scale(1.05); }
+}
+
+/* Кнопка случайного коммента - премиум */
+.vkr-btn-comment {
+  background: linear-gradient(135deg, #10b981 0%, #34d399 50%, #059669 100%) !important;
+  box-shadow: 0 4px 16px rgba(16, 185, 129, 0.55), 0 0 24px rgba(16, 185, 129, 0.35) !important;
+}
+
+.vkr-btn-comment:hover {
+  transform: translateY(-3px) scale(1.02) !important;
+  box-shadow: 0 8px 32px rgba(16, 185, 129, 0.65), 0 0 40px rgba(16, 185, 129, 0.55) !important;
+}
+
+/* Кнопка накрутки (оранжевая) - премиум */
+.vkr-btn-boost {
+  background: linear-gradient(135deg, #f59e0b 0%, #fbbf24 50%, #d97706 100%) !important;
+  box-shadow: 0 4px 16px rgba(245, 158, 11, 0.55), 0 0 24px rgba(245, 158, 11, 0.35) !important;
+}
+
+.vkr-btn-boost:hover {
+  transform: translateY(-3px) scale(1.02) !important;
+  box-shadow: 0 8px 32px rgba(245, 158, 11, 0.65), 0 0 40px rgba(245, 158, 11, 0.55) !important;
+}
+
+/* Кнопка добавления в ожидания - премиум синий/фиолетовый */
+.vkr-btn-pending {
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #4f46e5 100%) !important;
+  box-shadow: 0 4px 16px rgba(99, 102, 241, 0.55), 0 0 24px rgba(99, 102, 241, 0.35) !important;
+}
+
+.vkr-btn-pending:hover {
+  transform: translateY(-3px) scale(1.02) !important;
+  box-shadow: 0 8px 32px rgba(99, 102, 241, 0.65), 0 0 40px rgba(99, 102, 241, 0.55) !important;
+}
+
+
+
+/* ==========================================================================
+   v3.2 Refinements — accessibility + calmer motion
+   ========================================================================== */
+
+/* Клавиатурный focus-visible для кнопок на VK-страницах */
+.vkr-btn:focus-visible,
+.vkr-boost-btn:focus-visible,
+.vkr-twiboost-btn:focus-visible {
+  outline: 3px solid rgba(192, 132, 252, 0.55) !important;
+  outline-offset: 2px !important;
+}
+
+/* Уважение к настройке "Reduce motion" в ОС */
+@media (prefers-reduced-motion: reduce) {
+  .vkr-btn,
+  .vkr-boost-btn,
+  .vkr-twiboost-btn,
+  .vkr-toast-notify {
+    transition-duration: 1ms !important;
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+  }
+  .vkr-btn::before,
+  .vkr-toast-notify::before { animation: none !important; }
+  .vkr-btn:hover { transform: none !important; }
+  .vkr-boost-btn:hover,
+  .vkr-twiboost-btn:hover { transform: scale(1.08) !important; }
+}
+
+/* ========== BULK DELETE BUTTON ========== */
+.vkr-bulk-delete-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  padding: 8px 16px !important;
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%) !important;
+  color: white !important;
+  border: none !important;
+  border-radius: 8px !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  cursor: pointer !important;
+  transition: all 0.2s ease !important;
+  box-shadow: 0 2px 8px rgba(239, 68, 68, 0.3) !important;
+  margin-left: 8px !important;
+}
+
+.vkr-bulk-delete-btn:hover {
+  background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%) !important;
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4) !important;
+  transform: translateY(-1px) !important;
+}
+
+.vkr-bulk-delete-btn:active {
+  transform: translateY(0) !important;
+  box-shadow: 0 2px 6px rgba(239, 68, 68, 0.3) !important;
+}
+
+/* ========== BULK DELETE MODAL ========== */
+.vkr-bulk-delete-overlay {
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  background: rgba(0, 0, 0, 0.75) !important;
+  backdrop-filter: blur(8px) !important;
+  -webkit-backdrop-filter: blur(8px) !important;
+  z-index: 999999 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 20px !important;
+  animation: vkr-fade-in 0.2s ease !important;
+}
+
+.vkr-bulk-delete-modal {
+  background: linear-gradient(135deg, #1e1e2e 0%, #2a2a3e 100%) !important;
+  border-radius: 16px !important;
+  padding: 32px !important;
+  max-width: 600px !important;
+  width: 100% !important;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  animation: vkr-slide-up 0.3s ease !important;
+  color: white !important;
+}
+
+.vkr-bulk-delete-modal h2 {
+  margin: 0 0 24px 0 !important;
+  font-size: 24px !important;
+  font-weight: 600 !important;
+  color: white !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 12px !important;
+}
+
+.vkr-bulk-delete-modal h2::before {
+  content: '🗑️' !important;
+  font-size: 28px !important;
+}
+
+/* Quick Select Buttons */
+.vkr-quick-select {
+  display: flex !important;
+  gap: 12px !important;
+  margin-bottom: 24px !important;
+}
+
+.vkr-quick-select button {
+  flex: 1 !important;
+  padding: 12px 16px !important;
+  background: rgba(99, 102, 241, 0.1) !important;
+  border: 1px solid rgba(99, 102, 241, 0.3) !important;
+  border-radius: 8px !important;
+  color: #a5b4fc !important;
+  font-size: 14px !important;
+  font-weight: 500 !important;
+  cursor: pointer !important;
+  transition: all 0.2s ease !important;
+}
+
+.vkr-quick-select button:hover {
+  background: rgba(99, 102, 241, 0.2) !important;
+  border-color: rgba(99, 102, 241, 0.5) !important;
+  color: #c7d2fe !important;
+}
+
+.vkr-quick-select button.active {
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%) !important;
+  border-color: #6366f1 !important;
+  color: white !important;
+}
+
+/* Date Range */
+.vkr-date-range {
+  display: grid !important;
+  grid-template-columns: 1fr 1fr !important;
+  gap: 16px !important;
+  margin-bottom: 24px !important;
+}
+
+.vkr-date-range label {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 8px !important;
+  font-size: 14px !important;
+  font-weight: 500 !important;
+  color: #d1d5db !important;
+}
+
+.vkr-date-range input[type="date"] {
+  padding: 10px 12px !important;
+  background: rgba(255, 255, 255, 0.05) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border-radius: 8px !important;
+  color: white !important;
+  font-size: 14px !important;
+  font-family: inherit !important;
+  transition: all 0.2s ease !important;
+}
+
+.vkr-date-range input[type="date"]:focus {
+  outline: none !important;
+  border-color: #6366f1 !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+}
+
+.vkr-date-range input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(1) !important;
+  cursor: pointer !important;
+}
+
+/* Options */
+.vkr-bulk-options {
+  margin-bottom: 24px !important;
+  padding: 16px !important;
+  background: rgba(255, 255, 255, 0.03) !important;
+  border-radius: 8px !important;
+  border: 1px solid rgba(255, 255, 255, 0.05) !important;
+}
+
+.vkr-bulk-options label {
+  display: flex !important;
+  align-items: center !important;
+  gap: 10px !important;
+  font-size: 14px !important;
+  color: #d1d5db !important;
+  cursor: pointer !important;
+}
+
+.vkr-bulk-options input[type="checkbox"] {
+  width: 18px !important;
+  height: 18px !important;
+  cursor: pointer !important;
+  accent-color: #6366f1 !important;
+}
+
+/* Preview Info */
+.vkr-bulk-preview {
+  margin-bottom: 24px !important;
+  padding: 16px !important;
+  background: rgba(99, 102, 241, 0.1) !important;
+  border-radius: 8px !important;
+  border: 1px solid rgba(99, 102, 241, 0.3) !important;
+  display: none !important;
+}
+
+.vkr-bulk-preview.visible {
+  display: block !important;
+}
+
+.vkr-bulk-preview-title {
+  font-size: 14px !important;
+  font-weight: 600 !important;
+  color: #c7d2fe !important;
+  margin-bottom: 8px !important;
+}
+
+.vkr-bulk-preview-stats {
+  display: flex !important;
+  gap: 24px !important;
+  font-size: 13px !important;
+  color: #a5b4fc !important;
+}
+
+.vkr-bulk-preview-stat strong {
+  color: white !important;
+  font-weight: 600 !important;
+}
+
+/* Progress */
+.vkr-bulk-progress {
+  margin-bottom: 24px !important;
+  display: none !important;
+}
+
+.vkr-bulk-progress.visible {
+  display: block !important;
+}
+
+.vkr-progress-bar-container {
+  width: 100% !important;
+  height: 5px !important;
+  background: rgba(124, 58, 237, 0.15) !important;
+  border-radius: 999px !important;
+  overflow: visible !important;   /* иначе искры обрежутся */
+  position: relative !important;
+  margin-bottom: 14px !important;
+}
+
+.vkr-progress-bar {
+  height: 100% !important;
+  background: linear-gradient(90deg, #8b5cf6, #c084fc) !important;
+  box-shadow: 0 0 10px rgba(139, 92, 246, 0.8),
+              0 0 22px rgba(139, 92, 246, 0.4) !important;
+  border-radius: 999px !important;
+  position: relative !important;
+  transition: width 0.3s ease !important;
+  min-width: 6px !important;
+}
+
+.vkr-progress-bar::after,
+.vkr-progress-bar::before {
+  content: '' !important;
+  width: 10px !important;
+  height: 1px !important;
+  background: #e9d5ff !important;
+  position: absolute !important;
+  top: 9px !important;
+  right: -2px !important;
+  opacity: 0 !important;
+  transform: rotate(-45deg) translateX(0px) !important;
+  animation: vkrColi1 0.3s linear infinite !important;
+}
+.vkr-progress-bar::before {
+  top: -4px !important;
+  transform: rotate(45deg) !important;
+  animation: vkrColi2 0.3s linear infinite !important;
+}
+@keyframes vkrColi1 {
+  0% { transform: rotate(-45deg) translateX(0px); opacity: 0.7; }
+  100% { transform: rotate(-45deg) translateX(-45px); opacity: 0; }
+}
+@keyframes vkrColi2 {
+  0% { transform: rotate(45deg) translateX(0px); opacity: 1; }
+  100% { transform: rotate(45deg) translateX(-45px); opacity: 0.7; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vkr-progress-bar::after,
+  .vkr-progress-bar::before {
+    display: none !important;
+  }
+  .vkr-progress-bar {
+    transition: none !important;
+  }
+}
+
+.vkr-progress-text {
+  font-size: 14px !important;
+  color: #d1d5db !important;
+  text-align: center !important;
+}
+
+.vkr-progress-details {
+  display: flex !important;
+  justify-content: space-between !important;
+  font-size: 12px !important;
+  color: #9ca3af !important;
+  margin-top: 8px !important;
+}
+
+/* Actions */
+.vkr-bulk-actions {
+  display: flex !important;
+  gap: 12px !important;
+  justify-content: flex-end !important;
+}
+
+.vkr-bulk-actions button {
+  padding: 12px 24px !important;
+  border-radius: 8px !important;
+  font-size: 14px !important;
+  font-weight: 500 !important;
+  cursor: pointer !important;
+  transition: all 0.2s ease !important;
+  border: none !important;
+}
+
+.vkr-bulk-btn-cancel {
+  background: rgba(255, 255, 255, 0.1) !important;
+  color: white !important;
+}
+
+.vkr-bulk-btn-cancel:hover {
+  background: rgba(255, 255, 255, 0.15) !important;
+}
+
+.vkr-bulk-btn-preview {
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%) !important;
+  color: white !important;
+}
+
+.vkr-bulk-btn-preview:hover {
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4) !important;
+  transform: translateY(-1px) !important;
+}
+
+.vkr-bulk-btn-delete {
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%) !important;
+  color: white !important;
+}
+
+.vkr-bulk-btn-delete:hover {
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4) !important;
+  transform: translateY(-1px) !important;
+}
+
+.vkr-bulk-btn-delete:disabled,
+.vkr-bulk-btn-preview:disabled {
+  opacity: 0.5 !important;
+  cursor: not-allowed !important;
+  transform: none !important;
+}
+
+/* Animations */
+@keyframes vkr-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes vkr-slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Панель скачивания клипов */
+.vkr-dl-panel {
+  position: fixed !important;
+  left: 16px !important;
+  bottom: 16px !important;
+  z-index: 2147483647 !important;
+  background: rgba(15, 12, 30, 0.85) !important;
+  backdrop-filter: blur(16px) !important;
+  border: 1px solid rgba(139, 92, 246, 0.35) !important;
+  border-radius: 16px !important;
+  padding: 10px 14px !important;
+  box-shadow: 0 8px 32px rgba(124, 58, 237, 0.35) !important;
+  display: flex !important;
+  gap: 8px !important;
+  align-items: center !important;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
+  animation: vkrDlIn 300ms ease-out !important;
+}
+
+.vkr-dl-panel--error {
+  border-color: rgba(239, 68, 68, 0.4) !important;
+  background: rgba(30, 10, 10, 0.9) !important;
+  color: #fca5a5 !important;
+  font-weight: 600 !important;
+}
+
+@keyframes vkrDlIn {
+  from {
+    transform: translateY(12px) !important;
+    opacity: 0 !important;
+  }
+  to {
+    transform: translateY(0) !important;
+    opacity: 1 !important;
+  }
+}
+
+.vkr-dl-icon {
+  flex-shrink: 0 !important;
+}
+
+.vkr-dl-label {
+  color: #e9d5ff !important;
+  font-weight: 700 !important;
+  font-size: 13px !important;
+  white-space: nowrap !important;
+  margin-right: 4px !important;
+}
+
+.vkr-dl-btn {
+  border-radius: 999px !important;
+  padding: 5px 12px !important;
+  font-weight: 600 !important;
+  font-size: 13px !important;
+  text-decoration: none !important;
+  white-space: nowrap !important;
+  cursor: pointer !important;
+  transition: all 200ms !important;
+}
+
+.vkr-dl-btn--primary {
+  background: linear-gradient(135deg, #7c3aed, #a855f7) !important;
+  color: #fff !important;
+  border: none !important;
+}
+
+.vkr-dl-btn--secondary {
+  background: transparent !important;
+  border: 1px solid rgba(139, 92, 246, 0.45) !important;
+  color: #c084fc !important;
+}
+
+.vkr-dl-btn:hover {
+  background: linear-gradient(135deg, #7c3aed, #a855f7) !important;
+  color: #fff !important;
+  border-color: transparent !important;
+  transform: translateY(-1px) !important;
+  box-shadow: 0 4px 14px rgba(139, 92, 246, 0.5) !important;
+}
+
+.vkr-dl-close {
+  width: 24px !important;
+  height: 24px !important;
+  border-radius: 50% !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  background: none !important;
+  border: none !important;
+  cursor: pointer !important;
+  color: rgba(255, 255, 255, 0.55) !important;
+  font-size: 16px !important;
+  line-height: 1 !important;
+  padding: 0 !important;
+  transition: all 250ms !important;
+  user-select: none !important;
+}
+
+.vkr-dl-close:hover {
+  background: rgba(255, 255, 255, 0.12) !important;
+  color: #fff !important;
+  transform: rotate(90deg) !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vkr-dl-panel {
+    animation: none !important;
+  }
+  .vkr-dl-btn,
+  .vkr-dl-close {
+    transition: none !important;
+  }
+  .vkr-dl-btn:hover {
+    transform: none !important;
+    box-shadow: none !important;
+  }
+  .vkr-dl-close:hover {
+    transform: none !important;
+  }
+}

@@ -1,0 +1,15 @@
+node_modules/
+server/node_modules/
+.env
+server/.env
+*.log
+.DS_Store
+NEW.rar
+*.zip
+.claude/
+.kiro/
+.vscode/
+fonts/tabler-icons-200.*
+fonts/tabler-icons-300.*
+fonts/tabler-icons-filled.*
+fonts/tabler-icons.svg

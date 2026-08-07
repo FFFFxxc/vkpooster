@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VK Reposter Pro</title>
+  <link rel="stylesheet" href="animate.min.css">
+  <link rel="stylesheet" href="tabler-icons.min.css">
+  <link rel="stylesheet" href="popup.css">
+  <style>
+    .safe-note { padding: 12px; border: 1px solid rgba(59,130,246,.35); border-radius: 12px; background: rgba(30,64,175,.12); font-size: 12px; line-height: 1.45; }
+    .safe-note--warning { border-color: rgba(245,158,11,.4); background: rgba(146,64,14,.14); }
+    .field-stack { display: grid; gap: 8px; }
+    .token-row { display: grid; grid-template-columns: 96px 1fr auto; gap: 8px; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--color-border); }
+    .token-row:last-child { border-bottom: 0; }
+    .token-row__name { min-width: 0; }
+    .token-row__name strong, .token-row__name span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .token-row__name span { color: var(--color-text-muted); font-size: 11px; }
+    .btn--compact { min-width: auto; padding: 7px 10px; }
+    .status-line { margin-top: 8px; color: var(--color-text-secondary); font-size: 12px; line-height: 1.4; }
+    .action-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  </style>
+</head>
+<body>
+  <div class="app animate__animated animate__fadeIn">
+    <header class="header">
+      <div class="header__bg"></div>
+      <div class="header__content">
+        <div class="logo">
+          <div id="logo-lottie" class="logo__lottie"></div>
+          <span class="logo__badge">SAFE</span>
+        </div>
+        <div class="version">v4.0</div>
+      </div>
+    </header>
+
+    <main class="main">
+      <div class="safe-note safe-note--warning">
+        Cookie-вход, Kate Mobile, автолайки и отправка пользовательских токенов
+        на сервер удалены. Пользовательский токен хранится только в этом браузере.
+      </div>
+
+      <section class="section">
+        <div class="section__header">
+          <h2 class="section__title">
+            <i class="ti ti-key section__icon-img"></i>
+            Локальный токен
+          </h2>
+          <span class="server-status" id="user-token-status">Не настроен</span>
+        </div>
+        <div class="field-stack">
+          <input type="password" id="user-token" class="input" autocomplete="off"
+                 placeholder="Пользовательский access_token (необязательно)">
+          <div class="action-grid">
+            <button class="btn btn--primary" id="save-user-token">Проверить и сохранить</button>
+            <button class="btn btn--secondary" id="clear-user-token">Удалить</button>
+          </div>
+        </div>
+        <div class="status-line">
+          Нужен для чтения исходных постов, оригинального репоста и некоторых
+          операций с медиа. На сервер не передаётся.
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="section__header">
+          <h2 class="section__title">
+            <i class="ti ti-building-community section__icon-img"></i>
+            Токены сообществ
+          </h2>
+          <span class="section__badge" id="group-token-count">0</span>
+        </div>
+        <div class="field-stack">
+          <input type="number" id="group-id" class="input" min="1"
+                 placeholder="ID сообщества, например 123456">
+          <input type="text" id="group-label" class="input"
+                 placeholder="Название для себя (необязательно)">
+          <input type="password" id="group-token" class="input" autocomplete="off"
+                 placeholder="Токен этого сообщества">
+          <button class="btn btn--primary btn--full" id="save-group-token">
+            Добавить токен сообщества
+          </button>
+        </div>
+        <div id="group-token-list"></div>
+        <div class="status-line">
+          При копировании поста расширение сначала использует токен выбранного
+          сообщества. Токен одной группы не применяется к другой.
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="section__header">
+          <h2 class="section__title">
+            <i class="ti ti-server section__icon-img"></i>
+            Сервер комментариев
+          </h2>
+          <span class="server-status" id="server-status">Не настроен</span>
+        </div>
+        <div class="field-stack">
+          <input type="url" id="server-url" class="input"
+                 placeholder="https://your-service.onrender.com">
+          <input type="password" id="server-secret" class="input" autocomplete="off"
+                 placeholder="API_SECRET из Render">
+          <div class="action-grid">
+            <button class="btn btn--primary" id="save-server">Сохранить и проверить</button>
+            <button class="btn btn--secondary" id="generate-secret">Создать секрет</button>
+          </div>
+          <label class="status-line" for="comment-delay">
+            Задержка комментария, секунд (минимум 15)
+          </label>
+          <input type="number" id="comment-delay" class="input" min="15" max="86400" value="60">
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="section__header">
+          <h2 class="section__title">
+            <i class="ti ti-list-check section__icon-img"></i>
+            Очередь
+          </h2>
+          <span class="server-status" id="queue-status">Пусто</span>
+        </div>
+        <div id="queue-message" class="status-line">Нет ожидающих публикаций.</div>
+        <button class="btn btn--primary btn--full" id="resume-queue" hidden>
+          Продолжить очередь после проверки VK
+        </button>
+      </section>
+
+      <section class="section">
+        <div class="action-grid">
+          <button class="btn btn--secondary" id="open-scheduled">
+            <i class="ti ti-calendar"></i> Посты и ожидания
+          </button>
+          <button class="btn btn--secondary" id="open-vk">
+            <i class="ti ti-brand-vk"></i> Открыть VK
+          </button>
+        </div>
+      </section>
+
+      <div class="safe-note">
+        Первый тест сделайте на одной тестовой группе. Если VK покажет проверку,
+        не нажимайте «продолжить» до её прохождения.
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer__brand">
+        <span class="footer__brand-name">VK Reposter Pro</span>
+        <span class="footer__brand-dot"></span>
+        <span>safe queue</span>
+      </div>
+    </footer>
+  </div>
+
+  <script src="lottie-player.js"></script>
+  <script src="popup-auth.js"></script>
+</body>
+</html>
+

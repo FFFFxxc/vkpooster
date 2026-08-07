@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: vk-reposter-safe
+    runtime: node
+    plan: starter
+    buildCommand: cd server && npm ci
+    startCommand: cd server && npm start
+    healthCheckPath: /health
+    autoDeployTrigger: commit
+    envVars:
+      - key: NODE_VERSION
+        value: 22
+      - key: NODE_ENV
+        value: production
+      - key: MONGODB_URI
+        sync: false
+      - key: API_SECRET
+        sync: false
+      - key: TOKEN_ENCRYPTION_KEY
+        generateValue: true
+      - key: WORKER_INTERVAL_MS
+        value: "15000"
+      - key: STALE_LOCK_MS
+        value: "600000"
+      - key: VK_API_VERSION
+        value: "5.199"
