@@ -1,0 +1,37 @@
+.file-copy,
+.file-card {
+  min-width: 0;
+}
+
+.file-copy {
+  overflow: hidden;
+}
+
+.file-card strong {
+  max-width: 100%;
+}
+
+.job-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.compact.interval {
+  flex: 0 0 165px;
+  width: 165px;
+}
+
+@media (max-width: 1180px) {
+  .options-row {
+    align-items: stretch;
+    flex-wrap: wrap;
+  }
+
+  .compact,
+  .compact.interval {
+    flex: 1 1 230px;
+    width: auto;
+  }
+}

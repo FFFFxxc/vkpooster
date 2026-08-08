@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>VK Reposter Pro — Клипы</title>
   <link rel="stylesheet" href="clips.css">
+  <link rel="stylesheet" href="clips-fixes.css">
 </head>
 <body>
   <header class="topbar">
@@ -43,6 +44,7 @@
         <div class="options-row">
           <label class="check"><input id="wall-post" type="checkbox"> Добавлять запись о клипе на стену</label>
           <label class="field compact"><span>Время публикации (необязательно)</span><input id="publish-at" type="datetime-local"></label>
+          <label class="field compact interval"><span>Интервал между видео, мин</span><input id="interval-minutes" type="number" min="0" max="10080" step="1" value="60"></label>
         </div>
 
         <div class="safety-note">

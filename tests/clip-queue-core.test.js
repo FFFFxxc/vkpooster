@@ -25,6 +25,26 @@ test("jobs are flattened by file then group and only one can become active", () 
   assert.equal(nextRunnableJob([opening, jobs[1]]), null);
 });
 
+test("clip interval advances once per video and keeps communities synchronized", () => {
+  let sequence = 0;
+  const jobs = createClipJobs({
+    sourceId: "source-a",
+    files: [
+      { id: "file-1", name: "a.mp4", size: 10, type: "video/mp4" },
+      { id: "file-2", name: "b.mp4", size: 10, type: "video/mp4" },
+    ],
+    groups: [
+      { id: 42, name: "Club", screenName: "club_name" },
+      { id: 43, name: "Club 2", screenName: "club_two" },
+    ],
+    defaults: { publishAt: 1_000_000, intervalMinutes: 60 },
+    now: 100,
+    createId: () => `job-${sequence += 1}`,
+  });
+  assert.deepEqual(jobs.map((job) => job.publishAt), [1_000_000, 1_000_000, 4_600_000, 4_600_000]);
+  assert.deepEqual(jobs.map((job) => job.groupScreenName), ["club_name", "club_two", "club_name", "club_two"]);
+});
+
 test("source disconnection pauses unfinished jobs and history contains no file data", () => {
   const paused = transitionClipJob({
     id: "j", status: "uploading", fileId: "file", sourceId: "s", fileName: "x.mp4",
@@ -38,4 +58,14 @@ test("source disconnection pauses unfinished jobs and history contains no file d
 
 test("invalid transitions throw instead of starting a parallel job", () => {
   assert.throws(() => transitionClipJob({ id: "j", status: "queued" }, { type: "complete" }, 1), /cannot/i);
+});
+
+test("clip interval rejects malformed values", () => {
+  assert.throws(() => createClipJobs({
+    sourceId: "source-a",
+    files: [{ id: "file-1", name: "a.mp4", size: 10, type: "video/mp4" }],
+    groups: [{ id: 42, name: "Club" }],
+    defaults: { intervalMinutes: "not-a-number" },
+    now: 100,
+  }), /интервал/i);
 });

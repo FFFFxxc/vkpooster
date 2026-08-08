@@ -44,6 +44,34 @@
     return "";
   }
 
+  function isVisible(element) {
+    if (!element || !element.isConnected || element.getClientRects().length === 0) return false;
+    const style = getComputedStyle(element);
+    return style.display !== "none" && style.visibility !== "hidden";
+  }
+
+  function cleanName(value) {
+    return String(value || "").toLowerCase().replace(/[^a-zа-яё0-9]/gi, "");
+  }
+
+  function findVideoFileInput() {
+    return [...document.querySelectorAll('input[type="file"]')].find((input) => {
+      const accept = String(input.getAttribute("accept") || "").toLowerCase();
+      return !accept || accept.includes("video") || !accept.includes("image");
+    }) || null;
+  }
+
+  function assertCommunityRoute(options) {
+    if (/^\/clips\/upload-?\d+/i.test(location.pathname)) return;
+    const expected = String(options.screenName || `club${options.groupId}`).toLowerCase();
+    const fallback = `club${Math.abs(Number(options.groupId))}`.toLowerCase();
+    const match = location.pathname.match(/^\/clips\/([^/]+)/i);
+    const actual = match ? decodeURIComponent(match[1]).toLowerCase() : "";
+    if (!actual || ![expected, fallback].includes(actual)) {
+      throw new Error(`VK открыл не страницу целевого сообщества, а «${location.pathname}». Ничего не опубликовано; вкладка оставлена открытой.`);
+    }
+  }
+
   async function waitFor(find, timeoutMs, description) {
     const started = Date.now();
     while (Date.now() - started < timeoutMs) {
@@ -64,11 +92,94 @@
   }
 
   function findUploadEntryButton() {
+    const exact = document.querySelector('[data-testid="clips-publish-button"]');
+    if (isVisible(exact)) return exact;
     for (const button of document.querySelectorAll("button,[role=button]")) {
+      if (!isVisible(button)) continue;
       const text = String(button.textContent || "").trim().toLowerCase();
       if (["опубликовать", "создать клип", "добавить клип", "загрузить клип"].some((label) => text === label || text.includes(label))) return button;
     }
     return null;
+  }
+
+  async function waitForCommunityFileInput(options) {
+    const started = Date.now();
+    let contextChosen = false;
+    while (Date.now() - started < 30_000) {
+      const protection = protectiveReason();
+      if (protection) throw new Error(protection);
+      const input = findVideoFileInput();
+      if (input) return input;
+      if (!contextChosen) {
+        const community = [...document.querySelectorAll('button,[role="button"]')].find((button) => {
+          if (!isVisible(button)) return false;
+          const text = String(button.textContent || "").trim().toLowerCase();
+          return text === "сообщество" || text.includes("от имени сообщества") || text.includes("продолжить как сообщество");
+        });
+        if (community) {
+          community.click();
+          contextChosen = true;
+        }
+      }
+      await delay(400);
+    }
+    throw new Error(`Не появилась форма выбора видео для «${options.groupName || `club${options.groupId}`}». Вкладка оставлена открытой.`);
+  }
+
+  function findAuthorSelector() {
+    const selectors = [
+      '[data-testid="clips-upload-author"]',
+      '[data-testid="clips-upload-author-selector"]',
+      '[data-testid="clips-upload-owner-selector"]',
+      '[data-testid="author-selector"]',
+      '[data-testid="owner-selector"]',
+    ];
+    return selectors.map((selector) => document.querySelector(selector)).find(isVisible) || null;
+  }
+
+  async function ensureCommunityAuthor(options) {
+    const groupId = Math.abs(Number(options.groupId));
+    const expectedOwnerId = -groupId;
+    const ownerMatch = location.pathname.match(/^\/clips\/upload(-?\d+)/i);
+    if (ownerMatch) {
+      const ownerId = Number(ownerMatch[1]);
+      if (ownerId !== expectedOwnerId) {
+        throw new Error(`VK создал черновик от владельца ${ownerId}, ожидалось сообщество ${expectedOwnerId}. Публикация остановлена.`);
+      }
+      return;
+    }
+
+    const selector = findAuthorSelector();
+    if (!selector) {
+      throw new Error(`Не удалось подтвердить автора клипа «${options.groupName || `club${groupId}`}». Публикация остановлена до ручной проверки.`);
+    }
+    const target = cleanName(options.groupName);
+    const current = cleanName(selector.textContent);
+    if (target && (current === target || current.includes(target))) return;
+
+    selector.click();
+    const choices = await waitFor(() => {
+      const items = [...document.querySelectorAll('[data-testid="clips-upload-modal-option-owner"]')].filter(isVisible);
+      return items.length ? items : null;
+    }, 10_000, "список авторов клипа");
+    const screenName = String(options.screenName || "").toLowerCase();
+    const club = `club${groupId}`;
+    const choice = choices.find((item) => {
+      const text = cleanName(item.textContent);
+      const attrs = [...item.attributes].map((attribute) => String(attribute.value || "").toLowerCase()).join(" ");
+      return (target && (text === target || text.includes(target))) || attrs.includes(screenName) || attrs.includes(club);
+    });
+    if (!choice) {
+      const available = choices.map((item) => String(item.textContent || "").trim()).filter(Boolean).slice(0, 8).join(", ");
+      throw new Error(`Сообщество «${options.groupName || club}» не найдено среди авторов клипа. Доступно: ${available || "ничего"}.`);
+    }
+    choice.click();
+    await delay(900);
+    const updated = findAuthorSelector();
+    const updatedName = cleanName(updated?.textContent);
+    if (target && updatedName !== target && !updatedName.includes(target)) {
+      throw new Error(`VK не подтвердил переключение автора на «${options.groupName || club}». Публикация остановлена.`);
+    }
   }
 
   function setNativeValue(element, value) {
@@ -112,11 +223,12 @@
 
   async function automateUpload(file, options) {
     showStatus("Файл получен. Открываю форму загрузки…");
-    let input = document.querySelector('input[type="file"]');
+    assertCommunityRoute(options);
+    let input = findVideoFileInput();
     if (!input) {
       const entry = await waitFor(findUploadEntryButton, 30_000, "создать/добавить клип");
       entry.click();
-      input = await waitFor(() => document.querySelector('input[type="file"]'), 30_000, "выбор видеофайла");
+      input = await waitForCommunityFileInput(options);
     }
     await delay(800);
     const transfer = new DataTransfer();
@@ -133,6 +245,7 @@
       "описание клипа после загрузки",
     );
     report("clip_upload_progress", { progress: 70 });
+    await ensureCommunityAuthor(options);
     if (options.description) setNativeValue(description, options.description);
 
     const wallSwitch = document.querySelector('input[data-testid="clips-upload-wallpost"]');
@@ -142,7 +255,8 @@
     const scheduled = await chooseSchedule(options.publishAt);
     showStatus(scheduled ? "Ожидаю готовности кнопки «Запланировать»…" : "Ожидаю готовности кнопки «Опубликовать»…");
     const finalButton = await waitFor(() => {
-      const button = document.querySelector('[data-testid="clips-uploadForm-publish-button"]');
+      const button = document.querySelector('[data-testid="clips-uploadForm-publish-button"]')
+        || document.querySelector('[data-testid="clips-publish-button"]');
       if (!button || button.disabled || button.getAttribute("aria-disabled") === "true") return null;
       const text = String(button.textContent || "").toLowerCase();
       return scheduled ? (text.includes("заплан") ? button : null) : (text.includes("опублик") ? button : null);

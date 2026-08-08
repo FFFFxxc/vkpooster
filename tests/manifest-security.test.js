@@ -20,7 +20,7 @@ const scheduled = fs.readFileSync(
 const content = fs.readFileSync(path.join(root, "content.js"), "utf8");
 
 test("manifest has no cookie interception, OAuth impersonation, or global hosts", () => {
-  assert.equal(manifest.version, "4.1.0");
+  assert.equal(manifest.version, "4.1.1");
   for (const permission of [
     "cookies",
     "declarativeNetRequest",

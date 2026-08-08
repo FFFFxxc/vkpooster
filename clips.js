@@ -116,8 +116,8 @@ function renderFiles() {
   for (const [id, entry] of fileRegistry) {
     const card = document.createElement("article"); card.className = "file-card";
     const video = document.createElement("video"); video.src = entry.url; video.muted = true; video.preload = "metadata";
-    const copy = document.createElement("div");
-    const name = document.createElement("strong"); name.textContent = entry.file.name;
+    const copy = document.createElement("div"); copy.className = "file-copy";
+    const name = document.createElement("strong"); name.textContent = entry.file.name; name.title = entry.file.name;
     const size = document.createElement("span"); size.textContent = bytesLabel(entry.file.size);
     const remove = document.createElement("button"); remove.className = "icon-button"; remove.title = "Убрать файл"; remove.textContent = "×";
     remove.onclick = () => { URL.revokeObjectURL(entry.url); fileRegistry.delete(id); renderFiles(); updateReady(); };
@@ -128,8 +128,11 @@ function renderFiles() {
 
 function updateReady() {
   const total = fileRegistry.size * selectedGroups.size;
+  const interval = Math.max(0, Number($("interval-minutes").value) || 0);
   $("start").disabled = total === 0;
-  $("ready-summary").textContent = total ? `${fileRegistry.size} видео × ${selectedGroups.size} сообществ = ${total} публикаций` : "Выберите видео и сообщества";
+  $("ready-summary").textContent = total
+    ? `${fileRegistry.size} видео × ${selectedGroups.size} сообществ = ${total} публикаций${fileRegistry.size > 1 && interval ? ` · интервал ${interval} мин` : ""}`
+    : "Выберите видео и сообщества";
 }
 
 function statusLabel(status) {
@@ -142,7 +145,7 @@ function renderJobs(container, jobs, interactive) {
   for (const job of jobs) {
     const card = document.createElement("article"); card.className = "job";
     const head = document.createElement("div"); head.className = "job-head";
-    const title = document.createElement("span"); title.className = "job-title"; title.textContent = job.fileName || "Клип";
+    const title = document.createElement("span"); title.className = "job-title"; title.textContent = job.fileName || "Клип"; title.title = job.fileName || "Клип";
     const status = document.createElement("span"); status.className = `status ${job.status}`; status.textContent = statusLabel(job.status);
     const sub = document.createElement("div"); sub.className = "job-sub"; sub.textContent = `${job.groupName || `club${job.groupId}`} · ${job.publishAt ? new Date(job.publishAt).toLocaleString("ru-RU") : "сразу"}`;
     head.append(title, status); card.append(head, sub);
@@ -169,12 +172,14 @@ async function refreshQueue() {
 async function startQueue() {
   const publishValue = $("publish-at").value;
   const publishAt = publishValue ? new Date(publishValue).getTime() : null;
+  const intervalMinutes = Number($("interval-minutes").value);
   if (publishAt && publishAt <= Date.now()) return toast("Укажите будущее время публикации.", "error");
+  if (!Number.isSafeInteger(intervalMinutes) || intervalMinutes < 0 || intervalMinutes > 10080) return toast("Интервал должен быть целым числом от 0 до 10080 минут.", "error");
   const files = [...fileRegistry].map(([id, entry]) => ({ id, name: entry.file.name, size: entry.file.size, type: entry.file.type }));
   const groups = allGroups.filter((group) => selectedGroups.has(group.id));
   $("start").disabled = true;
   try {
-    const response = await runtimeMessage({ type:"clips_start", sourceId, files, groups, defaults:{ description:$("description").value, wallPost:$("wall-post").checked, publishAt } });
+    const response = await runtimeMessage({ type:"clips_start", sourceId, files, groups, defaults:{ description:$("description").value, wallPost:$("wall-post").checked, publishAt, intervalMinutes } });
     toast(`В очередь добавлено ${response.queued} публикаций.`);
     document.querySelector('[data-tab="queue"]').click(); await refreshQueue();
   } catch (error) { toast(error.message, "error"); }
@@ -194,6 +199,7 @@ async function init() {
   $("select-all").onclick = () => { for (const group of allGroups) selectedGroups.add(group.id); renderGroups(); updateReady(); };
   $("clear-groups").onclick = () => { selectedGroups.clear(); renderGroups(); updateReady(); };
   $("file-input").onchange = (event) => addFiles(event.target.files);
+  $("interval-minutes").oninput = updateReady;
   const dropzone = $("dropzone");
   dropzone.ondragover = (event) => { event.preventDefault(); dropzone.classList.add("drag"); };
   dropzone.ondragleave = () => dropzone.classList.remove("drag");

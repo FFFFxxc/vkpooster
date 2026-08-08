@@ -9,6 +9,8 @@ const root = path.resolve(__dirname, "..");
 const background = fs.readFileSync(path.join(root, "background.js"), "utf8");
 const manifest = JSON.parse(fs.readFileSync(path.join(root, "manifest.json"), "utf8"));
 const clips = fs.readFileSync(path.join(root, "clips.js"), "utf8");
+const clipsCss = fs.readFileSync(path.join(root, "clips-fixes.css"), "utf8");
+const clipUpload = fs.readFileSync(path.join(root, "clip-upload-content.js"), "utf8");
 
 test("clips coordinator uses one active normal tab and no cookie automation", () => {
   assert.equal(manifest.permissions.includes("tabs"), true);
@@ -26,4 +28,19 @@ test("clip files remain in memory and are transferred in bounded chunks", () => 
   assert.match(background, /CLIP_CHUNK_BYTES = 128 \* 1024/);
   assert.doesNotMatch(clips, /storage\.(?:local|session)\.set\([^)]*(?:fileRegistry|fileData|dataUrl)/s);
   assert.doesNotMatch(background, /groupToken.*clip|clip.*groupToken/i);
+});
+
+test("clip uploader preserves the community route and verifies the author", () => {
+  assert.match(background, /group\.screen_name/);
+  assert.match(background, /clips\/\$\{encodeURIComponent\(screenName\)\}/);
+  assert.doesNotMatch(background, /clips\/club\$\{job\.groupId\}/);
+  assert.match(clipUpload, /assertCommunityRoute\(options\)/);
+  assert.match(clipUpload, /ensureCommunityAuthor\(options\)/);
+});
+
+test("clip interval and long filenames are visible in the UI", () => {
+  assert.match(clips, /intervalMinutes/);
+  assert.match(clips, /copy\.className = "file-copy"/);
+  assert.match(clips, /name\.title = entry\.file\.name/);
+  assert.match(clipsCss, /\.file-copy/);
 });

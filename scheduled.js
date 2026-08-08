@@ -1,9 +1,10 @@
 "use strict";
 
 const $ = (id) => document.getElementById(id);
-const state = { tab:"waiting", waiting:[], posts:[], comments:[], stories:[], clips:[], history:[], pause:null };
+const state = { tab:"waiting", waiting:[], posts:[], comments:[], stories:[], clips:[], history:[], groupLabels:{}, pause:null };
 let selectedWaitingId = null;
 let toastTimer = null;
+let groupDirectoryLoaded = false;
 
 function runtimeMessage(message) {
   return new Promise((resolve, reject) => chrome.runtime.sendMessage(message, (response) => {
@@ -14,7 +15,8 @@ function runtimeMessage(message) {
 
 function toast(text, type = "info") { clearTimeout(toastTimer); const box=$("toast"); box.textContent=text; box.className=`toast ${type}`; box.hidden=false; toastTimer=setTimeout(()=>{box.hidden=true;},4500); }
 function formatDate(value) { if (!value) return "—"; const date=new Date(value); return Number.isFinite(date.getTime()) ? date.toLocaleString("ru-RU",{dateStyle:"short",timeStyle:"short"}) : "—"; }
-function statusLabel(status) { return ({queued:"В очереди",processing:"Публикуется",paused:"Пауза",done:"Готово",completed:"Готово",failed:"Ошибка",cancelled:"Отменено",uploading:"Файл загружается",opening_tab:"Открываю VK",transferring:"Передаю файл"})[status]||status; }
+function statusLabel(status) { return ({queued:"В очереди",processing:"Публикуется",paused:"Пауза",done:"Готово",completed:"Готово",partial:"Частично",failed:"Ошибка",cancelled:"Отменено",uploading:"Файл загружается",opening_tab:"Открываю VK",transferring:"Передаю файл"})[status]||status; }
+function groupName(groupId) { const id=Math.abs(Number(groupId)); return state.groupLabels[String(id)]||`club${id}`; }
 function firstPhoto(post) { const photo=(post?.attachments||[]).find((item)=>item.type==="photo"&&item.photo)?.photo; return [...(photo?.sizes||[])].sort((a,b)=>(b.width||0)*(b.height||0)-(a.width||0)*(a.height||0))[0]?.url||""; }
 function active(items) { return items.filter((item)=>!["completed","done","failed","cancelled"].includes(item.status)); }
 function make(tag,className,text) { const node=document.createElement(tag); if(className)node.className=className; if(text!==undefined)node.textContent=text; return node; }
@@ -28,10 +30,53 @@ function baseCard({title,status,text,meta,error,image,portrait=false}) {
 function actions(body) { const root=make("div","actions"); body.appendChild(root); return root; }
 function empty(text){$("cards").appendChild(make("div","empty",text));}
 
+function appendPublishResults(body, results) {
+  const items=Array.isArray(results)?results:[];
+  if(!items.length)return;
+  const ok=items.filter((item)=>item.ok).length;
+  const fail=items.length-ok;
+  const details=make("details","result-details");
+  details.open=fail>0;
+  details.appendChild(make("summary","result-summary",`По сообществам: ${ok} успешно · ${fail} ошибок`));
+  const list=make("div","result-list");
+  for(const result of items){
+    const row=make("div",`result-item ${result.ok?"success":"failure"}`);
+    const head=make("div","result-head");
+    const title=make("strong","",groupName(result.gid));
+    title.title=`club${Math.abs(Number(result.gid))}`;
+    head.append(title,make("span","result-badge",result.ok?"Опубликовано":"Ошибка"));
+    row.appendChild(head);
+    if(result.postId){
+      const link=make("a","result-link",`Открыть пост #${result.postId}`);
+      link.href=`https://vk.ru/wall-${Math.abs(Number(result.gid))}_${result.postId}`;
+      link.target="_blank";link.rel="noreferrer";row.appendChild(link);
+    }
+    if(result.error)row.appendChild(make("div","result-error",result.error));
+    if(result.warning)row.appendChild(make("div","result-warning",result.warning));
+    list.appendChild(row);
+  }
+  details.appendChild(list);body.appendChild(details);
+}
+
 async function loadAll() {
-  const local = await chrome.storage.local.get(["vkr_waiting_posts","vkr_posts_history","vkr_scheduled_comments"]);
+  const local = await chrome.storage.local.get(["vkr_waiting_posts","vkr_posts_history","vkr_scheduled_comments","vkr_group_tokens"]);
   state.waiting=Array.isArray(local.vkr_waiting_posts)?local.vkr_waiting_posts:[];
   state.history=Array.isArray(local.vkr_posts_history)?local.vkr_posts_history:[];
+  state.groupLabels=Object.fromEntries(Object.entries(local.vkr_group_tokens||{}).map(([groupId,raw])=>{
+    const entry=raw&&typeof raw==="object"?raw:{};
+    const id=String(Math.abs(Number(groupId)));
+    return [id,String(entry.label||"").trim()||`club${id}`];
+  }));
+  if(!groupDirectoryLoaded){
+    try{
+      const directory=await runtimeMessage({type:"list_clip_groups"});
+      for(const group of directory.groups||[]){
+        const id=String(Math.abs(Number(group.id)));
+        if(id!=="NaN"&&group.name)state.groupLabels[id]=String(group.name);
+      }
+    }catch{/* сохранённые подписи остаются рабочим fallback */}
+    groupDirectoryLoaded=true;
+  }
   const queue=await runtimeMessage({type:"get_queue_status"}); state.posts=queue.queue||[]; state.pause=queue.pause||null;
   const localComments=(local.vkr_scheduled_comments||[]).map((item)=>({...item,id:item.idempotencyKey||`local_${item.groupId}_${item.postId}`,status:"queued",commentAt:item.commentAt,local:true}));
   try { const server=await runtimeMessage({type:"list_scheduled_comments"}); state.comments=[...(server.jobs||[]),...localComments]; } catch { state.comments=localComments; }
@@ -58,7 +103,8 @@ function renderWaiting() {
 function renderPosts() {
   if(!state.posts.length)return empty("Локальная очередь постинга пуста.");
   for(const job of [...state.posts].reverse()){
-    const progress=job.progress||{};const {card,body}=baseCard({title:job.label||`Пост #${job.post?.id||"?"}`,status:job.status,text:job.post?.text||job.text||"",meta:`${formatDate(job.pubDate||job.createdAt)} · групп ${job.groups?.length||0} · успешно ${progress.ok||0}, ошибок ${progress.fail||0}`,error:job.error,image:firstPhoto(job.post)});
+    const progress=job.progress||{};const displayStatus=(progress.ok||0)>0&&(progress.fail||0)>0?"partial":job.status;const {card,body}=baseCard({title:job.label||`Пост #${job.post?.id||"?"}`,status:displayStatus,text:job.post?.text||job.text||"",meta:`${formatDate(job.pubDate||job.createdAt)} · групп ${job.groups?.length||0} · успешно ${progress.ok||0}, ошибок ${progress.fail||0}`,error:job.error,image:firstPhoto(job.post)});
+    appendPublishResults(body,job.results);
     if(["queued","processing"].includes(job.status)){const bar=make("div","progress");const fill=make("span");fill.style.width=`${Math.round(((progress.ok||0)+(progress.fail||0))/Math.max(1,progress.total||job.groups?.length||1)*100)}%`;bar.appendChild(fill);body.appendChild(bar);}
     if(job.status==="paused"&&job.pauseReason==="ambiguous_repost"){
       const root=actions(body);addButton(root,"Уже есть — пропустить",async()=>{await runtimeMessage({type:"resolve_ambiguous_repost",jobId:job.id,action:"skip"});await loadAll();},"primary");addButton(root,"Нет — повторить",async()=>{if(confirm("Вы проверили стену и репоста точно нет?")){await runtimeMessage({type:"resolve_ambiguous_repost",jobId:job.id,action:"retry"});await loadAll();}});addButton(root,"Отменить",async()=>{await runtimeMessage({type:"resolve_ambiguous_repost",jobId:job.id,action:"cancel"});await loadAll();},"danger");
@@ -69,7 +115,7 @@ function renderPosts() {
 
 function renderComments() {
   if(!state.comments.length)return empty("Нет отложенных комментариев.");
-  for(const job of state.comments){const {card,body}=baseCard({title:`club${job.groupId} · post ${job.postId}`,status:job.status,text:job.commentText,meta:`Выполнить ${formatDate(job.commentAt)}`,error:job.lastError});if(!job.local&&["queued","paused","failed"].includes(job.status)){const root=actions(body);addButton(root,"Удалить",async()=>{if(confirm("Удалить отложенный комментарий?")){await runtimeMessage({type:"delete_scheduled_comment",id:job.id});await loadAll();}},"danger");}$("cards").appendChild(card);}
+  for(const job of state.comments){const groupId=Math.abs(Number(job.groupId));const {card,body}=baseCard({title:`${groupName(groupId)} · пост ${job.postId}`,status:job.status,text:job.commentText,meta:`club${groupId} · выполнить ${formatDate(job.commentAt)}`,error:job.lastError});if(!job.local&&["queued","paused","failed"].includes(job.status)){const root=actions(body);addButton(root,"Удалить",async()=>{if(confirm("Удалить отложенный комментарий?")){await runtimeMessage({type:"delete_scheduled_comment",id:job.id});await loadAll();}},"danger");}$("cards").appendChild(card);}
 }
 
 function renderStories() {
@@ -82,7 +128,7 @@ function renderClips() {
   for(const job of state.clips){const {card,body}=baseCard({title:job.fileName||"Клип",status:job.status,text:job.description||"Без описания",meta:`${job.groupName||`club${job.groupId}`} · ${formatDate(job.publishAt||job.createdAt)}`,error:job.error});if(["opening_tab","transferring","uploading"].includes(job.status)){const bar=make("div","progress");const fill=make("span");fill.style.width=`${job.progress||0}%`;bar.appendChild(fill);body.appendChild(bar);}if(["queued","opening_tab","transferring","uploading","paused"].includes(job.status)){const root=actions(body);if(job.status==="paused")addButton(root,"Продолжить",async()=>{await runtimeMessage({type:"clips_resume",jobId:job.id});await loadAll();},"primary");addButton(root,"Отменить",async()=>{if(confirm("Отменить клип?")){await runtimeMessage({type:"clips_cancel",jobId:job.id});await loadAll();}},"danger");}$("cards").appendChild(card);}
 }
 
-function renderHistory(){if(!state.history.length)return empty("История публикаций пока пуста.");for(const item of state.history){const {card}=baseCard({title:item.label||"Публикация",status:item.status||"completed",text:item.mode==="repost"?"Оригинальный репост":"Копия поста",meta:`${formatDate(item.timestamp)} · успешно ${item.ok||0}, ошибок ${item.fail||0}`,error:item.error});$("cards").appendChild(card);}}
+function renderHistory(){if(!state.history.length)return empty("История публикаций пока пуста.");for(const item of state.history){const displayStatus=(item.ok||0)>0&&(item.fail||0)>0?"partial":item.status||"completed";const {card,body}=baseCard({title:item.label||"Публикация",status:displayStatus,text:item.mode==="repost"?"Оригинальный репост":"Копия поста",meta:`${formatDate(item.timestamp)} · успешно ${item.ok||0}, ошибок ${item.fail||0}`,error:item.error});appendPublishResults(body,item.results);$("cards").appendChild(card);}}
 
 const tabInfo={waiting:["Ожидания","Посты, которые вы отметили во ВКонтакте"],posts:["Очередь постов","Последовательная локальная публикация"],comments:["Комментарии 24/7","Серверные и локальные отложенные комментарии"],stories:["Истории","Отложенные истории сообществ с превью"],clips:["Клипы","Одна видимая вкладка VK на публикацию"],history:["История","Последние результаты постинга"]};
 function render(){const cards=$("cards");cards.replaceChildren();const [title,hint]=tabInfo[state.tab];$("section-title").textContent=title;$("section-hint").textContent=hint;$("clear-finished").hidden=state.tab!=="posts";({waiting:renderWaiting,posts:renderPosts,comments:renderComments,stories:renderStories,clips:renderClips,history:renderHistory})[state.tab]();}

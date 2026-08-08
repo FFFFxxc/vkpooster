@@ -1300,20 +1300,47 @@ async function listClipGroups() {
     .map(([id, entry]) => ({
       id: Math.abs(Number(id)),
       name: typeof entry === "object" && entry?.label ? String(entry.label) : `Сообщество ${id}`,
+      screenName: "",
     }))
     .filter((group) => Number.isSafeInteger(group.id) && group.id > 0)
     .map((group) => [group.id, group]));
   if (userToken) {
-    const response = await vkApi(
-      "groups.get",
-      { extended: 1, filter: "admin,editor", count: 100 },
-      userToken,
-    );
-    for (const group of response?.items || []) {
-      const id = Math.abs(Number(group?.id));
-      if (Number.isSafeInteger(id) && id > 0) {
-        known.set(id, { id, name: String(group.name || `Сообщество ${id}`).slice(0, 160) });
+    try {
+      const response = await vkApi(
+        "groups.get",
+        { extended: 1, filter: "admin,editor", count: 100 },
+        userToken,
+      );
+      for (const group of response?.items || []) {
+        const id = Math.abs(Number(group?.id));
+        if (Number.isSafeInteger(id) && id > 0) {
+          known.set(id, {
+            id,
+            name: String(group.name || `Сообщество ${id}`).slice(0, 160),
+            screenName: String(group.screen_name || `club${id}`).slice(0, 100),
+          });
+        }
       }
+    } catch {
+      // A stale optional user token must not hide communities that have their
+      // own locally configured group token.
+    }
+  }
+  for (const group of known.values()) {
+    if (group.screenName) continue;
+    const entry = groupTokens[String(group.id)] || groupTokens[group.id];
+    const token = typeof entry === "string" ? entry : entry?.token;
+    if (!token) {
+      group.screenName = `club${group.id}`;
+      continue;
+    }
+    try {
+      const response = await vkApi("groups.getById", { group_ids: group.id }, token);
+      const info = response?.groups?.[0] || response?.items?.[0] || response?.[0];
+      group.name = String(info?.name || group.name).slice(0, 160);
+      group.screenName = String(info?.screen_name || `club${group.id}`).slice(0, 100);
+    } catch {
+      group.screenName = `club${group.id}`;
     }
   }
   return [...known.values()].sort((first, second) => first.name.localeCompare(second.name, "ru"));
@@ -1329,7 +1356,16 @@ async function startNextClipJob() {
     return;
   }
   activeClipJobId = job.id;
-  const clipUrl = `https://vk.ru/clips/club${job.groupId}#vkr_clip_job=${encodeURIComponent(job.id)}`;
+  let screenName = String(job.groupScreenName || "").trim();
+  if (!screenName) {
+    try {
+      const group = (await listClipGroups()).find((item) => Number(item.id) === Number(job.groupId));
+      screenName = group?.screenName || `club${job.groupId}`;
+    } catch {
+      screenName = `club${job.groupId}`;
+    }
+  }
+  const clipUrl = `https://vk.ru/clips/${encodeURIComponent(screenName)}#vkr_clip_job=${encodeURIComponent(job.id)}`;
   try {
     const tab = await chrome.tabs.create({ url: clipUrl, active: true });
     await updateClipJob(job.id, { type: "tab_opened", tabId: tab.id });
@@ -1373,7 +1409,7 @@ async function relayClipChunk(message, sourceId) {
   if (byteLength > 0) {
     await updateClipJob(jobId, { type: "transfer_progress", progress: Math.floor(((offset + byteLength) / job.fileSize) * 99) });
   }
-  tabPort.postMessage({ type: "clip_chunk", jobId, offset, byteLength, data: encoded, done: message.done === true, file: { name: job.fileName, type: job.fileType, size: job.fileSize }, description: job.description, wallPost: job.wallPost, publishAt: job.publishAt, groupId: job.groupId });
+  tabPort.postMessage({ type: "clip_chunk", jobId, offset, byteLength, data: encoded, done: message.done === true, file: { name: job.fileName, type: job.fileType, size: job.fileSize }, description: job.description, wallPost: job.wallPost, publishAt: job.publishAt, groupId: job.groupId, groupName: job.groupName, screenName: job.groupScreenName });
 }
 
 async function handleClipTabMessage(port, message) {
@@ -1812,6 +1848,21 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   }
 });
 
+let contextMenusSetup = null;
+
+function setupContextMenus() {
+  if (contextMenusSetup) return contextMenusSetup;
+  contextMenusSetup = new Promise((resolve) => {
+    chrome.contextMenus.removeAll(() => {
+      chrome.contextMenus.create({ id: "vkr-open-scheduled", title: "Посты и вся отложка", contexts: ["action"] });
+      chrome.contextMenus.create({ id: "vkr-open-clips", title: "Загрузить клипы", contexts: ["action"] });
+      chrome.contextMenus.create({ id: "vkr-open-stories", title: "Запланировать историю", contexts: ["action"] });
+      resolve();
+    });
+  });
+  return contextMenusSetup;
+}
+
 chrome.runtime.onInstalled.addListener(async (details) => {
   await chrome.alarms.clear("autolike_check");
   await chrome.alarms.clear("cookie_keepalive");
@@ -1836,24 +1887,23 @@ chrome.runtime.onInstalled.addListener(async (details) => {
     "vkr_video_download",
   ]);
   chrome.alarms.create("vkr_safe_jobs", { periodInMinutes: 1 });
-  chrome.contextMenus.removeAll(() => {
-    chrome.contextMenus.create({
-      id: "vkr-open-scheduled",
-      title: "Отложенные посты и очередь",
-      contexts: ["action"],
-    });
-  });
+  await setupContextMenus();
   await recoverQueue();
 });
 
 chrome.runtime.onStartup.addListener(() => {
   chrome.alarms.create("vkr_safe_jobs", { periodInMinutes: 1 });
+  void setupContextMenus();
   void recoverQueue();
 });
 
 chrome.contextMenus.onClicked.addListener((info) => {
   if (info.menuItemId === "vkr-open-scheduled") {
     chrome.tabs.create({ url: chrome.runtime.getURL("scheduled.html") });
+  } else if (info.menuItemId === "vkr-open-clips") {
+    chrome.tabs.create({ url: chrome.runtime.getURL("clips.html") });
+  } else if (info.menuItemId === "vkr-open-stories") {
+    chrome.tabs.create({ url: chrome.runtime.getURL("stories.html") });
   }
 });
 
@@ -1863,3 +1913,4 @@ chrome.notifications.onClicked.addListener(async (notificationId) => {
 });
 
 void recoverQueue();
+void setupContextMenus();

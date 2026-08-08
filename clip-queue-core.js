@@ -45,7 +45,8 @@
       const id = Math.abs(Number(group?.id));
       if (!Number.isSafeInteger(id) || id <= 0 || seen.has(id)) throw new Error("Некорректное сообщество.");
       seen.add(id);
-      return { id, name: safeText(group?.name, 160) || `Сообщество ${id}` };
+      const screenName = safeText(group?.screenName, 100).replace(/[^a-zA-Z0-9_.]/g, "") || `club${id}`;
+      return { id, name: safeText(group?.name, 160) || `Сообщество ${id}`, screenName };
     });
   }
 
@@ -57,15 +58,28 @@
     if (!normalizedFiles.length || !normalizedGroups.length) throw new Error("Выберите хотя бы один файл и одно сообщество.");
     const description = safeText(defaults.description, 4096);
     const wallPost = defaults.wallPost === true;
-    const publishAt = Number(defaults.publishAt) || null;
-    if (publishAt && publishAt <= Number(now)) throw new Error("Время публикации клипа должно быть в будущем.");
+    const firstPublishAt = Number(defaults.publishAt) || null;
+    const intervalMinutes = defaults.intervalMinutes === undefined || defaults.intervalMinutes === null || defaults.intervalMinutes === ""
+      ? 0
+      : Number(defaults.intervalMinutes);
+    if (firstPublishAt && firstPublishAt <= Number(now)) throw new Error("Время публикации клипа должно быть в будущем.");
+    if (!Number.isSafeInteger(intervalMinutes) || intervalMinutes < 0 || intervalMinutes > 10_080) {
+      throw new Error("Интервал между клипами должен быть от 0 до 10080 минут.");
+    }
     const jobs = [];
-    for (const file of normalizedFiles) {
+    for (let fileIndex = 0; fileIndex < normalizedFiles.length; fileIndex += 1) {
+      const file = normalizedFiles[fileIndex];
+      const offsetMs = fileIndex * intervalMinutes * 60_000;
+      const publishAt = firstPublishAt
+        ? firstPublishAt + offsetMs
+        : fileIndex > 0 && intervalMinutes > 0
+          ? Number(now) + offsetMs
+          : null;
       for (const group of normalizedGroups) {
         jobs.push(Object.freeze({
           id: String(idFactory()), sourceId: safeSourceId, fileId: file.id, fileName: file.name,
           fileSize: file.size, fileType: file.type, groupId: group.id, groupName: group.name,
-          description, wallPost, publishAt, status: "queued", progress: 0,
+          groupScreenName: group.screenName, description, wallPost, publishAt, status: "queued", progress: 0,
           createdAt: Number(now), updatedAt: Number(now), error: null, tabId: null,
         }));
       }
