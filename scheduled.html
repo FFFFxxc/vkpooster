@@ -12,7 +12,15 @@
     <div class="head-actions"><button id="new-story">＋ История</button><button id="new-clips">＋ Клипы</button><button id="refresh">Обновить</button><button id="settings">Настройки</button></div>
   </header>
   <main>
-    <section id="pause-alert" class="pause-alert" hidden><div><b>VK остановил локальную очередь</b><p id="pause-message"></p></div><button id="resume">Продолжить после ручной проверки</button></section>
+    <section id="pause-alert" class="pause-alert" hidden>
+      <div class="pause-copy">
+        <div class="pause-heading"><span class="pause-icon" aria-hidden="true">!</span><div><b id="pause-title">Локальная автоматизация на паузе</b><p id="pause-message"></p></div></div>
+        <div id="pause-technical" class="pause-technical" hidden></div>
+        <p id="pause-help" class="pause-help"></p>
+        <div id="pause-meta" class="pause-meta"></div>
+      </div>
+      <div class="pause-actions"><button id="pause-open-vk">Открыть VK для проверки</button><button id="pause-open-job" hidden>Показать остановленный пост</button><button id="resume" class="pause-resume">Я проверил VK — продолжить</button></div>
+    </section>
     <section class="summary">
       <article><span>Ожидают выбора</span><b id="sum-waiting">0</b></article><article><span>Посты в работе</span><b id="sum-posts">0</b></article><article><span>Комментарии</span><b id="sum-comments">0</b></article><article><span>Истории</span><b id="sum-stories">0</b></article><article><span>Клипы</span><b id="sum-clips">0</b></article>
     </section>

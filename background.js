@@ -205,13 +205,14 @@ async function updateBadge() {
   }
 }
 
-async function setQueuePause(error, jobId = null) {
+async function setQueuePause(error, jobId = null, source = "automation") {
   const pause = {
     code: Number(error?.code) || null,
     message:
       error?.message ||
       "VK запросил дополнительную проверку. Очередь остановлена.",
     jobId,
+    source,
     pausedAt: Date.now(),
   };
   await chrome.storage.local.set({ [QUEUE_PAUSE_KEY]: pause });
@@ -619,7 +620,7 @@ async function executePublishJob(job) {
           job.status = "paused";
           job.error = error.message;
           job.pausedGroupId = groupId;
-          await setQueuePause(error, job.id);
+          await setQueuePause(error, job.id, "post");
         } else {
           job.results.push({
             gid: groupId,
@@ -828,7 +829,7 @@ async function processLocalComments() {
             },
           );
           if (decision.action === "pause") {
-            await setQueuePause(error);
+            await setQueuePause(error, null, "comment");
             remaining.push(item, ...comments.slice(index + 1));
             break;
           }
@@ -889,7 +890,7 @@ async function processLocalDeletions() {
             },
           );
           if (decision.action === "pause") {
-            await setQueuePause(error);
+            await setQueuePause(error, null, "deletion");
             remaining.push(item, ...deletions.slice(index + 1));
             break;
           }
@@ -1202,7 +1203,7 @@ async function executeCleanupRun(run, operations, token) {
     });
     if (result.status === "paused") {
       const error = Object.assign(new Error(result.pausedError.message), { code: result.pausedError.code });
-      await setQueuePause(error);
+      await setQueuePause(error, null, "cleanup");
     }
     await sendCleanupEvent(run.tabId, {
       type: "cleanup_finished",
