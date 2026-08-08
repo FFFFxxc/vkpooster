@@ -3303,6 +3303,188 @@ function detectCurrentPage() {
   return null;
 }
 
+// Safe replacement for the legacy cleanup dialogs above. It uses a preview ticket
+// issued by the background worker; no page script can supply an arbitrary delete list.
+function cleanupDateValue(daysAgo) {
+  const date = new Date();
+  date.setDate(date.getDate() - daysAgo);
+  return date.toISOString().slice(0, 10);
+}
+
+function appendCleanupSample(container, sample) {
+  container.replaceChildren();
+  for (const item of sample || []) {
+    const row = document.createElement("div");
+    row.style.cssText = "display:flex;gap:10px;align-items:center;padding:8px 0;border-top:1px solid rgba(255,255,255,.08);";
+    if (item.thumbnail) {
+      const image = document.createElement("img");
+      image.src = item.thumbnail;
+      image.alt = "";
+      image.referrerPolicy = "no-referrer";
+      image.style.cssText = "width:42px;height:42px;object-fit:cover;border-radius:8px;background:#27243e;";
+      row.appendChild(image);
+    }
+    const label = document.createElement("span");
+    label.style.cssText = "color:#cbd5e1;font-size:12px;line-height:1.4;";
+    const date = item.date ? new Date(item.date * 1000).toLocaleDateString("ru-RU") : "без даты";
+    label.textContent = item.kind === "wall" ? `${date} · ${item.text}` : `${date} · ${item.albumTitle || "Альбом"}`;
+    row.appendChild(label);
+    container.appendChild(row);
+  }
+}
+
+function openSafeCleanupModal(groupId, kind) {
+  const isWall = kind === "wall";
+  const overlay = document.createElement("div");
+  overlay.style.cssText = "position:fixed;inset:0;z-index:2147483647;background:rgba(5,5,15,.78);backdrop-filter:blur(5px);display:flex;align-items:center;justify-content:center;padding:16px;";
+  const modal = document.createElement("section");
+  modal.style.cssText = "width:min(590px,100%);max-height:90vh;overflow:auto;box-sizing:border-box;background:linear-gradient(145deg,#1b1830,#100f20);border:1px solid rgba(139,92,246,.35);border-radius:18px;padding:24px;color:#f8fafc;font-family:system-ui,-apple-system,sans-serif;box-shadow:0 24px 80px rgba(0,0,0,.6);";
+  modal.innerHTML = `
+    <h2 style="font-size:20px;margin:0 0 8px">${isWall ? "Очистка записей" : "Очистка фотографий"}</h2>
+    <p style="color:#a5b4c8;font-size:13px;line-height:1.5;margin:0 0 16px">Сначала будет сформирован список. Удаление начнётся только после отдельного подтверждения и пойдёт по одному объекту.</p>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin:0 0 12px">
+      <label style="font-size:13px;color:#cbd5e1">От<br><input data-role="from" type="date" style="margin-top:5px"></label>
+      <label style="font-size:13px;color:#cbd5e1">До<br><input data-role="to" type="date" style="margin-top:5px"></label>
+    </div>
+    <div data-role="quick" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px"></div>
+    ${isWall ? '<label style="display:block;color:#cbd5e1;font-size:13px;margin:10px 0"><input data-role="photos" type="checkbox"> Удалить свои прикреплённые фото вместе с записями</label><label style="display:block;color:#cbd5e1;font-size:13px;margin:10px 0"><input data-role="pinned" type="checkbox" checked> Не трогать закреплённую запись</label>' : '<div data-role="albums" style="display:none;max-height:145px;overflow:auto;border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:8px;margin:12px 0"></div>'}
+    <div data-role="preview" style="display:none;background:rgba(99,102,241,.1);border:1px solid rgba(129,140,248,.35);border-radius:12px;padding:12px;margin:16px 0">
+      <strong data-role="counts"></strong><div data-role="sample" style="margin-top:8px"></div>
+    </div>
+    <div data-role="progress" style="display:none;margin:16px 0"><div style="height:7px;background:#292541;border-radius:8px;overflow:hidden"><div data-role="bar" style="height:100%;width:0;background:linear-gradient(90deg,#7c3aed,#38bdf8);transition:width .2s"></div></div><div data-role="progress-text" style="color:#cbd5e1;font-size:13px;margin-top:8px"></div></div>
+    <div style="display:flex;justify-content:flex-end;gap:9px;margin-top:20px"><button data-role="cancel">Отмена</button><button data-role="preview-button">Показать список</button><button data-role="start" disabled>Удалить после подтверждения</button></div>`;
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+
+  const from = modal.querySelector('[data-role="from"]');
+  const to = modal.querySelector('[data-role="to"]');
+  const quick = modal.querySelector('[data-role="quick"]');
+  const previewButton = modal.querySelector('[data-role="preview-button"]');
+  const startButton = modal.querySelector('[data-role="start"]');
+  const cancelButton = modal.querySelector('[data-role="cancel"]');
+  const previewBox = modal.querySelector('[data-role="preview"]');
+  const counts = modal.querySelector('[data-role="counts"]');
+  const sample = modal.querySelector('[data-role="sample"]');
+  const progressBox = modal.querySelector('[data-role="progress"]');
+  const progressBar = modal.querySelector('[data-role="bar"]');
+  const progressText = modal.querySelector('[data-role="progress-text"]');
+  from.value = cleanupDateValue(isWall ? 30 : 90);
+  to.value = cleanupDateValue(0);
+  let previewId = "";
+  let runId = "";
+  let isRunning = false;
+  let knownAlbums = [];
+
+  const resetPreview = () => {
+    previewId = "";
+    startButton.disabled = true;
+    previewBox.style.display = "none";
+  };
+  for (const days of (isWall ? [7, 30, 90] : [30, 90, 180, 365])) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = `${days} дн.`;
+    button.style.cssText = "border:1px solid rgba(255,255,255,.13);border-radius:8px;background:#25213d;color:#cbd5e1;padding:6px 10px;cursor:pointer;";
+    button.onclick = () => { from.value = cleanupDateValue(days); to.value = cleanupDateValue(0); resetPreview(); };
+    quick.appendChild(button);
+  }
+  from.onchange = resetPreview;
+  to.onchange = resetPreview;
+  modal.querySelector('[data-role="photos"]')?.addEventListener("change", resetPreview);
+  modal.querySelector('[data-role="pinned"]')?.addEventListener("change", resetPreview);
+
+  function selectedAlbumIds() {
+    return [...modal.querySelectorAll('[data-role="album-check"]:checked')].map((input) => input.value);
+  }
+  function renderAlbums(albums) {
+    const container = modal.querySelector('[data-role="albums"]');
+    if (!container || !albums.length) return;
+    const selected = new Set(selectedAlbumIds());
+    knownAlbums = albums;
+    container.replaceChildren();
+    for (const album of albums) {
+      const label = document.createElement("label");
+      label.style.cssText = "display:block;padding:4px;color:#cbd5e1;font-size:12px;";
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.dataset.role = "album-check";
+      input.value = String(album.id);
+      input.checked = selected.size ? selected.has(String(album.id)) : true;
+      input.onchange = resetPreview;
+      label.append(input, ` ${album.title}${album.size === null ? "" : ` (${album.size})`}`);
+      container.appendChild(label);
+    }
+    container.style.display = "block";
+  }
+  function onCleanupMessage(message) {
+    if (message.runId !== runId) return;
+    if (message.type === "cleanup_progress") {
+      const total = Math.max(1, Number(message.total) || 1);
+      progressBar.style.width = `${Math.min(100, (Number(message.current) / total) * 100)}%`;
+      progressText.textContent = `Обработано ${message.current} из ${message.total}. Удалено: ${message.deletedPosts || 0} записей, ${message.deletedPhotos || 0} фото. Пропущено: ${message.skipped || 0}.`;
+    }
+    if (message.type === "cleanup_finished") {
+      isRunning = false;
+      cancelButton.disabled = false;
+      cancelButton.textContent = "Закрыть";
+      startButton.disabled = true;
+      previewButton.disabled = false;
+      progressText.textContent = message.status === "paused" ? `VK запросил проверку: ${message.pausedError?.message || "операция остановлена"}` : message.status === "cancelled" ? "Остановлено пользователем после текущего объекта." : `Готово. Удалено: ${message.deletedPosts || 0} записей, ${message.deletedPhotos || 0} фото. Пропущено: ${message.skipped || 0}.`;
+      showToast(message.status === "completed" ? "✅ Очистка завершена" : "ℹ️ Очистка остановлена", message.status === "completed" ? "success" : "info");
+    }
+  }
+  chrome.runtime.onMessage.addListener(onCleanupMessage);
+  function close() { chrome.runtime.onMessage.removeListener(onCleanupMessage); overlay.remove(); }
+  overlay.onclick = (event) => { if (event.target === overlay && !isRunning) close(); };
+  cancelButton.onclick = async () => {
+    if (!isRunning) return close();
+    cancelButton.disabled = true;
+    cancelButton.textContent = "Останавливаем…";
+    try { await sendMessage("cleanup_stop", { runId }); } catch (error) { showToast(`❌ ${error.message}`, "error"); cancelButton.disabled = false; cancelButton.textContent = "Стоп"; }
+  };
+  previewButton.onclick = async () => {
+    if (!from.value || !to.value) return showToast("❌ Укажите обе даты", "error");
+    previewButton.disabled = true;
+    previewButton.textContent = "Считаю…";
+    try {
+      const response = await sendMessage("cleanup_preview", {
+        kind,
+        ownerId: groupId,
+        dateFrom: from.value,
+        dateTo: to.value,
+        includeOwnedPhotos: modal.querySelector('[data-role="photos"]')?.checked === true,
+        keepPinned: modal.querySelector('[data-role="pinned"]')?.checked !== false,
+        albumIds: knownAlbums.length ? selectedAlbumIds() : undefined,
+      });
+      previewId = response.previewId;
+      const suffix = response.counts.photos ? ` и ${response.counts.photos} фото` : "";
+      counts.textContent = `Будет удалено: ${response.counts.posts} записей${suffix}.`;
+      appendCleanupSample(sample, response.sample);
+      previewBox.style.display = "block";
+      startButton.disabled = response.counts.posts + response.counts.photos === 0;
+      if (!isWall) renderAlbums(response.albums || []);
+    } catch (error) { showToast(`❌ ${error.message}`, "error"); resetPreview(); }
+    finally { previewButton.disabled = false; previewButton.textContent = "Показать список"; }
+  };
+  startButton.onclick = async () => {
+    const confirmation = await showCustomConfirm(`Удалить ${counts.textContent.replace("Будет удалено: ", "")} Это необратимо. Операция идёт по одному объекту, её можно остановить.`);
+    if (!confirmation) return;
+    try {
+      const response = await sendMessage("cleanup_start", { previewId });
+      runId = response.runId;
+      isRunning = true;
+      startButton.disabled = true;
+      previewButton.disabled = true;
+      cancelButton.textContent = "Стоп";
+      progressText.textContent = `Запущено: 0 из ${response.total}.`;
+      progressBox.style.display = "block";
+    } catch (error) { showToast(`❌ ${error.message}`, "error"); }
+  };
+}
+
+function openBulkDeleteModal(groupId) { openSafeCleanupModal(groupId, "wall"); }
+function openAlbumCleanModal(groupId) { openSafeCleanupModal(groupId, "albums"); }
+
 function createFAB() {
   const pageInfo = detectCurrentPage();
   console.log("[VKR] Detected page info:", pageInfo);
@@ -3357,7 +3539,6 @@ function createFAB() {
   };
 
   document.body.appendChild(fab);
-  return;
 
   // ========== ДОБАВЛЯЕМ КНОПКУ "ОЧИСТИТЬ ГРУППУ" ==========
   // Создаем вторую FAB кнопку для массового удаления
@@ -3447,7 +3628,7 @@ function createFAB() {
     }
   };
 
-  // Destructive bulk deletion is disabled in safe mode.
+  document.body.appendChild(deleteFab);
 
   // ========== КНОПКА "ОЧИСТИТЬ АЛЬБОМ" ==========
   const albumFab = document.createElement("button");
@@ -3534,7 +3715,7 @@ function createFAB() {
     }
   };
 
-  // Destructive album cleanup is disabled in safe mode.
+  document.body.appendChild(albumFab);
 }
 
 async function openBestPostsModal(pageInfo) {

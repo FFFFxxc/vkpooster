@@ -5,7 +5,7 @@
  * impersonation, auto-likes and multi-account automation are intentionally absent.
  */
 
-importScripts("safety-core.js");
+importScripts("safety-core.js", "cleanup-core.js", "cleanup-runner.js");
 
 const VK_API_VERSION = "5.199";
 const PUBLISH_QUEUE_KEY = "vkr_publish_queue";
@@ -24,11 +24,23 @@ const {
   selectCredential,
 } = globalThis.VkrSafetyCore;
 
+const {
+  PREVIEW_TTL_MS,
+  buildAlbumPreview,
+  buildWallPreview,
+  createPreviewTicket,
+  normalizeCleanupRange,
+  normalizeOwnerId,
+} = globalThis.VkrCleanupCore;
+const { runCleanup } = globalThis.VkrCleanupRunner;
+
 const vkScheduler = createSerialScheduler({ minIntervalMs: API_INTERVAL_MS });
 const storageLocks = new Map();
 let publishWorkerRunning = false;
 let localCommentsRunning = false;
 let localDeletionsRunning = false;
+const cleanupPreviews = new Map();
+let activeCleanupRun = null;
 
 function delay(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -974,6 +986,262 @@ async function handleReadOnlyMessage(type, message) {
   throw new Error("Операция не поддерживается безопасной версией.");
 }
 
+function purgeExpiredCleanupPreviews() {
+  const now = Date.now();
+  for (const [id, preview] of cleanupPreviews.entries()) {
+    if (preview.expiresAt <= now) cleanupPreviews.delete(id);
+  }
+}
+
+async function sendCleanupEvent(tabId, payload) {
+  try {
+    await chrome.tabs.sendMessage(tabId, payload);
+  } catch {
+    // The user can close or navigate away from the source tab while a cleanup runs.
+  }
+}
+
+function cleanupTabId(sender) {
+  const tabId = Number(sender?.tab?.id);
+  if (!Number.isSafeInteger(tabId) || tabId < 0) {
+    throw new Error("Очистку можно запускать только со страницы VK.");
+  }
+  return tabId;
+}
+
+async function listWallPostsForCleanup({ ownerId, range, token }) {
+  const posts = [];
+  for (let offset = 0; ; offset += 100) {
+    const response = await vkApi(
+      "wall.get",
+      { owner_id: ownerId, filter: "all", count: 100, offset },
+      token,
+    );
+    const page = response?.items || [];
+    for (const post of page) {
+      if (Number(post?.date) >= range.fromUnix && Number(post?.date) <= range.toUnix) {
+        posts.push(post);
+      }
+    }
+    if (page.length < 100 || page.every((post) => Number(post?.date) < range.fromUnix)) {
+      break;
+    }
+    await delay(1_500);
+  }
+  return posts;
+}
+
+async function listAlbumsForCleanup(ownerId, token) {
+  const response = await vkApi(
+    "photos.getAlbums",
+    { owner_id: ownerId, need_covers: 1, count: 100 },
+    token,
+  );
+  return [
+    { id: "wall", title: "Со стены", size: null },
+    ...(response?.items || []).map((album) => ({
+      id: album.id,
+      title: String(album.title || "Альбом").slice(0, 100),
+      size: Number.isFinite(Number(album.size)) ? Number(album.size) : null,
+    })),
+  ];
+}
+
+async function listAlbumPhotosForCleanup({ ownerId, albums, range, token }) {
+  const photosByAlbum = {};
+  for (const album of albums) {
+    const photos = [];
+    try {
+      for (let offset = 0; ; offset += 200) {
+        const response = await vkApi(
+          "photos.get",
+          { owner_id: ownerId, album_id: album.id, rev: 1, count: 200, offset },
+          token,
+        );
+        const page = response?.items || [];
+        for (const photo of page) {
+          if (Number(photo?.date) >= range.fromUnix && Number(photo?.date) <= range.toUnix) {
+            photos.push(photo);
+          }
+        }
+        if (page.length < 200 || page.every((photo) => Number(photo?.date) < range.fromUnix)) {
+          break;
+        }
+        await delay(1_500);
+      }
+    } catch (error) {
+      const decision = classifyVkError(error.vkError || {
+        code: error.code,
+        transport: error.transport === true,
+      });
+      if (decision.action === "pause") throw error;
+      photosByAlbum[String(album.id)] = [];
+      continue;
+    }
+    photosByAlbum[String(album.id)] = photos;
+    await delay(1_500);
+  }
+  return photosByAlbum;
+}
+
+async function createCleanupPreview(message, sender) {
+  purgeExpiredCleanupPreviews();
+  const tabId = cleanupTabId(sender);
+  const kind = message.kind === "albums" ? "albums" : "wall";
+  const ownerId = normalizeOwnerId(message.ownerId);
+  const range = normalizeCleanupRange(message);
+  const { userToken } = await getLocalCredentials();
+  if (!userToken) throw new Error("Сначала добавьте личный токен VK в расширение.");
+
+  let preview;
+  let albums = [];
+  if (kind === "wall") {
+    const posts = await listWallPostsForCleanup({ ownerId, range, token: userToken });
+    preview = buildWallPreview({
+      ownerId,
+      posts,
+      includeOwnedPhotos: message.includeOwnedPhotos === true,
+      keepPinned: message.keepPinned !== false,
+    });
+  } else {
+    const allAlbums = await listAlbumsForCleanup(ownerId, userToken);
+    const allowed = new Set(
+      (Array.isArray(message.albumIds) ? message.albumIds : allAlbums.map((album) => album.id))
+        .map((id) => String(id)),
+    );
+    albums = allAlbums.filter((album) => allowed.has(String(album.id)));
+    const photosByAlbum = await listAlbumPhotosForCleanup({
+      ownerId,
+      albums,
+      range,
+      token: userToken,
+    });
+    preview = buildAlbumPreview({ ownerId, albums, photosByAlbum });
+    albums = allAlbums;
+  }
+
+  const ticket = createPreviewTicket({
+    id: `cleanup_preview_${crypto.randomUUID()}`,
+    kind,
+    tabId,
+    ownerId,
+    items: preview.items,
+  });
+  cleanupPreviews.set(ticket.id, ticket);
+  return {
+    previewId: ticket.id,
+    kind,
+    counts: preview.counts,
+    sample: preview.sample,
+    albums,
+    expiresAt: ticket.expiresAt,
+  };
+}
+
+function cleanupOperations(ticket) {
+  return ticket.items.flatMap((item) => {
+    if (item.kind === "wall") {
+      return [
+        { id: `post:${item.postId}`, type: "post", postId: item.postId },
+        ...(item.photoIds || []).map((photoId) => ({
+          id: `post-photo:${item.postId}:${photoId}`,
+          type: "photo",
+          photoId,
+        })),
+      ];
+    }
+    return [{ id: `album-photo:${item.albumId}:${item.photoId}`, type: "photo", photoId: item.photoId }];
+  });
+}
+
+async function executeCleanupRun(run, operations, token) {
+  let deletedPosts = 0;
+  let deletedPhotos = 0;
+  try {
+    const result = await runCleanup({
+      items: operations,
+      shouldStop: () => run.stopRequested,
+      classifyError: (error) => classifyVkError(error.vkError || {
+        code: error.code,
+        transport: error.transport === true,
+      }),
+      deleteItem: async (operation) => {
+        if (operation.type === "post") {
+          await vkApi("wall.delete", { owner_id: run.ownerId, post_id: operation.postId }, token);
+          deletedPosts += 1;
+          return;
+        }
+        await vkApi("photos.delete", { owner_id: run.ownerId, photo_id: operation.photoId }, token);
+        deletedPhotos += 1;
+      },
+      onProgress: (progress) => {
+        void sendCleanupEvent(run.tabId, {
+          type: "cleanup_progress",
+          runId: run.id,
+          kind: run.kind,
+          current: progress.current,
+          total: progress.total,
+          deletedPosts,
+          deletedPhotos,
+          skipped: progress.skipped,
+          errors: progress.errors.slice(-3),
+        });
+      },
+    });
+    if (result.status === "paused") {
+      const error = Object.assign(new Error(result.pausedError.message), { code: result.pausedError.code });
+      await setQueuePause(error);
+    }
+    await sendCleanupEvent(run.tabId, {
+      type: "cleanup_finished",
+      runId: run.id,
+      kind: run.kind,
+      status: result.status,
+      deletedPosts,
+      deletedPhotos,
+      skipped: result.skipped,
+      errors: result.errors.slice(-5),
+      pausedError: result.pausedError,
+    });
+  } finally {
+    if (activeCleanupRun?.id === run.id) activeCleanupRun = null;
+  }
+}
+
+async function startCleanup(message, sender) {
+  purgeExpiredCleanupPreviews();
+  const tabId = cleanupTabId(sender);
+  const previewId = String(message.previewId || "");
+  const ticket = cleanupPreviews.get(previewId);
+  if (!ticket || ticket.tabId !== tabId || ticket.expiresAt <= Date.now()) {
+    throw new Error("Предпросмотр устарел. Сформируйте его заново.");
+  }
+  if (activeCleanupRun) throw new Error("Другая очистка уже выполняется. Сначала дождитесь её завершения.");
+  const { userToken } = await getLocalCredentials();
+  if (!userToken) throw new Error("Сначала добавьте личный токен VK в расширение.");
+  const operations = cleanupOperations(ticket);
+  const run = {
+    id: `cleanup_${crypto.randomUUID()}`,
+    tabId,
+    kind: ticket.kind,
+    ownerId: ticket.ownerId,
+    stopRequested: false,
+  };
+  cleanupPreviews.delete(previewId);
+  activeCleanupRun = run;
+  void executeCleanupRun(run, operations, userToken);
+  return { started: true, runId: run.id, total: operations.length };
+}
+
+function stopCleanup(message, sender) {
+  const tabId = cleanupTabId(sender);
+  if (!activeCleanupRun || activeCleanupRun.tabId !== tabId || activeCleanupRun.id !== message.runId) {
+    throw new Error("Активная очистка в этой вкладке не найдена.");
+  }
+  activeCleanupRun.stopRequested = true;
+  return { stopping: true };
+}
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   const type = message?.type;
   const respond = (operation) => {
@@ -1023,6 +1291,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const result = await serverRequest("/api/status");
       return { data: result };
     });
+  }
+  if (type === "cleanup_preview") {
+    return respond(() => createCleanupPreview(message, sender));
+  }
+  if (type === "cleanup_start") {
+    return respond(() => startCleanup(message, sender));
+  }
+  if (type === "cleanup_stop") {
+    return respond(() => stopCleanup(message, sender));
   }
   if (type === "list_scheduled_comments") {
     return respond(async () => {
