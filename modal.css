@@ -391,6 +391,247 @@
   background-color: var(--vkr-bg-elevated);
 }
 
+/* ========== Saved Community Sets ========== */
+.vkr-group-sets {
+  margin: 12px 0;
+  padding: 12px;
+  border: 1px solid var(--vkr-border);
+  border-radius: var(--vkr-radius-md);
+  background:
+    linear-gradient(135deg, rgba(124, 58, 237, 0.1), rgba(14, 165, 233, 0.04)),
+    var(--vkr-bg-secondary);
+}
+
+.vkr-group-sets-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.vkr-group-sets-heading {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.vkr-group-sets-heading strong {
+  color: var(--vkr-text-primary);
+  font-size: 13px;
+  line-height: 1.25;
+}
+
+.vkr-group-sets-heading span {
+  color: var(--vkr-text-muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+#vkr-group-set-new {
+  flex-shrink: 0;
+  padding: 8px 11px;
+  border: 1px solid rgba(168, 85, 247, 0.42);
+  border-radius: var(--vkr-radius-sm);
+  background: rgba(124, 58, 237, 0.16);
+  color: #ddd6fe;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all var(--vkr-transition-base);
+}
+
+#vkr-group-set-new:hover {
+  border-color: #a855f7;
+  background: rgba(124, 58, 237, 0.27);
+  color: #fff;
+  transform: translateY(-1px);
+}
+
+.vkr-group-sets-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 10px;
+}
+
+.vkr-group-sets-empty {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px dashed var(--vkr-border);
+  border-radius: var(--vkr-radius-sm);
+  color: var(--vkr-text-muted);
+  font-size: 11px;
+  text-align: center;
+}
+
+.vkr-group-sets-empty.is-error {
+  border-color: rgba(239, 68, 68, 0.35);
+  color: #fda4af;
+}
+
+.vkr-group-set-chip {
+  display: inline-flex;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--vkr-border);
+  border-radius: var(--vkr-radius-full);
+  background: var(--vkr-bg-tertiary);
+  transition: border-color var(--vkr-transition-base), box-shadow var(--vkr-transition-base), background var(--vkr-transition-base);
+}
+
+.vkr-group-set-chip:hover {
+  border-color: var(--vkr-border-hover);
+}
+
+.vkr-group-set-chip.active {
+  border-color: rgba(168, 85, 247, 0.78);
+  background: rgba(124, 58, 237, 0.2);
+  box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.12), 0 0 16px rgba(124, 58, 237, 0.16);
+}
+
+.vkr-group-set-apply,
+.vkr-group-set-edit {
+  border: 0;
+  background: transparent;
+  color: var(--vkr-text-secondary);
+  font: inherit;
+  cursor: pointer;
+}
+
+.vkr-group-set-apply {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  padding: 7px 7px 7px 11px;
+}
+
+.vkr-group-set-name {
+  max-width: 150px;
+  overflow: hidden;
+  color: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vkr-group-set-count {
+  min-width: 19px;
+  padding: 2px 5px;
+  border-radius: var(--vkr-radius-full);
+  background: rgba(124, 58, 237, 0.22);
+  color: #c4b5fd;
+  font-size: 10px;
+  line-height: 1.4;
+  text-align: center;
+}
+
+.vkr-group-set-chip.active .vkr-group-set-apply,
+.vkr-group-set-chip:hover .vkr-group-set-apply {
+  color: #fff;
+}
+
+.vkr-group-set-edit {
+  width: 30px;
+  border-left: 1px solid var(--vkr-border);
+  color: var(--vkr-text-muted);
+  font-size: 14px;
+  transition: all var(--vkr-transition-fast);
+}
+
+.vkr-group-set-edit:hover {
+  background: rgba(168, 85, 247, 0.18);
+  color: #e9d5ff;
+}
+
+.vkr-group-set-editor {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 7px 10px;
+  margin-top: 10px;
+  padding: 11px;
+  border: 1px solid rgba(168, 85, 247, 0.34);
+  border-radius: var(--vkr-radius-md);
+  background: rgba(10, 10, 20, 0.52);
+}
+
+.vkr-group-set-editor[hidden] {
+  display: none !important;
+}
+
+.vkr-group-set-editor > label {
+  grid-column: 1 / -1;
+  color: var(--vkr-text-secondary);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+#vkr-group-set-name {
+  min-width: 0;
+  padding: 9px 11px;
+  border: 1px solid var(--vkr-border);
+  border-radius: var(--vkr-radius-sm);
+  outline: none;
+  background: var(--vkr-bg-tertiary);
+  color: var(--vkr-text-primary);
+  font: inherit;
+  font-size: 12px;
+}
+
+#vkr-group-set-name:focus {
+  border-color: var(--vkr-accent);
+  box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.18);
+}
+
+.vkr-group-set-meta {
+  grid-column: 1 / -1;
+  color: #a5b4fc;
+  font-size: 11px;
+}
+
+.vkr-group-set-meta.is-empty {
+  color: #fda4af;
+}
+
+.vkr-group-set-editor-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.vkr-group-set-editor-actions button {
+  padding: 8px 11px;
+  border: 1px solid var(--vkr-border);
+  border-radius: var(--vkr-radius-sm);
+  background: var(--vkr-bg-tertiary);
+  color: var(--vkr-text-secondary);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all var(--vkr-transition-fast);
+}
+
+#vkr-group-set-save {
+  border-color: rgba(124, 58, 237, 0.62);
+  background: linear-gradient(135deg, #7c3aed, #6366f1);
+  color: #fff;
+}
+
+#vkr-group-set-delete {
+  border-color: rgba(239, 68, 68, 0.34);
+  color: #fda4af;
+}
+
+.vkr-group-set-editor-actions button:hover {
+  filter: brightness(1.13);
+  transform: translateY(-1px);
+}
+
 /* ========== Group Actions - Premium Buttons ========== */
 .vkr-group-actions {
   display: flex;
@@ -1277,6 +1518,15 @@
   #vkr-settings {
     max-height: 400px;
   }
+
+  .vkr-group-sets-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  #vkr-group-set-new {
+    width: 100%;
+  }
 }
 
 
@@ -1297,7 +1547,11 @@
 #vkr-search:focus-visible,
 #vkr-date:focus-visible,
 #vkr-time:focus-visible,
-.vkr-group-item:focus-visible {
+.vkr-group-item:focus-visible,
+#vkr-group-set-new:focus-visible,
+.vkr-group-set-apply:focus-visible,
+.vkr-group-set-edit:focus-visible,
+.vkr-group-set-editor-actions button:focus-visible {
   outline: 3px solid rgba(192, 132, 252, 0.55);
   outline-offset: 2px;
 }
@@ -1324,7 +1578,9 @@
   }
   #vkr-submit:hover,
   .vkr-mode-btn:hover,
-  .vkr-custom-dialog-btn-primary:hover {
+  .vkr-custom-dialog-btn-primary:hover,
+  #vkr-group-set-new:hover,
+  .vkr-group-set-editor-actions button:hover {
     transform: none !important;
   }
   #vkr-close:hover { transform: none !important; }

@@ -170,6 +170,28 @@ function getModalHTML() {
               <span id="vkr-group-count" style="font-size: 11px; color: var(--vkr-accent); background: rgba(99, 102, 241, 0.15); padding: 2px 8px; border-radius: 10px;">0 выбрано</span>
               <button id="vkr-delete-mode" style="margin-left: auto; padding: 4px 10px; background: transparent; border: 1px solid var(--vkr-border); border-radius: 6px; color: var(--vkr-text-muted); font-size: 11px; cursor: pointer;">🗑️ Скрыть</button>
             </div>
+
+            <div class="vkr-group-sets">
+              <div class="vkr-group-sets-head">
+                <div class="vkr-group-sets-heading">
+                  <strong>⚡ Наборы пабликов</strong>
+                  <span>Сохрани выбор и включай его одним нажатием</span>
+                </div>
+                <button type="button" id="vkr-group-set-new">＋ Сохранить выбор</button>
+              </div>
+              <div id="vkr-group-sets-list" class="vkr-group-sets-list"></div>
+              <div id="vkr-group-set-editor" class="vkr-group-set-editor" hidden>
+                <label for="vkr-group-set-name">Название набора</label>
+                <input type="text" id="vkr-group-set-name" maxlength="48" placeholder="Например, Группа 1" autocomplete="off">
+                <div id="vkr-group-set-meta" class="vkr-group-set-meta">Будут сохранены отмеченные паблики</div>
+                <div class="vkr-group-set-editor-actions">
+                  <button type="button" id="vkr-group-set-save">Сохранить набор</button>
+                  <button type="button" id="vkr-group-set-delete" hidden>Удалить</button>
+                  <button type="button" id="vkr-group-set-cancel">Отмена</button>
+                </div>
+              </div>
+            </div>
+
             <input type="text" id="vkr-search" placeholder="🔍 Поиск групп...">
             <div class="vkr-group-actions">
               <button id="vkr-select-all"><svg viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg" width="14" height="14" style="vertical-align: middle; margin-right: 4px; display: inline-block;"><defs><linearGradient x1="3.879" y1="3.879" x2="20.121" y2="20.121" gradientUnits="userSpaceOnUse" id="color-1_u6c3jH8492CC_gr1"><stop offset="0" stop-color="#9bff04"></stop><stop offset="1" stop-color="#ffffff" stop-opacity="0.3"></stop></linearGradient><linearGradient x1="3.879" y1="3.879" x2="20.121" y2="20.121" gradientUnits="userSpaceOnUse" id="color-2_u6c3jH8492CC_gr2"><stop offset="0" stop-color="#9bff04"></stop><stop offset="0.493" stop-color="#ffffff" stop-opacity="0"></stop><stop offset="0.997" stop-color="#ffffff" stop-opacity="0.3"></stop></linearGradient><linearGradient x1="12.293" y1="6.293" x2="16.707" y2="10.707" gradientUnits="userSpaceOnUse" id="color-3_u6c3jH8492CC_gr3"><stop offset="0" stop-color="#ffffff" stop-opacity="0.7"></stop><stop offset="0.519" stop-color="#ffffff" stop-opacity="0.45"></stop><stop offset="1" stop-color="#ffffff" stop-opacity="0.55"></stop></linearGradient></defs><g fill="none" fill-rule="nonzero" stroke="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" stroke-miterlimit="10" stroke-dasharray="" stroke-dashoffset="0" font-family="none" font-weight="none" font-size="none" text-anchor="none" style="mix-blend-mode: normal"><g transform="scale(10.66667,10.66667)"><path d="M18,21h-12c-1.657,0 -3,-1.343 -3,-3v-12c0,-1.657 1.343,-3 3,-3h12c1.657,0 3,1.343 3,3v12c0,1.657 -1.343,3 -3,3z" fill="url(#color-1_u6c3jH8492CC_gr1)"></path><path d="M18,3.5c1.379,0 2.5,1.122 2.5,2.5v12c0,1.378 -1.121,2.5 -2.5,2.5h-12c-1.379,0 -2.5,-1.122 -2.5,-2.5v-12c0,-1.378 1.121,-2.5 2.5,-2.5h12M18,3h-12c-1.657,0 -3,1.343 -3,3v12c0,1.657 1.343,3 3,3h12c1.657,0 3,-1.343 3,-3v-12c0,-1.657 -1.343,-3 -3,-3z" fill="url(#color-2_u6c3jH8492CC_gr2)"></path><path d="M11,16c-0.256,0 -0.512,-0.098 -0.707,-0.293l-3,-3c-0.391,-0.391 -0.391,-1.023 0,-1.414c0.391,-0.391 1.023,-0.391 1.414,0l2.293,2.293l9.293,-9.293c0.391,-0.391 1.023,-0.391 1.414,0c0.391,0.391 0.391,1.023 0,1.414l-10,10c-0.195,0.195 -0.451,0.293 -0.707,0.293z" fill="url(#color-3_u6c3jH8492CC_gr3)"></path></g></g></svg> Все</button>

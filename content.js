@@ -1,14 +1,16 @@
 /**
  * VK Reposter Pro - Content Script
  * Modern UI with Glassmorphism Design
- * @version 3.0.6
- * @updated 2025-02-28
+ * @version 4.3.0
+ * @updated 2026-08-09
  */
 
 // ========== CONSTANTS ==========
 const BUTTON_CLASS = "vkr-btn";
 const PROCESSED_ATTR = "data-vkr-checked";
-const VKR_VERSION = "3.0.9";
+const VKR_VERSION = "4.3.0";
+const GROUP_SETS_STORAGE_KEY = "vkr_group_sets_v1";
+const groupSetsCore = globalThis.VkrGroupSetsCore;
 const POST_SELECTORS = '[data-post-id], div[id^="post-"], article[data-post-id], .post, .wall_item, .feed_row, .Post, [data-testid="post-root"], [data-testid="post"]';
 const IGNORE_SELECTOR = '.reply, .wl_reply, [class*="CommentItem"], [class*="ReplyItem"], [class*="vkitComment"], [data-testid*="comment"], [id^="reply"], [id^="photo_comment"], [id^="video_comment"], .FCThumb, .FCPanel__list, [id*="fastchat"], [class*="FastChat"]';
 
@@ -84,6 +86,8 @@ let post = null;
 let grps = [];
 let mode = "copy";
 let modalEl = null;
+let groupSets = [];
+let editingGroupSetId = null;
 
 // Comment modal variables
 let sRoot = null;
@@ -1688,6 +1692,290 @@ async function openModal(postUrl) {
   }
 }
 
+// ========== SAVED COMMUNITY SETS ==========
+function selectedGroupIds() {
+  if (!modalEl) return [];
+  return Array.from(
+    modalEl.querySelectorAll("#vkr-groups-list input[type='checkbox']:checked"),
+    (input) => String(input.value),
+  );
+}
+
+function availableGroupIds() {
+  if (!modalEl) return [];
+  return Array.from(
+    modalEl.querySelectorAll("#vkr-groups-list input[type='checkbox']"),
+    (input) => String(input.value),
+  );
+}
+
+function nextGroupSetName() {
+  const used = new Set(groupSets.map((set) => set.name.toLocaleLowerCase("ru")));
+  let number = 1;
+  while (used.has(`группа ${number}`)) number += 1;
+  return `Группа ${number}`;
+}
+
+function createGroupSetId() {
+  try {
+    if (typeof globalThis.crypto?.randomUUID === "function") {
+      return `set_${globalThis.crypto.randomUUID()}`;
+    }
+  } catch (_) { }
+  return `set_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function unavailableIdsFromEditingSet() {
+  if (!editingGroupSetId || !groupSetsCore) return [];
+  const set = groupSets.find((item) => item.id === editingGroupSetId);
+  if (!set) return [];
+  return groupSetsCore.resolveAvailableGroups(set.groupIds, availableGroupIds())
+    .missingIds;
+}
+
+function updateGroupSetEditorMeta() {
+  if (!modalEl) return;
+  const editor = modalEl.querySelector("#vkr-group-set-editor");
+  const meta = modalEl.querySelector("#vkr-group-set-meta");
+  if (!editor || editor.hidden || !meta) return;
+  const count = selectedGroupIds().length;
+  const preserved = unavailableIdsFromEditingSet().length;
+  if (count || preserved) {
+    meta.textContent = preserved
+      ? `Выбрано сейчас: ${count}; скрытых или недоступных останется в наборе: ${preserved}`
+      : `В набор войдёт пабликов: ${count}`;
+  } else {
+    meta.textContent = "Сначала отметьте хотя бы один паблик";
+  }
+  meta.classList.toggle("is-empty", count === 0 && preserved === 0);
+}
+
+function syncGroupSetActiveState() {
+  if (!modalEl || !groupSetsCore) return;
+  const selected = selectedGroupIds();
+  const available = availableGroupIds();
+  modalEl.querySelectorAll(".vkr-group-set-chip").forEach((chip) => {
+    const set = groupSets.find((item) => item.id === chip.dataset.groupSetId);
+    const visibleSelection = set
+      ? groupSetsCore.resolveAvailableGroups(set.groupIds, available).selectedIds
+      : [];
+    const active =
+      Boolean(set) &&
+      visibleSelection.length > 0 &&
+      groupSetsCore.sameSelection(visibleSelection, selected);
+    chip.classList.toggle("active", active);
+    chip.querySelector(".vkr-group-set-apply")?.setAttribute(
+      "aria-pressed",
+      active ? "true" : "false",
+    );
+  });
+}
+
+function renderGroupSetsUI() {
+  if (!modalEl) return;
+  const list = modalEl.querySelector("#vkr-group-sets-list");
+  if (!list) return;
+  list.replaceChildren();
+
+  if (!groupSetsCore) {
+    const error = document.createElement("div");
+    error.className = "vkr-group-sets-empty is-error";
+    error.textContent = "Наборы не загрузились. Обновите расширение и страницу VK.";
+    list.appendChild(error);
+    return;
+  }
+
+  if (!groupSets.length) {
+    const empty = document.createElement("div");
+    empty.className = "vkr-group-sets-empty";
+    empty.textContent = "Наборов пока нет";
+    list.appendChild(empty);
+    return;
+  }
+
+  for (const set of groupSets) {
+    const chip = document.createElement("div");
+    chip.className = "vkr-group-set-chip";
+    chip.dataset.groupSetId = set.id;
+
+    const applyButton = document.createElement("button");
+    applyButton.type = "button";
+    applyButton.className = "vkr-group-set-apply";
+    applyButton.dataset.groupSetId = set.id;
+    applyButton.title = `Выбрать паблики из набора «${set.name}»`;
+    applyButton.setAttribute("aria-pressed", "false");
+
+    const name = document.createElement("span");
+    name.className = "vkr-group-set-name";
+    name.textContent = set.name;
+
+    const count = document.createElement("span");
+    count.className = "vkr-group-set-count";
+    count.textContent = String(set.groupIds.length);
+    count.title = `Пабликов в наборе: ${set.groupIds.length}`;
+
+    const editButton = document.createElement("button");
+    editButton.type = "button";
+    editButton.className = "vkr-group-set-edit";
+    editButton.dataset.groupSetId = set.id;
+    editButton.title = `Изменить набор «${set.name}»`;
+    editButton.setAttribute("aria-label", `Изменить набор ${set.name}`);
+    editButton.textContent = "✎";
+
+    applyButton.append(name, count);
+    chip.append(applyButton, editButton);
+    list.appendChild(chip);
+  }
+  syncGroupSetActiveState();
+}
+
+async function loadGroupSetsUI() {
+  if (!groupSetsCore) {
+    groupSets = [];
+    renderGroupSetsUI();
+    return;
+  }
+  const data = await chrome.storage.local.get(GROUP_SETS_STORAGE_KEY);
+  groupSets = groupSetsCore.normalizeGroupSets(data[GROUP_SETS_STORAGE_KEY]);
+  renderGroupSetsUI();
+}
+
+async function persistGroupSets() {
+  await chrome.storage.local.set({ [GROUP_SETS_STORAGE_KEY]: groupSets });
+}
+
+async function applyGroupSet(set, { quiet = false } = {}) {
+  if (!set || !groupSetsCore || !modalEl) return;
+  const inputs = Array.from(
+    modalEl.querySelectorAll("#vkr-groups-list input[type='checkbox']"),
+  );
+  const resolved = groupSetsCore.resolveAvailableGroups(
+    set.groupIds,
+    inputs.map((input) => input.value),
+  );
+  const wanted = new Set(resolved.selectedIds);
+  inputs.forEach((input) => {
+    input.checked = wanted.has(String(input.value));
+  });
+  updateGroupCount();
+  // Старый ключ трактует пустой массив как «первый запуск — выбрать всё».
+  // Поэтому полностью недоступный набор очищает текущие флажки, но не затирает
+  // последнее непустое сохранённое выделение.
+  if (resolved.selectedIds.length) {
+    await chrome.storage.local.set({ vkr_groups: resolved.selectedIds });
+  }
+
+  if (!quiet) {
+    if (!resolved.selectedIds.length) {
+      setStatus(`⚠️ В наборе «${set.name}» нет доступных пабликов`, "error");
+      return;
+    }
+    const missingText = resolved.missingIds.length
+      ? `, недоступно или скрыто: ${resolved.missingIds.length}`
+      : "";
+    setStatus(
+      `✅ Набор «${set.name}»: выбрано ${resolved.selectedIds.length}${missingText}`,
+      "success",
+    );
+  }
+}
+
+async function openGroupSetEditor(set = null) {
+  if (!modalEl || !groupSetsCore) {
+    showCustomAlert("❌ Наборы не загрузились. Обновите расширение и страницу VK.");
+    return;
+  }
+  if (!set && !selectedGroupIds().length) {
+    showCustomAlert("❌ Сначала отметьте паблики для нового набора.");
+    return;
+  }
+  if (set) await applyGroupSet(set, { quiet: true });
+
+  editingGroupSetId = set?.id || null;
+  const editor = modalEl.querySelector("#vkr-group-set-editor");
+  const input = modalEl.querySelector("#vkr-group-set-name");
+  const deleteButton = modalEl.querySelector("#vkr-group-set-delete");
+  input.value = set?.name || nextGroupSetName();
+  deleteButton.hidden = !set;
+  editor.hidden = false;
+  updateGroupSetEditorMeta();
+  requestAnimationFrame(() => {
+    input.focus();
+    input.select();
+  });
+}
+
+function closeGroupSetEditor() {
+  if (!modalEl) return;
+  const editor = modalEl.querySelector("#vkr-group-set-editor");
+  if (editor) editor.hidden = true;
+  editingGroupSetId = null;
+}
+
+async function saveGroupSetFromEditor() {
+  if (!modalEl || !groupSetsCore) return;
+  const input = modalEl.querySelector("#vkr-group-set-name");
+  const name = groupSetsCore.normalizeName(input.value);
+  // Недоступные/скрытые паблики нельзя отметить в текущем списке, поэтому при
+  // редактировании сохраняем их до тех пор, пока пользователь не вернёт их в
+  // список и явно не снимет флажок.
+  const groupIds = groupSetsCore.normalizeGroupIds([
+    ...selectedGroupIds(),
+    ...unavailableIdsFromEditingSet(),
+  ]);
+  const duplicate = groupSets.some(
+    (set) =>
+      set.id !== editingGroupSetId &&
+      set.name.toLocaleLowerCase("ru") === name.toLocaleLowerCase("ru"),
+  );
+  if (duplicate) {
+    showCustomAlert("❌ Набор с таким названием уже существует.");
+    input.focus();
+    return;
+  }
+
+  try {
+    let savedSet;
+    if (editingGroupSetId) {
+      const index = groupSets.findIndex((set) => set.id === editingGroupSetId);
+      if (index < 0) throw new Error("Набор не найден.");
+      savedSet = groupSetsCore.updateGroupSet(groupSets[index], { name, groupIds });
+      groupSets.splice(index, 1, savedSet);
+    } else {
+      if (groupSets.length >= groupSetsCore.MAX_SETS) {
+        throw new Error(`Можно сохранить не больше ${groupSetsCore.MAX_SETS} наборов.`);
+      }
+      savedSet = groupSetsCore.createGroupSet({
+        id: createGroupSetId(),
+        name,
+        groupIds,
+      });
+      groupSets.push(savedSet);
+    }
+    await persistGroupSets();
+    closeGroupSetEditor();
+    renderGroupSetsUI();
+    setStatus(
+      `✅ Набор «${savedSet.name}» сохранён (${savedSet.groupIds.length} пабл.)`,
+      "success",
+    );
+  } catch (error) {
+    showCustomAlert(`❌ ${error.message}`);
+  }
+}
+
+async function deleteEditingGroupSet() {
+  const set = groupSets.find((item) => item.id === editingGroupSetId);
+  if (!set) return;
+  const confirmed = await showCustomConfirm(`Удалить набор «${set.name}»?`);
+  if (!confirmed) return;
+  groupSets = groupSets.filter((item) => item.id !== set.id);
+  await persistGroupSets();
+  closeGroupSetEditor();
+  renderGroupSetsUI();
+  setStatus(`🗑️ Набор «${set.name}» удалён`, "info");
+}
+
 function bindModalEvents() {
   const $ = (id) => modalEl.querySelector("#" + id);
   let deleteMode = false;
@@ -2265,6 +2553,32 @@ function bindModalEvents() {
       .forEach((c) => c.classList.remove("active"));
   };
 
+  // Сохранённые наборы пабликов: один клик заменяет текущий выбор составом набора.
+  $("vkr-group-set-new").onclick = () => openGroupSetEditor();
+  $("vkr-group-sets-list").addEventListener("click", async (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    if (!target) return;
+    const editButton = target.closest(".vkr-group-set-edit");
+    const applyButton = target.closest(".vkr-group-set-apply");
+    const button = editButton || applyButton;
+    if (!button) return;
+    const set = groupSets.find((item) => item.id === button.dataset.groupSetId);
+    if (!set) return;
+    if (editButton) await openGroupSetEditor(set);
+    else await applyGroupSet(set);
+  });
+  $("vkr-group-set-save").onclick = saveGroupSetFromEditor;
+  $("vkr-group-set-delete").onclick = deleteEditingGroupSet;
+  $("vkr-group-set-cancel").onclick = closeGroupSetEditor;
+  $("vkr-group-set-name").addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      saveGroupSetFromEditor();
+    } else if (event.key === "Escape") {
+      closeGroupSetEditor();
+    }
+  });
+
   const groupsList = $("vkr-groups-list");
   groupsList.addEventListener("change", (e) => {
     if (e.target.type === "checkbox") {
@@ -2639,6 +2953,8 @@ async function loadPost(postUrl) {
     $("vkr-groups-list").innerHTML = gh;
 
     updateGroupCount();
+    closeGroupSetEditor();
+    await loadGroupSetsUI();
 
     setStatus("✅ Пост загружен!", "success");
   } catch (e) {
@@ -2649,6 +2965,8 @@ async function loadPost(postUrl) {
 function updateGroupCount() {
   const n = modalEl.querySelectorAll("#vkr-groups-list input:checked").length;
   modalEl.querySelector("#vkr-group-count").textContent = n + " выбрано";
+  updateGroupSetEditorMeta();
+  syncGroupSetActiveState();
 }
 
 function setStatus(text, type) {
