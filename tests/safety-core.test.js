@@ -4,9 +4,11 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 const {
+  buildOwnedPhotoAttachment,
   buildReusableAttachments,
   classifyVkError,
   createSerialScheduler,
+  largestPhotoUrl,
   normalizeQueueJobs,
   selectCredential,
 } = require("../safety-core.js");
@@ -109,6 +111,41 @@ test("buildReusableAttachments preserves supported IDs and access keys", () => {
     "video3_4",
     "doc5_6_def",
   ]);
+});
+
+test("largestPhotoUrl selects the actual largest image instead of relying on VK order", () => {
+  assert.equal(
+    largestPhotoUrl({
+      sizes: [
+        { width: 1280, height: 720, url: "https://large.example/photo" },
+        { width: 100, height: 100, url: "https://small.example/photo" },
+        { width: 640, height: 480, url: "https://medium.example/photo" },
+      ],
+    }),
+    "https://large.example/photo",
+  );
+  assert.equal(
+    largestPhotoUrl({ orig_photo: { url: "https://fallback.example/photo" } }),
+    "https://fallback.example/photo",
+  );
+});
+
+test("copied photo attachment must belong to the exact target community", () => {
+  assert.equal(
+    buildOwnedPhotoAttachment(
+      { owner_id: -42, id: 99, access_key: "safe" },
+      42,
+    ),
+    "photo-42_99_safe",
+  );
+  assert.throws(
+    () => buildOwnedPhotoAttachment({ owner_id: -7, id: 99 }, 42),
+    /целевому сообществу/i,
+  );
+  assert.throws(
+    () => buildOwnedPhotoAttachment({ owner_id: 123, id: 99 }, 42),
+    /целевому сообществу/i,
+  );
 });
 
 test("normalizeQueueJobs recovers stale processing jobs only", () => {

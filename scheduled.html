@@ -33,6 +33,26 @@
       <button data-tab="history">История <span id="badge-history">0</span></button>
     </nav>
     <section class="toolbar"><div><h2 id="section-title">Ожидания</h2><p id="section-hint">Посты, которые вы отметили во ВКонтакте</p></div><button id="clear-finished" hidden>Очистить готовые</button></section>
+    <section id="analytics-panel" class="analytics-panel" hidden>
+      <div class="analytics-head">
+        <div><span class="analytics-kicker">Статистика сообществ</span><h3>Где публикации набирают больше активности</h3><p id="analytics-hint">Данные последних 100 записей каждой настроенной группы</p></div>
+        <div class="analytics-controls" aria-label="Период аналитики">
+          <button class="active" data-analytics-days="7">7 дней</button>
+          <button data-analytics-days="30">30 дней</button>
+          <button data-analytics-days="0">Всё время</button>
+          <button id="analytics-refresh" title="Обновить данные из VK">↻ Обновить</button>
+        </div>
+      </div>
+      <div class="analytics-summary">
+        <article><span>Публикаций</span><b id="analytics-posts">—</b></article>
+        <article><span>Лайков</span><b id="analytics-likes">—</b></article>
+        <article><span>Просмотров</span><b id="analytics-views">—</b></article>
+        <article><span>Комментариев</span><b id="analytics-comments">—</b></article>
+        <article><span>Репостов</span><b id="analytics-reposts">—</b></article>
+      </div>
+      <div class="analytics-ranking-head"><div><b>Рейтинг групп</b><span>Сортировка по среднему количеству реакций на публикацию</span></div><span id="analytics-updated"></span></div>
+      <div id="analytics-groups" class="analytics-groups" aria-live="polite"></div>
+    </section>
     <section id="cards" class="cards"></section>
   </main>
 

@@ -163,7 +163,7 @@ async function renderGroupTokens(tokens) {
     mode.textContent =
       entry.publishAs === "user" ? "Пост: user" : "Пост: группа";
     mode.title =
-      "Переключите на user, если VK не разрешает wall.post токеном сообщества.";
+      "Переключите на user, если VK не разрешает токеном сообщества wall.post или загрузку фотографий.";
     mode.addEventListener("click", async () => {
       const data = await chrome.storage.local.get("vkr_group_tokens");
       const updated = { ...(data.vkr_group_tokens || {}) };

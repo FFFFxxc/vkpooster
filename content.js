@@ -3320,46 +3320,96 @@ function cleanupDateValue(daysAgo) {
 
 function appendCleanupSample(container, sample) {
   container.replaceChildren();
+  if (!Array.isArray(sample) || sample.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "vkr-safe-cleanup-sample-empty";
+    empty.textContent = "В выбранном диапазоне нет примеров для показа.";
+    container.appendChild(empty);
+    return;
+  }
   for (const item of sample || []) {
     const row = document.createElement("div");
-    row.style.cssText = "display:flex;gap:10px;align-items:center;padding:8px 0;border-top:1px solid rgba(255,255,255,.08);";
+    row.className = "vkr-safe-cleanup-sample-row";
     if (item.thumbnail) {
       const image = document.createElement("img");
       image.src = item.thumbnail;
       image.alt = "";
       image.referrerPolicy = "no-referrer";
-      image.style.cssText = "width:42px;height:42px;object-fit:cover;border-radius:8px;background:#27243e;";
+      image.className = "vkr-safe-cleanup-sample-image";
       row.appendChild(image);
     }
-    const label = document.createElement("span");
-    label.style.cssText = "color:#cbd5e1;font-size:12px;line-height:1.4;";
+    const copy = document.createElement("div");
+    copy.className = "vkr-safe-cleanup-sample-copy";
     const date = item.date ? new Date(item.date * 1000).toLocaleDateString("ru-RU") : "без даты";
-    label.textContent = item.kind === "wall" ? `${date} · ${item.text}` : `${date} · ${item.albumTitle || "Альбом"}`;
-    row.appendChild(label);
+    const title = document.createElement("strong");
+    title.textContent = item.kind === "wall" ? `Запись #${item.postId}` : item.albumTitle || "Альбом";
+    const description = document.createElement("span");
+    description.textContent = item.kind === "wall" ? `${date} · ${item.text}` : `${date} · фотография #${item.photoId}`;
+    copy.append(title, description);
+    row.appendChild(copy);
     container.appendChild(row);
   }
 }
 
 function openSafeCleanupModal(groupId, kind) {
   const isWall = kind === "wall";
+  document.querySelector(".vkr-safe-cleanup-overlay")?.remove();
   const overlay = document.createElement("div");
-  overlay.style.cssText = "position:fixed;inset:0;z-index:2147483647;background:rgba(5,5,15,.78);backdrop-filter:blur(5px);display:flex;align-items:center;justify-content:center;padding:16px;";
+  overlay.className = "vkr-safe-cleanup-overlay";
   const modal = document.createElement("section");
-  modal.style.cssText = "width:min(590px,100%);max-height:90vh;overflow:auto;box-sizing:border-box;background:linear-gradient(145deg,#1b1830,#100f20);border:1px solid rgba(139,92,246,.35);border-radius:18px;padding:24px;color:#f8fafc;font-family:system-ui,-apple-system,sans-serif;box-shadow:0 24px 80px rgba(0,0,0,.6);";
+  modal.className = "vkr-safe-cleanup-dialog";
+  modal.setAttribute("role", "dialog");
+  modal.setAttribute("aria-modal", "true");
+  modal.setAttribute("aria-labelledby", "vkr-safe-cleanup-title");
   modal.innerHTML = `
-    <h2 style="font-size:20px;margin:0 0 8px">${isWall ? "Очистка записей" : "Очистка фотографий"}</h2>
-    <p style="color:#a5b4c8;font-size:13px;line-height:1.5;margin:0 0 16px">Сначала будет сформирован список. Удаление начнётся только после отдельного подтверждения и пойдёт по одному объекту.</p>
-    <div style="display:flex;gap:12px;flex-wrap:wrap;margin:0 0 12px">
-      <label style="font-size:13px;color:#cbd5e1">От<br><input data-role="from" type="date" style="margin-top:5px"></label>
-      <label style="font-size:13px;color:#cbd5e1">До<br><input data-role="to" type="date" style="margin-top:5px"></label>
+    <header class="vkr-safe-cleanup-header">
+      <div class="vkr-safe-cleanup-icon" aria-hidden="true">${isWall ? "⌫" : "▧"}</div>
+      <div class="vkr-safe-cleanup-heading">
+        <span>VK Reposter Pro · безопасная очистка</span>
+        <h2 id="vkr-safe-cleanup-title">${isWall ? "Очистка записей" : "Очистка фотографий"}</h2>
+        <p>Сначала расширение покажет точный список. Удаление начнётся только после подтверждения и пойдёт по одному объекту.</p>
+      </div>
+      <button class="vkr-safe-cleanup-close" data-role="close" type="button" aria-label="Закрыть">×</button>
+    </header>
+    <div class="vkr-safe-cleanup-steps" aria-label="Этапы очистки">
+      <span class="is-current" data-step="1"><b>1</b> Период</span>
+      <i></i>
+      <span data-step="2"><b>2</b> Проверка</span>
+      <i></i>
+      <span data-step="3"><b>3</b> Очистка</span>
     </div>
-    <div data-role="quick" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px"></div>
-    ${isWall ? '<label style="display:block;color:#cbd5e1;font-size:13px;margin:10px 0"><input data-role="photos" type="checkbox"> Удалить свои прикреплённые фото вместе с записями</label><label style="display:block;color:#cbd5e1;font-size:13px;margin:10px 0"><input data-role="pinned" type="checkbox" checked> Не трогать закреплённую запись</label>' : '<div data-role="albums" style="display:none;max-height:145px;overflow:auto;border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:8px;margin:12px 0"></div>'}
-    <div data-role="preview" style="display:none;background:rgba(99,102,241,.1);border:1px solid rgba(129,140,248,.35);border-radius:12px;padding:12px;margin:16px 0">
-      <strong data-role="counts"></strong><div data-role="sample" style="margin-top:8px"></div>
+    <div class="vkr-safe-cleanup-body">
+      <section class="vkr-safe-cleanup-section">
+        <div class="vkr-safe-cleanup-section-head"><div><b>Выберите период</b><span>Обе даты включаются в диапазон</span></div><span class="vkr-safe-cleanup-group">club${Math.abs(Number(groupId))}</span></div>
+        <div class="vkr-safe-cleanup-dates">
+          <label><span>От</span><input data-role="from" type="date"></label>
+          <span class="vkr-safe-cleanup-date-arrow" aria-hidden="true">→</span>
+          <label><span>До</span><input data-role="to" type="date"></label>
+        </div>
+        <div data-role="quick" class="vkr-safe-cleanup-quick"></div>
+      </section>
+      ${isWall ? '<section class="vkr-safe-cleanup-options"><label><input data-role="photos" type="checkbox"><span><b>Удалить свои прикреплённые фото</b><small>Только фотографии, принадлежащие этому сообществу</small></span></label><label><input data-role="pinned" type="checkbox" checked><span><b>Не трогать закреплённую запись</b><small>Закреп останется на стене независимо от даты</small></span></label></section>' : '<section data-role="albums" class="vkr-safe-cleanup-albums" hidden></section>'}
+      <section data-role="preview" class="vkr-safe-cleanup-preview" hidden>
+        <div class="vkr-safe-cleanup-preview-head"><div><span>Предварительный список</span><strong data-role="counts">Ничего не выбрано</strong></div><span class="vkr-safe-cleanup-checked">Проверено</span></div>
+        <div class="vkr-safe-cleanup-preview-stats">
+          <div><span>Записей</span><b data-role="preview-posts">0</b></div>
+          <div><span>Фотографий</span><b data-role="preview-photos">0</b></div>
+          <div><span>Всего действий</span><b data-role="preview-total">0</b></div>
+        </div>
+        <div data-role="sample" class="vkr-safe-cleanup-sample"></div>
+      </section>
+      <section data-role="progress" class="vkr-safe-cleanup-progress" hidden>
+        <div class="vkr-safe-cleanup-progress-head"><div><span data-role="run-state">Очистка запущена</span><strong data-role="progress-text">Обработано 0 из 0</strong></div><b data-role="percent">0%</b></div>
+        <div class="vkr-safe-cleanup-track"><div data-role="bar"></div></div>
+        <div class="vkr-safe-cleanup-progress-stats">
+          <div><span>Записи</span><b data-role="deleted-posts">0</b></div>
+          <div><span>Фото</span><b data-role="deleted-photos">0</b></div>
+          <div><span>Пропущено</span><b data-role="skipped">0</b></div>
+        </div>
+        <div data-role="run-errors" class="vkr-safe-cleanup-errors" hidden></div>
+      </section>
     </div>
-    <div data-role="progress" style="display:none;margin:16px 0"><div style="height:7px;background:#292541;border-radius:8px;overflow:hidden"><div data-role="bar" style="height:100%;width:0;background:linear-gradient(90deg,#7c3aed,#38bdf8);transition:width .2s"></div></div><div data-role="progress-text" style="color:#cbd5e1;font-size:13px;margin-top:8px"></div></div>
-    <div style="display:flex;justify-content:flex-end;gap:9px;margin-top:20px"><button data-role="cancel">Отмена</button><button data-role="preview-button">Показать список</button><button data-role="start" disabled>Удалить после подтверждения</button></div>`;
+    <footer class="vkr-safe-cleanup-actions"><button class="vkr-safe-cleanup-secondary" data-role="cancel" type="button">Отмена</button><button class="vkr-safe-cleanup-preview-button" data-role="preview-button" type="button">Показать список</button><button class="vkr-safe-cleanup-danger" data-role="start" type="button" disabled>Удалить после подтверждения</button></footer>`;
   overlay.appendChild(modal);
   document.body.appendChild(overlay);
 
@@ -3375,28 +3425,74 @@ function openSafeCleanupModal(groupId, kind) {
   const progressBox = modal.querySelector('[data-role="progress"]');
   const progressBar = modal.querySelector('[data-role="bar"]');
   const progressText = modal.querySelector('[data-role="progress-text"]');
+  const closeButton = modal.querySelector('[data-role="close"]');
+  const percent = modal.querySelector('[data-role="percent"]');
+  const runState = modal.querySelector('[data-role="run-state"]');
+  const deletedPosts = modal.querySelector('[data-role="deleted-posts"]');
+  const deletedPhotos = modal.querySelector('[data-role="deleted-photos"]');
+  const skipped = modal.querySelector('[data-role="skipped"]');
+  const runErrors = modal.querySelector('[data-role="run-errors"]');
+  const previewPosts = modal.querySelector('[data-role="preview-posts"]');
+  const previewPhotos = modal.querySelector('[data-role="preview-photos"]');
+  const previewTotal = modal.querySelector('[data-role="preview-total"]');
+  const today = cleanupDateValue(0);
+  from.max = today;
+  to.max = today;
   from.value = cleanupDateValue(isWall ? 30 : 90);
-  to.value = cleanupDateValue(0);
+  to.value = today;
   let previewId = "";
   let runId = "";
   let isRunning = false;
   let knownAlbums = [];
+  let lastCounts = { posts: 0, photos: 0 };
+  let lastProgress = { current: 0, total: 0 };
+
+  function setStep(step) {
+    modal.querySelectorAll("[data-step]").forEach((item) => {
+      const value = Number(item.dataset.step);
+      item.classList.toggle("is-current", value === step);
+      item.classList.toggle("is-complete", value < step);
+    });
+  }
+
+  function lockForm(locked) {
+    from.disabled = locked;
+    to.disabled = locked;
+    quick.querySelectorAll("button").forEach((button) => { button.disabled = locked; });
+    modal.querySelectorAll('[data-role="photos"],[data-role="pinned"],[data-role="album-check"]').forEach((input) => { input.disabled = locked; });
+    closeButton.disabled = locked;
+  }
 
   const resetPreview = () => {
+    if (isRunning) return;
     previewId = "";
+    lastCounts = { posts: 0, photos: 0 };
     startButton.disabled = true;
-    previewBox.style.display = "none";
+    previewBox.hidden = true;
+    progressBox.hidden = true;
+    setStep(1);
   };
   for (const days of (isWall ? [7, 30, 90] : [30, 90, 180, 365])) {
     const button = document.createElement("button");
     button.type = "button";
     button.textContent = `${days} дн.`;
-    button.style.cssText = "border:1px solid rgba(255,255,255,.13);border-radius:8px;background:#25213d;color:#cbd5e1;padding:6px 10px;cursor:pointer;";
-    button.onclick = () => { from.value = cleanupDateValue(days); to.value = cleanupDateValue(0); resetPreview(); };
+    button.className = "vkr-safe-cleanup-quick-button";
+    if (days === (isWall ? 30 : 90)) button.classList.add("is-active");
+    button.onclick = () => {
+      quick.querySelectorAll("button").forEach((item) => item.classList.remove("is-active"));
+      button.classList.add("is-active");
+      from.value = cleanupDateValue(days);
+      to.value = today;
+      resetPreview();
+    };
     quick.appendChild(button);
   }
-  from.onchange = resetPreview;
-  to.onchange = resetPreview;
+  const datesChanged = () => {
+    quick.querySelectorAll("button").forEach((item) => item.classList.remove("is-active"));
+    resetPreview();
+  };
+  from.onchange = datesChanged;
+  to.onchange = datesChanged;
   modal.querySelector('[data-role="photos"]')?.addEventListener("change", resetPreview);
   modal.querySelector('[data-role="pinned"]')?.addEventListener("change", resetPreview);
 
@@ -3411,38 +3507,85 @@ function openSafeCleanupModal(groupId, kind) {
     container.replaceChildren();
     for (const album of albums) {
       const label = document.createElement("label");
-      label.style.cssText = "display:block;padding:4px;color:#cbd5e1;font-size:12px;";
+      label.className = "vkr-safe-cleanup-album";
       const input = document.createElement("input");
       input.type = "checkbox";
       input.dataset.role = "album-check";
       input.value = String(album.id);
       input.checked = selected.size ? selected.has(String(album.id)) : true;
       input.onchange = resetPreview;
-      label.append(input, ` ${album.title}${album.size === null ? "" : ` (${album.size})`}`);
+      const copy = document.createElement("span");
+      const title = document.createElement("b");
+      title.textContent = album.title;
+      const size = document.createElement("small");
+      size.textContent = album.size === null ? "Количество уточнит VK" : `${album.size} фото`;
+      copy.append(title, size);
+      label.append(input, copy);
       container.appendChild(label);
     }
-    container.style.display = "block";
+    container.hidden = false;
+  }
+  function renderRunErrors(errors) {
+    const recent = Array.isArray(errors) ? errors.slice(-3) : [];
+    runErrors.replaceChildren();
+    runErrors.hidden = recent.length === 0;
+    for (const error of recent) {
+      const row = document.createElement("div");
+      row.textContent = `${error.id ? `#${error.id}: ` : ""}${error.message || "Объект пропущен"}`;
+      runErrors.appendChild(row);
+    }
+  }
+  function updateProgress(message) {
+    const total = Math.max(0, Number(message.total) || 0);
+    const current = Math.min(total || Number(message.current) || 0, Math.max(0, Number(message.current) || 0));
+    const value = total > 0 ? Math.min(100, Math.round((current / total) * 100)) : 0;
+    lastProgress = { current, total };
+    progressBar.style.width = `${value}%`;
+    percent.textContent = `${value}%`;
+    progressText.textContent = `Обработано ${current} из ${total}`;
+    deletedPosts.textContent = String(message.deletedPosts || 0);
+    deletedPhotos.textContent = String(message.deletedPhotos || 0);
+    skipped.textContent = String(message.skipped || 0);
+    renderRunErrors(message.errors);
   }
   function onCleanupMessage(message) {
     if (message.runId !== runId) return;
     if (message.type === "cleanup_progress") {
-      const total = Math.max(1, Number(message.total) || 1);
-      progressBar.style.width = `${Math.min(100, (Number(message.current) / total) * 100)}%`;
-      progressText.textContent = `Обработано ${message.current} из ${message.total}. Удалено: ${message.deletedPosts || 0} записей, ${message.deletedPhotos || 0} фото. Пропущено: ${message.skipped || 0}.`;
+      runState.textContent = "Удаление выполняется по одному объекту";
+      updateProgress(message);
     }
     if (message.type === "cleanup_finished") {
       isRunning = false;
+      lockForm(false);
       cancelButton.disabled = false;
       cancelButton.textContent = "Закрыть";
       startButton.disabled = true;
-      previewButton.disabled = false;
-      progressText.textContent = message.status === "paused" ? `VK запросил проверку: ${message.pausedError?.message || "операция остановлена"}` : message.status === "cancelled" ? "Остановлено пользователем после текущего объекта." : `Готово. Удалено: ${message.deletedPosts || 0} записей, ${message.deletedPhotos || 0} фото. Пропущено: ${message.skipped || 0}.`;
+      previewButton.disabled = message.status === "paused";
+      previewButton.textContent = message.status === "paused" ? "Сначала проверьте VK" : "Сформировать новый список";
+      const finalTotal = Number(message.total) || lastProgress.total;
+      const finalCurrent = message.status === "completed" ? finalTotal : Number(message.completed) || lastProgress.current;
+      updateProgress({ ...message, current: finalCurrent, total: finalTotal });
+      progressBox.classList.remove("is-success", "is-paused", "is-cancelled");
+      progressBox.classList.add(`is-${message.status}`);
+      if (message.status === "paused") {
+        runState.textContent = "VK остановил очистку для проверки";
+        progressText.textContent = message.pausedError?.message || "Операция поставлена на защитную паузу";
+      } else if (message.status === "cancelled") {
+        runState.textContent = "Очистка остановлена";
+        progressText.textContent = `Обработано ${finalCurrent} из ${finalTotal}`;
+      } else {
+        runState.textContent = "Очистка завершена";
+        progressText.textContent = `Обработано ${finalTotal} из ${finalTotal}`;
+      }
       showToast(message.status === "completed" ? "✅ Очистка завершена" : "ℹ️ Очистка остановлена", message.status === "completed" ? "success" : "info");
     }
   }
   chrome.runtime.onMessage.addListener(onCleanupMessage);
-  function close() { chrome.runtime.onMessage.removeListener(onCleanupMessage); overlay.remove(); }
+  function onKeyDown(event) { if (event.key === "Escape" && !isRunning) close(); }
+  document.addEventListener("keydown", onKeyDown);
+  function close() { chrome.runtime.onMessage.removeListener(onCleanupMessage); document.removeEventListener("keydown", onKeyDown); overlay.remove(); }
   overlay.onclick = (event) => { if (event.target === overlay && !isRunning) close(); };
+  closeButton.onclick = () => { if (!isRunning) close(); };
   cancelButton.onclick = async () => {
     if (!isRunning) return close();
     cancelButton.disabled = true;
@@ -3451,6 +3594,7 @@ function openSafeCleanupModal(groupId, kind) {
   };
   previewButton.onclick = async () => {
     if (!from.value || !to.value) return showToast("❌ Укажите обе даты", "error");
+    if (new Date(`${from.value}T00:00:00`) > new Date(`${to.value}T23:59:59`)) return showToast("❌ Дата «От» должна быть раньше даты «До»", "error");
     previewButton.disabled = true;
     previewButton.textContent = "Считаю…";
     try {
@@ -3466,27 +3610,42 @@ function openSafeCleanupModal(groupId, kind) {
       previewId = response.previewId;
       const suffix = response.counts.photos ? ` и ${response.counts.photos} фото` : "";
       counts.textContent = `Будет удалено: ${response.counts.posts} записей${suffix}.`;
+      lastCounts = { posts: Number(response.counts.posts) || 0, photos: Number(response.counts.photos) || 0 };
+      previewPosts.textContent = String(lastCounts.posts);
+      previewPhotos.textContent = String(lastCounts.photos);
+      previewTotal.textContent = String(lastCounts.posts + lastCounts.photos);
       appendCleanupSample(sample, response.sample);
-      previewBox.style.display = "block";
-      startButton.disabled = response.counts.posts + response.counts.photos === 0;
+      previewBox.hidden = false;
+      startButton.disabled = lastCounts.posts + lastCounts.photos === 0;
       if (!isWall) renderAlbums(response.albums || []);
+      setStep(2);
     } catch (error) { showToast(`❌ ${error.message}`, "error"); resetPreview(); }
     finally { previewButton.disabled = false; previewButton.textContent = "Показать список"; }
   };
   startButton.onclick = async () => {
-    const confirmation = await showCustomConfirm(`Удалить ${counts.textContent.replace("Будет удалено: ", "")} Это необратимо. Операция идёт по одному объекту, её можно остановить.`);
+    const totalText = `${lastCounts.posts} записей${lastCounts.photos ? ` и ${lastCounts.photos} фото` : ""}`;
+    const confirmation = await showCustomConfirm(`Удалить ${totalText}?\n\nЭто действие необратимо. Расширение будет удалять по одному объекту; процесс можно остановить.`);
     if (!confirmation) return;
     try {
       const response = await sendMessage("cleanup_start", { previewId });
       runId = response.runId;
       isRunning = true;
+      lastProgress = { current: 0, total: Number(response.total) || 0 };
+      lockForm(true);
       startButton.disabled = true;
       previewButton.disabled = true;
       cancelButton.textContent = "Стоп";
-      progressText.textContent = `Запущено: 0 из ${response.total}.`;
-      progressBox.style.display = "block";
+      cancelButton.disabled = false;
+      runState.textContent = "Подготовка к безопасной очистке";
+      updateProgress({ current: 0, total: response.total, deletedPosts: 0, deletedPhotos: 0, skipped: 0, errors: [] });
+      progressBox.classList.remove("is-success", "is-paused", "is-cancelled");
+      progressBox.hidden = false;
+      setStep(3);
     } catch (error) { showToast(`❌ ${error.message}`, "error"); }
   };
+
+  setStep(1);
+  requestAnimationFrame(() => from.focus());
 }
 
 function openBulkDeleteModal(groupId) { openSafeCleanupModal(groupId, "wall"); }

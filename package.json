@@ -1,6 +1,6 @@
 {
   "name": "vk-reposter-pro",
-  "version": "4.1.5",
+  "version": "4.1.6",
   "description": "VK Reposter Pro — расширение для репоста в ВКонтакте",
   "private": true,
   "scripts": {

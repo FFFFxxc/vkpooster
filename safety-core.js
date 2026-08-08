@@ -66,6 +66,42 @@
     });
   }
 
+  function largestPhotoUrl(photo) {
+    const sizes = Array.isArray(photo?.sizes)
+      ? photo.sizes.filter((size) => size && typeof size.url === "string")
+      : [];
+    if (sizes.length > 0) {
+      const best = sizes.reduce((current, size) => {
+        const currentArea =
+          (Number(current.width) || 0) * (Number(current.height) || 0);
+        const sizeArea =
+          (Number(size.width) || 0) * (Number(size.height) || 0);
+        return sizeArea >= currentArea ? size : current;
+      });
+      return best.url.trim();
+    }
+    return String(photo?.orig_photo?.url || photo?.url || "").trim();
+  }
+
+  function buildOwnedPhotoAttachment(photo, groupId) {
+    const normalizedGroupId = Math.abs(Number(groupId));
+    const ownerId = Number(photo?.owner_id ?? photo?.ownerId);
+    const photoId = Number(photo?.id);
+    if (
+      !Number.isSafeInteger(normalizedGroupId) ||
+      normalizedGroupId === 0 ||
+      !Number.isSafeInteger(photoId) ||
+      ownerId !== -normalizedGroupId
+    ) {
+      throw new Error(
+        "VK не подтвердил, что загруженное фото принадлежит целевому сообществу.",
+      );
+    }
+    const accessKey = photo?.access_key ?? photo?.accessKey;
+    const suffix = accessKey ? `_${accessKey}` : "";
+    return `photo${ownerId}_${photoId}${suffix}`;
+  }
+
   function readGroupToken(groupTokens, groupId) {
     const entry = groupTokens?.[String(groupId)] ?? groupTokens?.[Number(groupId)];
     if (typeof entry === "string") return entry.trim();
@@ -176,9 +212,11 @@
 
   return Object.freeze({
     PAUSE_ERROR_CODES,
+    buildOwnedPhotoAttachment,
     buildReusableAttachments,
     classifyVkError,
     createSerialScheduler,
+    largestPhotoUrl,
     normalizeQueueJobs,
     selectCredential,
   });

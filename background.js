@@ -15,14 +15,21 @@ const QUEUE_PAUSE_KEY = "vkr_queue_pause";
 const DEFAULT_COMMENT_DELAY_SECONDS = 60;
 const API_INTERVAL_MS = 1200;
 const API_TIMEOUT_MS = 20_000;
+const MEDIA_TIMEOUT_MS = 45_000;
+const MAX_SOURCE_PHOTO_BYTES = 50 * 1024 * 1024;
 const CLIP_QUEUE_KEY = "vkr_clips_queue";
 const CLIP_HISTORY_KEY = "vkr_clips_history";
 const CLIP_CHUNK_BYTES = 128 * 1024;
+const GROUP_ANALYTICS_CACHE_KEY = "vkr_group_analytics_cache";
+const GROUP_ANALYTICS_CACHE_TTL_MS = 15 * 60_000;
+const GROUP_ANALYTICS_POST_LIMIT = 100;
 
 const {
+  buildOwnedPhotoAttachment,
   buildReusableAttachments,
   classifyVkError,
   createSerialScheduler,
+  largestPhotoUrl,
   normalizeQueueJobs,
   selectCredential,
 } = globalThis.VkrSafetyCore;
@@ -129,6 +136,60 @@ async function vkApi(method, params = {}, token) {
       clearTimeout(timeout);
     }
   });
+}
+
+function nonRetryableError(message) {
+  const error = new Error(message);
+  error.nonRetryable = true;
+  return error;
+}
+
+function isAllowedHost(hostname, suffixes) {
+  const normalized = String(hostname || "").toLowerCase();
+  return suffixes.some(
+    (suffix) => normalized === suffix || normalized.endsWith(`.${suffix}`),
+  );
+}
+
+function checkedHttpsUrl(rawUrl, suffixes, label) {
+  let url;
+  try {
+    url = new URL(String(rawUrl || ""));
+  } catch {
+    throw nonRetryableError(`${label}: VK вернул некорректный адрес.`);
+  }
+  if (url.protocol !== "https:" || !isAllowedHost(url.hostname, suffixes)) {
+    throw nonRetryableError(`${label}: адрес не принадлежит разрешённому домену VK.`);
+  }
+  return url.href;
+}
+
+async function fetchWithTimeout(url, options, timeoutMs, timeoutMessage) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } catch (error) {
+    if (error.name === "AbortError") {
+      const timeoutError = new Error(timeoutMessage);
+      timeoutError.transport = true;
+      throw timeoutError;
+    }
+    error.transport = true;
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function responseError(message, response) {
+  const error = new Error(`${message}: HTTP ${response.status}`);
+  if (response.status >= 500 || response.status === 408 || response.status === 429) {
+    error.transport = true;
+  } else {
+    error.nonRetryable = true;
+  }
+  return error;
 }
 
 async function getLocalCredentials() {
@@ -478,6 +539,182 @@ async function completePostSideEffects(
   return warnings.join(" ") || null;
 }
 
+function copyPhotoObjects(post) {
+  return (Array.isArray(post?.attachments) ? post.attachments : []).flatMap(
+    (attachment) => {
+      if (attachment?.type !== "photo") return [];
+      const photo =
+        attachment.photo && typeof attachment.photo === "object"
+          ? attachment.photo
+          : attachment;
+      return photo && typeof photo === "object" ? [photo] : [];
+    },
+  );
+}
+
+function reusableNonPhotoAttachments(post) {
+  const attachments = Array.isArray(post?.attachments) ? post.attachments : [];
+  return buildReusableAttachments(
+    attachments.filter((attachment) => attachment?.type !== "photo"),
+  );
+}
+
+function mediaCheckpoint(job, groupId, total) {
+  if (!job.preparedMedia || typeof job.preparedMedia !== "object") {
+    job.preparedMedia = {};
+  }
+  const key = String(groupId);
+  const prefix = `photo-${Math.abs(Number(groupId))}_`;
+  const current = job.preparedMedia[key];
+  const valid =
+    current?.version === 1 &&
+    Number(current.total) === total &&
+    Array.isArray(current.photos) &&
+    current.photos.length <= total &&
+    current.photos.every(
+      (attachment) =>
+        typeof attachment === "string" && attachment.startsWith(prefix),
+    );
+  if (!valid) {
+    job.preparedMedia[key] = {
+      version: 1,
+      total,
+      photos: [],
+      updatedAt: Date.now(),
+    };
+  }
+  return job.preparedMedia[key];
+}
+
+async function uploadOwnedWallPhoto(photo, groupId, token, position) {
+  const sourceUrl = largestPhotoUrl(photo);
+  if (!sourceUrl) {
+    throw nonRetryableError(
+      `Фото ${position}: у исходного вложения нет файла для безопасного копирования.`,
+    );
+  }
+  const checkedSourceUrl = checkedHttpsUrl(
+    sourceUrl,
+    ["userapi.com", "vkuserphoto.ru", "vk-cdn.net", "vk.com", "vk.ru"],
+    `Фото ${position}`,
+  );
+  const sourceResponse = await fetchWithTimeout(
+    checkedSourceUrl,
+    { method: "GET", credentials: "omit", cache: "no-store" },
+    MEDIA_TIMEOUT_MS,
+    `Фото ${position}: VK слишком долго отдавал исходный файл.`,
+  );
+  if (!sourceResponse.ok) {
+    throw responseError(`Фото ${position}: исходный файл не загружен`, sourceResponse);
+  }
+  const blob = await sourceResponse.blob();
+  if (!blob.size || blob.size > MAX_SOURCE_PHOTO_BYTES) {
+    throw nonRetryableError(
+      `Фото ${position}: файл пустой или превышает 50 МБ. Пост не опубликован без фотографии.`,
+    );
+  }
+  if (blob.type && !blob.type.toLowerCase().startsWith("image/")) {
+    throw nonRetryableError(
+      `Фото ${position}: VK вернул не изображение (${blob.type}). Пост остановлен без подстановки исходного вложения.`,
+    );
+  }
+
+  const uploadServer = await vkApi(
+    "photos.getWallUploadServer",
+    { group_id: groupId },
+    token,
+  );
+  const uploadUrl = checkedHttpsUrl(
+    uploadServer?.upload_url,
+    ["vk.com", "vk.ru"],
+    `Фото ${position}: сервер загрузки`,
+  );
+  const formData = new FormData();
+  formData.append("photo", blob, `vkr-copy-${position}.jpg`);
+  const uploadResponse = await fetchWithTimeout(
+    uploadUrl,
+    { method: "POST", body: formData, credentials: "omit" },
+    MEDIA_TIMEOUT_MS,
+    `Фото ${position}: сервер VK не завершил загрузку вовремя.`,
+  );
+  if (!uploadResponse.ok) {
+    throw responseError(`Фото ${position}: сервер VK отклонил файл`, uploadResponse);
+  }
+  let uploaded;
+  try {
+    uploaded = await uploadResponse.json();
+  } catch {
+    const error = new Error(
+      `Фото ${position}: сервер загрузки VK вернул нечитаемый ответ.`,
+    );
+    error.transport = true;
+    throw error;
+  }
+  if (!uploaded?.photo || uploaded.server === undefined || !uploaded?.hash) {
+    const error = new Error(
+      `Фото ${position}: сервер загрузки VK не вернул данные сохранения.`,
+    );
+    error.transport = true;
+    throw error;
+  }
+  const saved = await vkApi(
+    "photos.saveWallPhoto",
+    {
+      group_id: groupId,
+      photo: uploaded.photo,
+      server: uploaded.server,
+      hash: uploaded.hash,
+    },
+    token,
+  );
+  if (!Array.isArray(saved) || !saved[0]) {
+    const error = new Error(`Фото ${position}: VK не сохранил загруженный файл.`);
+    error.transport = true;
+    throw error;
+  }
+  try {
+    return buildOwnedPhotoAttachment(saved[0], groupId);
+  } catch (error) {
+    error.nonRetryable = true;
+    throw error;
+  }
+}
+
+async function prepareOwnedCopyAttachments(job, groupId, token) {
+  const photos = copyPhotoObjects(job.post);
+  const reusable = reusableNonPhotoAttachments(job.post);
+  if (!photos.length) return reusable;
+
+  const checkpoint = mediaCheckpoint(job, groupId, photos.length);
+  for (let index = checkpoint.photos.length; index < photos.length; index += 1) {
+    job.mediaProgress = {
+      groupId,
+      current: index,
+      total: photos.length,
+      phase: "uploading",
+    };
+    await persistJob(job);
+    const attachment = await uploadOwnedWallPhoto(
+      photos[index],
+      groupId,
+      token,
+      index + 1,
+    );
+    checkpoint.photos.push(attachment);
+    checkpoint.updatedAt = Date.now();
+    job.mediaProgress.current = checkpoint.photos.length;
+    await persistJob(job);
+  }
+  job.mediaProgress = {
+    groupId,
+    current: photos.length,
+    total: photos.length,
+    phase: "ready",
+  };
+  await persistJob(job);
+  return [...checkpoint.photos, ...reusable];
+}
+
 async function publishToGroup(job, groupId, credentials, onPublished) {
   if (job.processedPhotos > 0) {
     throw new Error(
@@ -520,7 +757,11 @@ async function publishToGroup(job, groupId, credentials, onPublished) {
     );
     postId = response?.post_id;
   } else {
-    const attachments = buildReusableAttachments(job.post.attachments);
+    const attachments = await prepareOwnedCopyAttachments(
+      job,
+      groupId,
+      credential.token,
+    );
     const params = {
       owner_id: -groupId,
       from_group: 1,
@@ -532,6 +773,8 @@ async function publishToGroup(job, groupId, credentials, onPublished) {
     const response = await vkApi("wall.post", params, credential.token);
     postId = response?.post_id;
   }
+
+  delete job.mediaProgress;
 
   const checkpoint = {
     gid: groupId,
@@ -600,12 +843,14 @@ async function executePublishJob(job) {
         break;
       } catch (error) {
         attempt += 1;
-        const decision = classifyVkError(
-          error.vkError || {
-            code: error.code,
-            transport: error.transport === true,
-          },
-        );
+        const decision = error.nonRetryable
+          ? { action: "fail", code: error.code || null, reason: "media" }
+          : classifyVkError(
+              error.vkError || {
+                code: error.code,
+                transport: error.transport === true,
+              },
+            );
 
         if (
           decision.action === "retry" &&
@@ -646,6 +891,8 @@ async function executePublishJob(job) {
       ok > 0 ? null : job.results.find((result) => !result.ok)?.error;
     job.completedAt = Date.now();
     delete job.pausedGroupId;
+    delete job.mediaProgress;
+    delete job.preparedMedia;
   }
   delete job.processingStartedAt;
   return job;
@@ -1210,6 +1457,8 @@ async function executeCleanupRun(run, operations, token) {
       runId: run.id,
       kind: run.kind,
       status: result.status,
+      completed: result.completed,
+      total: operations.length,
       deletedPosts,
       deletedPhotos,
       skipped: result.skipped,
@@ -1302,6 +1551,7 @@ async function listClipGroups() {
       id: Math.abs(Number(id)),
       name: typeof entry === "object" && entry?.label ? String(entry.label) : `Сообщество ${id}`,
       screenName: "",
+      photoUrl: typeof entry === "object" ? String(entry?.photoUrl || entry?.photo || "") : "",
     }))
     .filter((group) => Number.isSafeInteger(group.id) && group.id > 0)
     .map((group) => [group.id, group]));
@@ -1319,6 +1569,7 @@ async function listClipGroups() {
             id,
             name: String(group.name || `Сообщество ${id}`).slice(0, 160),
             screenName: String(group.screen_name || `club${id}`).slice(0, 100),
+            photoUrl: String(group.photo_100 || group.photo_50 || ""),
           });
         }
       }
@@ -1336,15 +1587,123 @@ async function listClipGroups() {
       continue;
     }
     try {
-      const response = await vkApi("groups.getById", { group_ids: group.id }, token);
+      const response = await vkApi(
+        "groups.getById",
+        { group_ids: group.id, fields: "photo_50,photo_100,screen_name" },
+        token,
+      );
       const info = response?.groups?.[0] || response?.items?.[0] || response?.[0];
       group.name = String(info?.name || group.name).slice(0, 160);
       group.screenName = String(info?.screen_name || `club${group.id}`).slice(0, 100);
+      group.photoUrl = String(info?.photo_100 || info?.photo_50 || group.photoUrl || "");
     } catch {
       group.screenName = `club${group.id}`;
     }
   }
   return [...known.values()].sort((first, second) => first.name.localeCompare(second.name, "ru"));
+}
+
+function configuredGroupToken(entry) {
+  if (typeof entry === "string") return entry.trim();
+  return typeof entry?.token === "string" ? entry.token.trim() : "";
+}
+
+function compactAnalyticsPost(post) {
+  return {
+    id: Number(post?.id) || null,
+    date: Number(post?.date) || 0,
+    likes: Math.max(0, Number(post?.likes?.count) || 0),
+    views: Math.max(0, Number(post?.views?.count) || 0),
+    comments: Math.max(0, Number(post?.comments?.count) || 0),
+    reposts: Math.max(0, Number(post?.reposts?.count) || 0),
+  };
+}
+
+async function getConfiguredGroupAnalytics({ force = false } = {}) {
+  const { groupTokens, userToken } = await getLocalCredentials();
+  const configured = Object.entries(groupTokens)
+    .map(([rawId, entry]) => ({
+      groupId: Math.abs(Number(rawId)),
+      token: configuredGroupToken(entry) || userToken,
+    }))
+    .filter(
+      (group) =>
+        Number.isSafeInteger(group.groupId) && group.groupId > 0,
+    )
+    .sort((first, second) => first.groupId - second.groupId);
+
+  const stored = await chrome.storage.local.get(GROUP_ANALYTICS_CACHE_KEY);
+  const previous = stored[GROUP_ANALYTICS_CACHE_KEY];
+  const cache = {
+    version: 1,
+    groups:
+      previous?.version === 1 && previous.groups && typeof previous.groups === "object"
+        ? { ...previous.groups }
+        : {},
+  };
+  const now = Date.now();
+  const groups = [];
+
+  for (const group of configured) {
+    const key = String(group.groupId);
+    const cached = cache.groups[key];
+    const isFresh =
+      !force &&
+      cached?.fetchedAt &&
+      now - Number(cached.fetchedAt) < GROUP_ANALYTICS_CACHE_TTL_MS &&
+      Array.isArray(cached.posts);
+    if (isFresh) {
+      groups.push({ groupId: group.groupId, ...cached, cached: true });
+      continue;
+    }
+    if (!group.token) {
+      groups.push({
+        groupId: group.groupId,
+        posts: Array.isArray(cached?.posts) ? cached.posts : [],
+        fetchedAt: Number(cached?.fetchedAt) || null,
+        stale: Boolean(cached?.posts),
+        error: "Для группы не настроен токен, статистика недоступна.",
+      });
+      continue;
+    }
+
+    try {
+      const response = await vkApi(
+        "wall.get",
+        {
+          owner_id: -group.groupId,
+          filter: "owner",
+          count: GROUP_ANALYTICS_POST_LIMIT,
+        },
+        group.token,
+      );
+      const entry = {
+        fetchedAt: Date.now(),
+        posts: (response?.items || []).map(compactAnalyticsPost),
+      };
+      cache.groups[key] = entry;
+      groups.push({ groupId: group.groupId, ...entry, cached: false });
+    } catch (error) {
+      groups.push({
+        groupId: group.groupId,
+        posts: Array.isArray(cached?.posts) ? cached.posts : [],
+        fetchedAt: Number(cached?.fetchedAt) || null,
+        stale: Boolean(cached?.posts),
+        error: String(error?.message || "VK не вернул статистику").slice(0, 300),
+      });
+    }
+  }
+
+  const configuredIds = new Set(configured.map((group) => String(group.groupId)));
+  cache.groups = Object.fromEntries(
+    Object.entries(cache.groups).filter(([groupId]) => configuredIds.has(groupId)),
+  );
+  await chrome.storage.local.set({ [GROUP_ANALYTICS_CACHE_KEY]: cache });
+  return {
+    groups,
+    postLimit: GROUP_ANALYTICS_POST_LIMIT,
+    cacheTtlMs: GROUP_ANALYTICS_CACHE_TTL_MS,
+  };
 }
 
 async function startNextClipJob() {
@@ -1568,6 +1927,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
   if (type === "list_clip_groups") {
     return respond(async () => ({ groups: await listClipGroups() }));
+  }
+  if (type === "get_group_analytics") {
+    return respond(() =>
+      getConfiguredGroupAnalytics({ force: message.force === true }),
+    );
   }
   if (type === "clips_list") {
     return respond(async () => {

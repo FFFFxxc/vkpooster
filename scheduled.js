@@ -1,10 +1,25 @@
 "use strict";
 
 const $ = (id) => document.getElementById(id);
-const state = { tab:"waiting", waiting:[], posts:[], comments:[], stories:[], clips:[], history:[], groupLabels:{}, pause:null };
+const state = {
+  tab:"waiting",
+  waiting:[],
+  posts:[],
+  comments:[],
+  stories:[],
+  clips:[],
+  history:[],
+  groupLabels:{},
+  groupPhotos:{},
+  groupScreenNames:{},
+  configuredGroupIds:[],
+  pause:null,
+  analytics:{days:7,loading:false,loaded:false,groups:[],postLimit:100,error:""},
+};
 let selectedWaitingId = null;
 let toastTimer = null;
 let groupDirectoryLoaded = false;
+let groupDirectorySignature = "";
 
 function runtimeMessage(message) {
   return new Promise((resolve, reject) => chrome.runtime.sendMessage(message, (response) => {
@@ -17,6 +32,8 @@ function toast(text, type = "info") { clearTimeout(toastTimer); const box=$("toa
 function formatDate(value) { if (!value) return "—"; const date=new Date(value); return Number.isFinite(date.getTime()) ? date.toLocaleString("ru-RU",{dateStyle:"short",timeStyle:"short"}) : "—"; }
 function statusLabel(status) { return ({queued:"В очереди",processing:"Публикуется",paused:"Пауза",done:"Готово",completed:"Готово",partial:"Частично",failed:"Ошибка",cancelled:"Отменено",uploading:"Файл загружается",opening_tab:"Открываю VK",transferring:"Передаю файл"})[status]||status; }
 function groupName(groupId) { const id=Math.abs(Number(groupId)); return state.groupLabels[String(id)]||`club${id}`; }
+function groupPhoto(groupId) { const id=String(Math.abs(Number(groupId))); return state.groupPhotos[id]||""; }
+function groupUrl(groupId) { const id=String(Math.abs(Number(groupId))); return `https://vk.ru/${state.groupScreenNames[id]||`club${id}`}`; }
 function largestPhotoUrl(photo) {
   const sizes=Array.isArray(photo?.sizes)?photo.sizes.filter((size)=>size?.url):[];
   if(sizes.length){
@@ -48,6 +65,17 @@ function postPhotos(post,cachedImages=[]) {
   return uniqueImageUrls(remote.length?remote:cached);
 }
 function active(items) { return items.filter((item)=>!["completed","done","failed","cancelled"].includes(item.status)); }
+function postJobTime(job) { return Number(job.pubDate||job.completedAt||job.createdAt)||0; }
+function sortPostJobs(items) {
+  const finalStatuses=new Set(["completed","done","failed","cancelled"]);
+  return [...items].sort((first,second)=>{
+    const firstFinal=finalStatuses.has(first.status);const secondFinal=finalStatuses.has(second.status);
+    if(firstFinal!==secondFinal)return firstFinal?1:-1;
+    const difference=postJobTime(first)-postJobTime(second);
+    if(difference!==0)return firstFinal?-difference:difference;
+    return String(first.id||"").localeCompare(String(second.id||""));
+  });
+}
 function make(tag,className,text) { const node=document.createElement(tag); if(className)node.className=className; if(text!==undefined)node.textContent=text; return node; }
 function addButton(root,text,handler,kind="") { const button=make("button",kind,text); button.type="button"; button.onclick=()=>void Promise.resolve(handler()).catch((error)=>toast(error.message,"error")); root.appendChild(button); return button; }
 
@@ -172,6 +200,7 @@ function selectTab(tab) {
   state.tab=tab;
   document.querySelectorAll(".tabs button").forEach((button)=>button.classList.toggle("active",button.dataset.tab===tab));
   render();
+  if(tab==="history")void loadAnalytics();
 }
 
 function showPausedJob() {
@@ -215,10 +244,109 @@ function appendPublishResults(body, results) {
   details.appendChild(list);body.appendChild(details);
 }
 
+function formatCompactNumber(value) {
+  const number=Math.max(0,Number(value)||0);
+  if(number>=1_000_000)return `${(number/1_000_000).toFixed(number>=10_000_000?0:1).replace(".0","")} млн`;
+  if(number>=10_000)return `${(number/1_000).toFixed(number>=100_000?0:1).replace(".0","")} тыс.`;
+  return number.toLocaleString("ru-RU");
+}
+
+function analyticsPeriodLabel(days) {
+  if(days===7)return "за 7 дней";
+  if(days===30)return "за 30 дней";
+  return "по последним 100 записям каждой группы";
+}
+
+function analyticsMetrics(group,days) {
+  const cutoff=days>0?Date.now()-days*24*60*60*1000:0;
+  const posts=(Array.isArray(group.posts)?group.posts:[]).filter((post)=>Number(post.date)*1000>=cutoff);
+  const metrics=posts.reduce((total,post)=>({
+    posts:total.posts+1,
+    likes:total.likes+(Number(post.likes)||0),
+    views:total.views+(Number(post.views)||0),
+    comments:total.comments+(Number(post.comments)||0),
+    reposts:total.reposts+(Number(post.reposts)||0),
+  }),{posts:0,likes:0,views:0,comments:0,reposts:0});
+  metrics.interactions=metrics.likes+metrics.comments+metrics.reposts;
+  metrics.perPost=metrics.posts?metrics.interactions/metrics.posts:0;
+  metrics.engagementRate=metrics.views?metrics.interactions/metrics.views*100:0;
+  return {...group,...metrics};
+}
+
+function analyticsStat(id,value) { const element=$(id);if(element)element.textContent=formatCompactNumber(value); }
+
+function renderAnalytics() {
+  const root=$("analytics-groups");
+  if(!root)return;
+  const analytics=state.analytics;
+  document.querySelectorAll("[data-analytics-days]").forEach((button)=>button.classList.toggle("active",Number(button.dataset.analyticsDays)===analytics.days));
+  $("analytics-hint").textContent=`Данные ${analyticsPeriodLabel(analytics.days)} · максимум ${analytics.postLimit||100} записей на группу`;
+  root.replaceChildren();
+  if(analytics.loading){["analytics-posts","analytics-likes","analytics-views","analytics-comments","analytics-reposts"].forEach((id)=>$(id).textContent="…");root.appendChild(make("div","analytics-empty analytics-loading","Загружаю статистику из VK… Группы опрашиваются последовательно."));return;}
+  if(analytics.error){["analytics-posts","analytics-likes","analytics-views","analytics-comments","analytics-reposts"].forEach((id)=>$(id).textContent="—");root.appendChild(make("div","analytics-empty analytics-error",analytics.error));return;}
+  if(!analytics.loaded){root.appendChild(make("div","analytics-empty","Откройте вкладку, чтобы загрузить статистику настроенных групп."));return;}
+
+  const rows=analytics.groups.map((group)=>analyticsMetrics(group,analytics.days));
+  const totals=rows.reduce((sum,row)=>({
+    posts:sum.posts+row.posts,
+    likes:sum.likes+row.likes,
+    views:sum.views+row.views,
+    comments:sum.comments+row.comments,
+    reposts:sum.reposts+row.reposts,
+  }),{posts:0,likes:0,views:0,comments:0,reposts:0});
+  analyticsStat("analytics-posts",totals.posts);
+  analyticsStat("analytics-likes",totals.likes);
+  analyticsStat("analytics-views",totals.views);
+  analyticsStat("analytics-comments",totals.comments);
+  analyticsStat("analytics-reposts",totals.reposts);
+  const freshest=Math.max(0,...rows.map((row)=>Number(row.fetchedAt)||0));
+  $("analytics-updated").textContent=freshest?`Обновлено ${formatDate(freshest)}`:"";
+
+  if(!rows.length){root.appendChild(make("div","analytics-empty","Нет настроенных токенов сообществ. Добавьте их в настройках расширения."));return;}
+  rows.sort((first,second)=>second.perPost-first.perPost||second.interactions-first.interactions||second.views-first.views||groupName(first.groupId).localeCompare(groupName(second.groupId),"ru"));
+  const best=Math.max(1,...rows.map((row)=>row.perPost));
+  rows.forEach((row,index)=>{
+    const card=make("article",`analytics-group${row.error?" has-error":""}`);
+    const rank=make("div",`analytics-rank rank-${Math.min(index+1,4)}`,index<3?["🥇","🥈","🥉"][index]:`#${index+1}`);
+    const avatarWrap=make("div","analytics-avatar");
+    const photo=groupPhoto(row.groupId);
+    if(photo){const image=make("img");image.src=photo;image.alt="";image.referrerPolicy="no-referrer";image.onerror=()=>{image.remove();avatarWrap.textContent=groupName(row.groupId).slice(0,1).toUpperCase();};avatarWrap.appendChild(image);}else avatarWrap.textContent=groupName(row.groupId).slice(0,1).toUpperCase();
+    const identity=make("div","analytics-identity");
+    const link=make("a","",groupName(row.groupId));link.href=groupUrl(row.groupId);link.target="_blank";link.rel="noreferrer";
+    identity.append(link,make("span","",`${row.posts} публикаций · ${row.interactions} реакций`));
+    const activity=make("div","analytics-activity");
+    activity.append(make("b","",row.perPost.toLocaleString("ru-RU",{maximumFractionDigits:1})),make("span","","реакций / пост"));
+    const head=make("div","analytics-group-head");head.append(rank,avatarWrap,identity,activity);card.appendChild(head);
+    const stats=make("div","analytics-group-stats");
+    [["♥","Лайки",row.likes],["◉","Просмотры",row.views],["●","Комментарии",row.comments],["↗","Репосты",row.reposts],["%","ER",`${row.engagementRate.toLocaleString("ru-RU",{maximumFractionDigits:2})}%`]].forEach(([icon,label,value])=>{const item=make("div");item.append(make("i","",icon),make("span","",label),make("b","",typeof value==="number"?formatCompactNumber(value):value));stats.appendChild(item);});
+    card.appendChild(stats);
+    const meter=make("div","analytics-meter");const fill=make("span");fill.style.width=`${Math.max(row.posts?4:0,Math.round(row.perPost/best*100))}%`;meter.appendChild(fill);card.appendChild(meter);
+    if(row.stale)card.appendChild(make("div","analytics-note","Показан сохранённый результат: VK не обновил данные сейчас."));
+    if(row.error)card.appendChild(make("div","analytics-note error",row.error));
+    root.appendChild(card);
+  });
+}
+
+async function loadAnalytics(force=false) {
+  if(state.analytics.loading)return;
+  if(state.analytics.loaded&&!force){renderAnalytics();return;}
+  state.analytics.loading=true;state.analytics.error="";renderAnalytics();
+  try{
+    const response=await runtimeMessage({type:"get_group_analytics",force});
+    state.analytics.groups=Array.isArray(response.groups)?response.groups:[];
+    state.analytics.postLimit=Number(response.postLimit)||100;
+    state.analytics.loaded=true;
+  }catch(error){state.analytics.error=`Не удалось загрузить аналитику: ${error.message}`;}
+  finally{state.analytics.loading=false;renderAnalytics();}
+}
+
 async function loadAll() {
   const local = await chrome.storage.local.get(["vkr_waiting_posts","vkr_posts_history","vkr_scheduled_comments","vkr_group_tokens"]);
   state.waiting=Array.isArray(local.vkr_waiting_posts)?local.vkr_waiting_posts:[];
-  state.history=Array.isArray(local.vkr_posts_history)?local.vkr_posts_history:[];
+  state.history=(Array.isArray(local.vkr_posts_history)?local.vkr_posts_history:[]).sort((first,second)=>(Number(second.timestamp)||0)-(Number(first.timestamp)||0));
+  state.configuredGroupIds=Object.keys(local.vkr_group_tokens||{}).map((groupId)=>Math.abs(Number(groupId))).filter((groupId)=>Number.isSafeInteger(groupId)&&groupId>0).sort((first,second)=>first-second);
+  const nextDirectorySignature=state.configuredGroupIds.join(",");
+  if(nextDirectorySignature!==groupDirectorySignature){groupDirectorySignature=nextDirectorySignature;groupDirectoryLoaded=false;state.groupPhotos={};state.groupScreenNames={};state.analytics.loaded=false;}
   state.groupLabels=Object.fromEntries(Object.entries(local.vkr_group_tokens||{}).map(([groupId,raw])=>{
     const entry=raw&&typeof raw==="object"?raw:{};
     const id=String(Math.abs(Number(groupId)));
@@ -229,12 +357,16 @@ async function loadAll() {
       const directory=await runtimeMessage({type:"list_clip_groups"});
       for(const group of directory.groups||[]){
         const id=String(Math.abs(Number(group.id)));
-        if(id!=="NaN"&&group.name)state.groupLabels[id]=String(group.name);
+        if(id!=="NaN"){
+          if(group.name)state.groupLabels[id]=String(group.name);
+          if(group.photoUrl)state.groupPhotos[id]=String(group.photoUrl);
+          if(group.screenName)state.groupScreenNames[id]=String(group.screenName);
+        }
       }
     }catch{/* сохранённые подписи остаются рабочим fallback */}
     groupDirectoryLoaded=true;
   }
-  const queue=await runtimeMessage({type:"get_queue_status"}); state.posts=queue.queue||[]; state.pause=queue.pause||null;
+  const queue=await runtimeMessage({type:"get_queue_status"}); state.posts=sortPostJobs(queue.queue||[]); state.pause=queue.pause||null;
   const localComments=(local.vkr_scheduled_comments||[]).map((item)=>({...item,id:item.idempotencyKey||`local_${item.groupId}_${item.postId}`,status:"queued",commentAt:item.commentAt,local:true}));
   try { const server=await runtimeMessage({type:"list_scheduled_comments"}); state.comments=[...(server.jobs||[]),...localComments]; } catch { state.comments=localComments; }
   try { const stories=await VkrServerClient.request("/scheduled-stories?limit=200"); state.stories=stories.jobs||[]; } catch { state.stories=[]; }
@@ -259,11 +391,12 @@ function renderWaiting() {
 
 function renderPosts() {
   if(!state.posts.length)return empty("Локальная очередь постинга пуста.");
-  for(const job of [...state.posts].reverse()){
-    const progress=job.progress||{};const displayStatus=(progress.ok||0)>0&&(progress.fail||0)>0?"partial":job.status;const {card,body}=baseCard({title:job.label||`Пост #${job.post?.id||"?"}`,status:displayStatus,text:job.post?.text||job.text||"",meta:`${formatDate(job.pubDate||job.createdAt)} · групп ${job.groups?.length||0} · успешно ${progress.ok||0}, ошибок ${progress.fail||0}`,error:job.error,images:postPhotos(job.post,job.previewImages)});
+  for(const job of sortPostJobs(state.posts)){
+    const progress=job.progress||{};const displayStatus=(progress.ok||0)>0&&(progress.fail||0)>0?"partial":job.status;const {card,body}=baseCard({title:job.label||`Пост #${job.post?.id||"?"}`,status:displayStatus,text:job.post?.text||job.text||"",meta:`${formatDate(postJobTime(job))} · групп ${job.groups?.length||0} · успешно ${progress.ok||0}, ошибок ${progress.fail||0}`,error:job.error,images:postPhotos(job.post,job.previewImages)});
     card.dataset.jobId=job.id;
     if(state.pause?.jobId===job.id)card.classList.add("paused-target");
     appendPublishResults(body,job.results);
+    if(job.mediaProgress?.total){const media=job.mediaProgress;const status=make("div","media-preparation");status.append(make("span","",`Копирую фото в ${groupName(media.groupId)}`),make("b","",`${media.current||0} / ${media.total}`));const bar=make("div","progress media-progress");const fill=make("span");fill.style.width=`${Math.round((Number(media.current)||0)/Math.max(1,Number(media.total)||1)*100)}%`;bar.appendChild(fill);status.appendChild(bar);body.appendChild(status);}
     if(["queued","processing"].includes(job.status)){const bar=make("div","progress");const fill=make("span");fill.style.width=`${Math.round(((progress.ok||0)+(progress.fail||0))/Math.max(1,progress.total||job.groups?.length||1)*100)}%`;bar.appendChild(fill);body.appendChild(bar);}
     if(job.status==="paused"&&job.pauseReason==="ambiguous_repost"){
       const root=actions(body);addButton(root,"Уже есть — пропустить",async()=>{await runtimeMessage({type:"resolve_ambiguous_repost",jobId:job.id,action:"skip"});await loadAll();},"primary");addButton(root,"Нет — повторить",async()=>{if(confirm("Вы проверили стену и репоста точно нет?")){await runtimeMessage({type:"resolve_ambiguous_repost",jobId:job.id,action:"retry"});await loadAll();}});addButton(root,"Отменить",async()=>{await runtimeMessage({type:"resolve_ambiguous_repost",jobId:job.id,action:"cancel"});await loadAll();},"danger");
@@ -289,8 +422,8 @@ function renderClips() {
 
 function renderHistory(){if(!state.history.length)return empty("История публикаций пока пуста.");for(const item of state.history){const displayStatus=(item.ok||0)>0&&(item.fail||0)>0?"partial":item.status||"completed";const {card,body}=baseCard({title:item.label||"Публикация",status:displayStatus,text:item.mode==="repost"?"Оригинальный репост":"Копия поста",meta:`${formatDate(item.timestamp)} · успешно ${item.ok||0}, ошибок ${item.fail||0}`,error:item.error});appendPublishResults(body,item.results);$("cards").appendChild(card);}}
 
-const tabInfo={waiting:["Ожидания","Посты, которые вы отметили во ВКонтакте"],posts:["Очередь постов","Последовательная локальная публикация"],comments:["Комментарии 24/7","Серверные и локальные отложенные комментарии"],stories:["Истории","Отложенные истории сообществ с превью"],clips:["Клипы","Одна видимая вкладка VK на публикацию"],history:["История","Последние результаты постинга"]};
-function render(){const cards=$("cards");cards.replaceChildren();const [title,hint]=tabInfo[state.tab];$("section-title").textContent=title;$("section-hint").textContent=hint;$("clear-finished").hidden=state.tab!=="posts";({waiting:renderWaiting,posts:renderPosts,comments:renderComments,stories:renderStories,clips:renderClips,history:renderHistory})[state.tab]();}
+const tabInfo={waiting:["Ожидания","Посты, которые вы отметили во ВКонтакте"],posts:["Очередь постов","Сначала ближайшие активные задания, затем завершённые — от новых к старым"],comments:["Комментарии 24/7","Серверные и локальные отложенные комментарии"],stories:["Истории","Отложенные истории сообществ с превью"],clips:["Клипы","Одна видимая вкладка VK на публикацию"],history:["История и аналитика","Результаты публикаций и сравнение активности сообществ"]};
+function render(){const cards=$("cards");cards.replaceChildren();const [title,hint]=tabInfo[state.tab];$("section-title").textContent=title;$("section-hint").textContent=hint;$("clear-finished").hidden=state.tab!=="posts";$("analytics-panel").hidden=state.tab!=="history";if(state.tab==="history")renderAnalytics();({waiting:renderWaiting,posts:renderPosts,comments:renderComments,stories:renderStories,clips:renderClips,history:renderHistory})[state.tab]();}
 
 async function openPublish(item){selectedWaitingId=item.id;$("publish-text").value=item.post?.text||"";$("publish-comment").value="";$("publish-date").value="";$("publish-mode").value="copy";$("dialog-preview").textContent=item.post?.text||"Пост без текста";const data=await chrome.storage.local.get("vkr_group_tokens");const root=$("publish-groups");root.replaceChildren();for(const [groupId,raw] of Object.entries(data.vkr_group_tokens||{})){const entry=typeof raw==="object"?raw:{};const label=make("label");const input=make("input");input.type="checkbox";input.name="publish-group";input.value=groupId;label.append(input,document.createTextNode(` ${entry.label||`club${groupId}`}`));root.appendChild(label);}if(!root.children.length)root.appendChild(make("div","meta","Добавьте токены сообществ в настройках."));$("publish-dialog").showModal();}
 
@@ -302,5 +435,21 @@ async function resumePublishQueue() {
   toast("Локальная очередь продолжена.");await loadAll();
 }
 
-async function init(){document.querySelectorAll(".tabs button").forEach((button)=>button.onclick=()=>selectTab(button.dataset.tab));$("refresh").onclick=loadAll;$("settings").onclick=()=>chrome.tabs.create({url:chrome.runtime.getURL("popup.html")});$("new-story").onclick=()=>chrome.tabs.create({url:chrome.runtime.getURL("stories.html")});$("new-clips").onclick=()=>chrome.tabs.create({url:chrome.runtime.getURL("clips.html")});$("close-dialog").onclick=()=>$("publish-dialog").close();$("publish-form").onsubmit=submitPublish;$("pause-open-vk").onclick=()=>chrome.tabs.create({url:"https://vk.ru/"});$("pause-open-job").onclick=showPausedJob;$("resume").onclick=resumePublishQueue;$("clear-finished").onclick=async()=>{await runtimeMessage({type:"clear_finished_queue"});await loadAll();};await loadAll();setInterval(loadAll,15_000);}
+async function init(){
+  document.querySelectorAll(".tabs button").forEach((button)=>button.onclick=()=>selectTab(button.dataset.tab));
+  document.querySelectorAll("[data-analytics-days]").forEach((button)=>button.onclick=()=>{state.analytics.days=Number(button.dataset.analyticsDays)||0;renderAnalytics();});
+  $("analytics-refresh").onclick=()=>void loadAnalytics(true);
+  $("refresh").onclick=async()=>{await loadAll();if(state.tab==="history")await loadAnalytics(true);};
+  $("settings").onclick=()=>chrome.tabs.create({url:chrome.runtime.getURL("popup.html")});
+  $("new-story").onclick=()=>chrome.tabs.create({url:chrome.runtime.getURL("stories.html")});
+  $("new-clips").onclick=()=>chrome.tabs.create({url:chrome.runtime.getURL("clips.html")});
+  $("close-dialog").onclick=()=>$("publish-dialog").close();
+  $("publish-form").onsubmit=submitPublish;
+  $("pause-open-vk").onclick=()=>chrome.tabs.create({url:"https://vk.ru/"});
+  $("pause-open-job").onclick=showPausedJob;
+  $("resume").onclick=resumePublishQueue;
+  $("clear-finished").onclick=async()=>{await runtimeMessage({type:"clear_finished_queue"});await loadAll();};
+  await loadAll();
+  setInterval(loadAll,15_000);
+}
 document.addEventListener("DOMContentLoaded",()=>void init().catch((error)=>toast(error.message,"error")));

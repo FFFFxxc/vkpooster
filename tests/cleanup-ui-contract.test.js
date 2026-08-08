@@ -9,6 +9,10 @@ const content = fs.readFileSync(
   path.resolve(__dirname, "..", "content.js"),
   "utf8",
 );
+const css = fs.readFileSync(
+  path.resolve(__dirname, "..", "content.css"),
+  "utf8",
+);
 
 test("both cleanup buttons use the ticketed safe cleanup dialog", () => {
   assert.match(content, /function openBulkDeleteModal\(groupId\) \{ openSafeCleanupModal\(groupId, "wall"\); \}/);
@@ -18,4 +22,19 @@ test("both cleanup buttons use the ticketed safe cleanup dialog", () => {
   assert.match(content, /sendMessage\("cleanup_stop"/);
   assert.match(content, /document\.body\.appendChild\(deleteFab\)/);
   assert.match(content, /document\.body\.appendChild\(albumFab\)/);
+});
+
+test("safe cleanup dialog has preview, live progress, stop and finished states", () => {
+  assert.match(content, /vkr-safe-cleanup-steps/);
+  assert.match(content, /data-role="preview-posts"/);
+  assert.match(content, /data-role="preview-photos"/);
+  assert.match(content, /data-role="progress-text"/);
+  assert.match(content, /data-role="deleted-posts"/);
+  assert.match(content, /data-role="deleted-photos"/);
+  assert.match(content, /data-role="skipped"/);
+  assert.match(content, /cancelButton\.textContent = "Стоп"/);
+  assert.match(content, /message\.type === "cleanup_finished"/);
+  assert.match(css, /\.vkr-safe-cleanup-dialog/);
+  assert.match(css, /\.vkr-safe-cleanup-track/);
+  assert.match(css, /\.vkr-safe-cleanup-progress\.is-completed/);
 });
