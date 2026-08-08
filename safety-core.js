@@ -144,11 +144,14 @@
 
     const localUserToken =
       typeof userToken === "string" ? userToken.trim() : "";
-    if (operation === "repost" || operation === "upload") {
+    if (["repost", "upload", "analytics"].includes(operation)) {
       if (!localUserToken) {
-        throw new Error(operation === "upload"
-          ? "VK не разрешает загружать фотографии токеном сообщества. Добавьте локальный пользовательский токен."
-          : "Для репоста нужен локальный пользовательский токен.");
+        const messages = {
+          upload: "VK не разрешает загружать фотографии токеном сообщества. Добавьте локальный пользовательский токен.",
+          repost: "Для репоста нужен локальный пользовательский токен.",
+          analytics: "Для аналитики нужен локальный пользовательский токен: VK не разрешает читать стену методом wall.get с токеном сообщества.",
+        };
+        throw new Error(messages[operation]);
       }
       return {
         kind: "user",

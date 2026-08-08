@@ -83,6 +83,27 @@ test("selectCredential always uses a local user token for photo uploads", () => 
   );
 });
 
+test("selectCredential never uses a community token for wall analytics", () => {
+  assert.deepEqual(
+    selectCredential({
+      groupId: 42,
+      operation: "analytics",
+      groupTokens: { "42": "group-secret" },
+      userToken: "user-secret",
+    }),
+    { kind: "user", token: "user-secret", groupId: 42 },
+  );
+  assert.throws(
+    () => selectCredential({
+      groupId: 42,
+      operation: "analytics",
+      groupTokens: { "42": "group-secret" },
+      userToken: "",
+    }),
+    /аналитики нужен локальный пользовательский токен/i,
+  );
+});
+
 test("selectCredential never falls back to another community token", () => {
   assert.throws(
     () =>

@@ -1,14 +1,14 @@
 /**
  * VK Reposter Pro - Content Script
  * Modern UI with Glassmorphism Design
- * @version 4.3.0
+ * @version 4.3.1
  * @updated 2026-08-09
  */
 
 // ========== CONSTANTS ==========
 const BUTTON_CLASS = "vkr-btn";
 const PROCESSED_ATTR = "data-vkr-checked";
-const VKR_VERSION = "4.3.0";
+const VKR_VERSION = "4.3.1";
 const GROUP_SETS_STORAGE_KEY = "vkr_group_sets_v1";
 const groupSetsCore = globalThis.VkrGroupSetsCore;
 const POST_SELECTORS = '[data-post-id], div[id^="post-"], article[data-post-id], .post, .wall_item, .feed_row, .Post, [data-testid="post-root"], [data-testid="post"]';

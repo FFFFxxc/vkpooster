@@ -29,6 +29,12 @@ test("history restores period analytics and per-group activity ranking", () => {
   assert.match(background, /GROUP_ANALYTICS_CACHE_TTL_MS = 15 \* 60_000/);
   assert.match(background, /filter: "owner"/);
   assert.match(background, /count: GROUP_ANALYTICS_POST_LIMIT/);
+  assert.match(background, /operation: "analytics"/);
+  assert.match(background, /analyticsCredential\.token/);
+  assert.doesNotMatch(background, /configuredGroupToken/);
+  assert.match(background, /function analyticsVkErrorMessage/);
+  assert.match(background, /if \(blocksRemainingAnalytics\(error\)\) blockingError = readableError/);
+  assert.match(scheduled, /state\.analytics\.error=String\(response\.blockingError\|\|""\)/);
   assert.match(css, /\.analytics-group-stats/);
   assert.match(css, /\.analytics-meter/);
 });

@@ -1837,11 +1837,6 @@ async function listClipGroups() {
   return [...known.values()].sort((first, second) => first.name.localeCompare(second.name, "ru"));
 }
 
-function configuredGroupToken(entry) {
-  if (typeof entry === "string") return entry.trim();
-  return typeof entry?.token === "string" ? entry.token.trim() : "";
-}
-
 function compactAnalyticsPost(post) {
   return {
     id: Number(post?.id) || null,
@@ -1853,18 +1848,50 @@ function compactAnalyticsPost(post) {
   };
 }
 
+function analyticsVkErrorMessage(error) {
+  const code = Number(error?.code ?? error?.error_code) || null;
+  if (code === 27) {
+    return "VK определил локальный токен как токен сообщества. Для аналитики сохраните именно пользовательский токен и повторите обновление.";
+  }
+  if (code === 5 || code === 1117) {
+    return "Локальный пользовательский токен недействителен или истёк. Переподключите его в настройках расширения.";
+  }
+  const classification = classifyVkError(error);
+  if (classification.action === "pause") {
+    return "VK временно ограничил запросы аналитики. Не запускайте обновление повторно сразу — подождите и попробуйте позже.";
+  }
+  return String(error?.message || "VK не вернул статистику").slice(0, 300);
+}
+
+function blocksRemainingAnalytics(error) {
+  const code = Number(error?.code ?? error?.error_code) || null;
+  const classification = classifyVkError(error);
+  return code === 27 || code === 1117 || classification.reason === "auth" || classification.action === "pause";
+}
+
 async function getConfiguredGroupAnalytics({ force = false } = {}) {
   const { groupTokens, userToken } = await getLocalCredentials();
   const configured = Object.entries(groupTokens)
-    .map(([rawId, entry]) => ({
+    .map(([rawId]) => ({
       groupId: Math.abs(Number(rawId)),
-      token: configuredGroupToken(entry) || userToken,
     }))
     .filter(
       (group) =>
         Number.isSafeInteger(group.groupId) && group.groupId > 0,
     )
     .sort((first, second) => first.groupId - second.groupId);
+
+  // wall.get is a read operation on behalf of a user. A community token
+  // returns VK error 27 (method unavailable with group auth), even when that
+  // token belongs to the target community. Never silently fall back to it.
+  const analyticsCredential = configured.length
+    ? selectCredential({
+      groupId: configured[0].groupId,
+      operation: "analytics",
+      groupTokens,
+      userToken,
+    })
+    : null;
 
   const stored = await chrome.storage.local.get(GROUP_ANALYTICS_CACHE_KEY);
   const previous = stored[GROUP_ANALYTICS_CACHE_KEY];
@@ -1877,6 +1904,7 @@ async function getConfiguredGroupAnalytics({ force = false } = {}) {
   };
   const now = Date.now();
   const groups = [];
+  let blockingError = "";
 
   for (const group of configured) {
     const key = String(group.groupId);
@@ -1890,17 +1918,16 @@ async function getConfiguredGroupAnalytics({ force = false } = {}) {
       groups.push({ groupId: group.groupId, ...cached, cached: true });
       continue;
     }
-    if (!group.token) {
+    if (blockingError) {
       groups.push({
         groupId: group.groupId,
         posts: Array.isArray(cached?.posts) ? cached.posts : [],
         fetchedAt: Number(cached?.fetchedAt) || null,
         stale: Boolean(cached?.posts),
-        error: "Для группы не настроен токен, статистика недоступна.",
+        error: blockingError,
       });
       continue;
     }
-
     try {
       const response = await vkApi(
         "wall.get",
@@ -1909,7 +1936,7 @@ async function getConfiguredGroupAnalytics({ force = false } = {}) {
           filter: "owner",
           count: GROUP_ANALYTICS_POST_LIMIT,
         },
-        group.token,
+        analyticsCredential.token,
       );
       const entry = {
         fetchedAt: Date.now(),
@@ -1918,12 +1945,14 @@ async function getConfiguredGroupAnalytics({ force = false } = {}) {
       cache.groups[key] = entry;
       groups.push({ groupId: group.groupId, ...entry, cached: false });
     } catch (error) {
+      const readableError = analyticsVkErrorMessage(error);
+      if (blocksRemainingAnalytics(error)) blockingError = readableError;
       groups.push({
         groupId: group.groupId,
         posts: Array.isArray(cached?.posts) ? cached.posts : [],
         fetchedAt: Number(cached?.fetchedAt) || null,
         stale: Boolean(cached?.posts),
-        error: String(error?.message || "VK не вернул статистику").slice(0, 300),
+        error: readableError,
       });
     }
   }
@@ -1937,6 +1966,7 @@ async function getConfiguredGroupAnalytics({ force = false } = {}) {
     groups,
     postLimit: GROUP_ANALYTICS_POST_LIMIT,
     cacheTtlMs: GROUP_ANALYTICS_CACHE_TTL_MS,
+    blockingError,
   };
 }
 

@@ -340,6 +340,7 @@ async function loadAnalytics(force=false) {
     const response=await runtimeMessage({type:"get_group_analytics",force});
     state.analytics.groups=Array.isArray(response.groups)?response.groups:[];
     state.analytics.postLimit=Number(response.postLimit)||100;
+    state.analytics.error=String(response.blockingError||"");
     state.analytics.loaded=true;
   }catch(error){state.analytics.error=`Не удалось загрузить аналитику: ${error.message}`;}
   finally{state.analytics.loading=false;renderAnalytics();}
