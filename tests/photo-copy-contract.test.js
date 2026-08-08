@@ -13,7 +13,7 @@ test("copy mode uploads photos into every target community before wall.post", ()
   assert.match(background, /function prepareOwnedCopyAttachments\(/);
   assert.match(background, /photos\.getWallUploadServer/);
   assert.match(background, /photos\.saveWallPhoto/);
-  assert.match(background, /buildOwnedPhotoAttachment\(saved\[0\], groupId\)/);
+  assert.match(background, /buildUploadedPhotoAttachment\(saved\[0\], photo\)/);
   assert.match(background, /attachments\.filter\(\(attachment\) => attachment\?\.type !== "photo"\)/);
   assert.match(background, /const attachments = await prepareOwnedCopyAttachments\(/);
   assert.match(background, /operation: "upload"/);
@@ -21,7 +21,7 @@ test("copy mode uploads photos into every target community before wall.post", ()
   assert.doesNotMatch(background, /buildReusableAttachments\(job\.post\.attachments\)/);
 });
 
-test("community token posts the wall while local user token uploads copied photos", () => {
+test("local user token uploads copied photos before the final wall.post", () => {
   const uploadSelection = background.indexOf('operation: "upload"');
   const attachmentPreparation = background.indexOf("prepareOwnedCopyAttachments(", uploadSelection);
   const wallPost = background.indexOf('vkApi("wall.post"', attachmentPreparation);
@@ -38,14 +38,22 @@ test("community token posts the wall while local user token uploads copied photo
   );
 });
 
+test("posts with copied photos use local user auth through the final wall.post", () => {
+  assert.match(background, /const photoPostUsesUser = job\.mode === "copy" && sourcePhotos\.length > 0/);
+  assert.match(background, /const postWithUser = publishWithUser \|\| photoPostUsesUser/);
+  assert.match(background, /allowUserFallback: postWithUser/);
+});
+
 test("VK group-auth photo error is explained as a local user-token problem", () => {
   assert.match(background, /async function vkPhotoApi\(/);
   assert.match(background, /code === 27/);
   assert.match(background, /токен сообщества для загрузки фотографий не подходит/i);
 });
 
-test("photo preparation is restart-safe and never falls back after ownership failure", () => {
+test("photo preparation is restart-safe and never falls back after upload validation failure", () => {
   assert.match(background, /job\.preparedMedia/);
+  assert.match(background, /current\?\.version === 2/);
+  assert.match(background, /current\.photos\.every\(isUploadedPhotoAttachment\)/);
   assert.match(background, /await persistJob\(job\)/);
   assert.match(background, /error\.nonRetryable = true/);
   assert.match(background, /reason: "media"/);

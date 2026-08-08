@@ -4,11 +4,12 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 const {
-  buildOwnedPhotoAttachment,
+  buildUploadedPhotoAttachment,
   buildReusableAttachments,
   classifyVkError,
   createSerialScheduler,
   largestPhotoUrl,
+  isUploadedPhotoAttachment,
   normalizeQueueJobs,
   selectCredential,
 } = require("../safety-core.js");
@@ -151,22 +152,30 @@ test("largestPhotoUrl selects the actual largest image instead of relying on VK 
   );
 });
 
-test("copied photo attachment must belong to the exact target community", () => {
+test("copied photo attachment uses the fresh saveWallPhoto owner returned by VK", () => {
   assert.equal(
-    buildOwnedPhotoAttachment(
+    buildUploadedPhotoAttachment(
       { owner_id: -42, id: 99, access_key: "safe" },
-      42,
+      { owner_id: -7, id: 80 },
     ),
     "photo-42_99_safe",
   );
-  assert.throws(
-    () => buildOwnedPhotoAttachment({ owner_id: -7, id: 99 }, 42),
-    /целевому сообществу/i,
+  assert.equal(
+    buildUploadedPhotoAttachment(
+      { owner_id: 123, id: 99 },
+      { owner_id: -7, id: 80 },
+    ),
+    "photo123_99",
   );
   assert.throws(
-    () => buildOwnedPhotoAttachment({ owner_id: 123, id: 99 }, 42),
-    /целевому сообществу/i,
+    () => buildUploadedPhotoAttachment(
+      { owner_id: -7, id: 80 },
+      { owner_id: -7, id: 80 },
+    ),
+    /исходную фотографию/i,
   );
+  assert.equal(isUploadedPhotoAttachment("photo123_99_safe-key"), true);
+  assert.equal(isUploadedPhotoAttachment("photo<script>_99"), false);
 });
 
 test("normalizeQueueJobs recovers stale processing jobs only", () => {

@@ -83,23 +83,44 @@
     return String(photo?.orig_photo?.url || photo?.url || "").trim();
   }
 
-  function buildOwnedPhotoAttachment(photo, groupId) {
-    const normalizedGroupId = Math.abs(Number(groupId));
+  function isUploadedPhotoAttachment(value) {
+    return /^photo-?[1-9]\d*_[1-9]\d*(?:_[A-Za-z0-9_-]+)?$/.test(
+      String(value || ""),
+    );
+  }
+
+  function buildUploadedPhotoAttachment(photo, sourcePhoto = null) {
     const ownerId = Number(photo?.owner_id ?? photo?.ownerId);
     const photoId = Number(photo?.id);
     if (
-      !Number.isSafeInteger(normalizedGroupId) ||
-      normalizedGroupId === 0 ||
+      !Number.isSafeInteger(ownerId) ||
+      ownerId === 0 ||
       !Number.isSafeInteger(photoId) ||
-      ownerId !== -normalizedGroupId
+      photoId <= 0
     ) {
       throw new Error(
-        "VK не подтвердил, что загруженное фото принадлежит целевому сообществу.",
+        "VK не вернул корректный идентификатор загруженной фотографии.",
       );
     }
-    const accessKey = photo?.access_key ?? photo?.accessKey;
+
+    const sourceOwnerId = Number(sourcePhoto?.owner_id ?? sourcePhoto?.ownerId);
+    const sourcePhotoId = Number(sourcePhoto?.id);
+    if (ownerId === sourceOwnerId && photoId === sourcePhotoId) {
+      throw new Error(
+        "VK вернул исходную фотографию вместо нового загруженного файла.",
+      );
+    }
+
+    const accessKey = String(photo?.access_key ?? photo?.accessKey ?? "").trim();
+    if (accessKey && !/^[A-Za-z0-9_-]+$/.test(accessKey)) {
+      throw new Error("VK вернул некорректный ключ доступа к фотографии.");
+    }
     const suffix = accessKey ? `_${accessKey}` : "";
-    return `photo${ownerId}_${photoId}${suffix}`;
+    const attachment = `photo${ownerId}_${photoId}${suffix}`;
+    if (!isUploadedPhotoAttachment(attachment)) {
+      throw new Error("VK вернул некорректное вложение фотографии.");
+    }
+    return attachment;
   }
 
   function readGroupToken(groupTokens, groupId) {
@@ -212,11 +233,12 @@
 
   return Object.freeze({
     PAUSE_ERROR_CODES,
-    buildOwnedPhotoAttachment,
+    buildUploadedPhotoAttachment,
     buildReusableAttachments,
     classifyVkError,
     createSerialScheduler,
     largestPhotoUrl,
+    isUploadedPhotoAttachment,
     normalizeQueueJobs,
     selectCredential,
   });

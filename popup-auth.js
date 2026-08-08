@@ -161,9 +161,9 @@ async function renderGroupTokens(tokens) {
     const mode = document.createElement("button");
     mode.className = "btn btn--secondary btn--compact";
     mode.textContent =
-      entry.publishAs === "user" ? "Пост: user" : "Пост: группа";
+      entry.publishAs === "user" ? "Все посты: user" : "Текст: группа";
     mode.title =
-      "Переключите на user, только если VK не разрешает этому токену сообщества выполнить wall.post. Фотографии всегда загружает локальный user token.";
+      "Посты с фото всегда выполняются локальным user token. Переключатель определяет, чем публиковать посты без фотографий.";
     mode.addEventListener("click", async () => {
       const data = await chrome.storage.local.get("vkr_group_tokens");
       const updated = { ...(data.vkr_group_tokens || {}) };
@@ -178,8 +178,8 @@ async function renderGroupTokens(tokens) {
       await renderGroupTokens(updated);
       notify(
         current.publishAs === "user"
-          ? `club${groupId}: публикация локальным user token.`
-          : `club${groupId}: публикация токеном сообщества.`,
+          ? `club${groupId}: все посты публикуются локальным user token.`
+          : `club${groupId}: текстовые посты публикуются токеном сообщества; посты с фото — user token.`,
         "info",
       );
     });

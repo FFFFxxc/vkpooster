@@ -29,11 +29,12 @@ const CLEANUP_SHORT_COOLDOWN_MS = 15 * 60_000;
 const CLEANUP_FLOOD_COOLDOWN_MS = 24 * 60 * 60_000;
 
 const {
-  buildOwnedPhotoAttachment,
+  buildUploadedPhotoAttachment,
   buildReusableAttachments,
   classifyVkError,
   createSerialScheduler,
   largestPhotoUrl,
+  isUploadedPhotoAttachment,
   normalizeQueueJobs,
   selectCredential,
 } = globalThis.VkrSafetyCore;
@@ -578,20 +579,18 @@ function mediaCheckpoint(job, groupId, total) {
     job.preparedMedia = {};
   }
   const key = String(groupId);
-  const prefix = `photo-${Math.abs(Number(groupId))}_`;
   const current = job.preparedMedia[key];
   const valid =
-    current?.version === 1 &&
+    current?.version === 2 &&
+    Number(current.groupId) === Math.abs(Number(groupId)) &&
     Number(current.total) === total &&
     Array.isArray(current.photos) &&
     current.photos.length <= total &&
-    current.photos.every(
-      (attachment) =>
-        typeof attachment === "string" && attachment.startsWith(prefix),
-    );
+    current.photos.every(isUploadedPhotoAttachment);
   if (!valid) {
     job.preparedMedia[key] = {
-      version: 1,
+      version: 2,
+      groupId: Math.abs(Number(groupId)),
       total,
       photos: [],
       updatedAt: Date.now(),
@@ -706,7 +705,7 @@ async function uploadOwnedWallPhoto(photo, groupId, token, position) {
     throw error;
   }
   try {
-    return buildOwnedPhotoAttachment(saved[0], groupId);
+    return buildUploadedPhotoAttachment(saved[0], photo);
   } catch (error) {
     error.nonRetryable = true;
     throw error;
@@ -755,6 +754,8 @@ async function publishToGroup(job, groupId, credentials, onPublished) {
     );
   }
 
+  const sourcePhotos = job.mode === "copy" ? copyPhotoObjects(job.post) : [];
+  const photoPostUsesUser = job.mode === "copy" && sourcePhotos.length > 0;
   const configuredEntry =
     credentials.groupTokens[String(groupId)] ||
     credentials.groupTokens[groupId];
@@ -762,7 +763,8 @@ async function publishToGroup(job, groupId, credentials, onPublished) {
     configuredEntry &&
     typeof configuredEntry === "object" &&
     configuredEntry.publishAs === "user";
-  const postingGroupTokens = publishWithUser
+  const postWithUser = publishWithUser || photoPostUsesUser;
+  const postingGroupTokens = postWithUser
     ? Object.fromEntries(
         Object.entries(credentials.groupTokens).filter(
           ([configuredGroupId]) =>
@@ -775,7 +777,7 @@ async function publishToGroup(job, groupId, credentials, onPublished) {
     operation: job.mode,
     groupTokens: postingGroupTokens,
     userToken: credentials.userToken,
-    allowUserFallback: publishWithUser,
+    allowUserFallback: postWithUser,
   });
 
   let postId;
@@ -790,7 +792,6 @@ async function publishToGroup(job, groupId, credentials, onPublished) {
     );
     postId = response?.post_id;
   } else {
-    const sourcePhotos = copyPhotoObjects(job.post);
     const mediaCredential = sourcePhotos.length
       ? selectCredential({
           groupId,
