@@ -1,6 +1,8 @@
 "use strict";
 
 const $ = (id) => document.getElementById(id);
+let currentUserToken = "";
+let currentUserProfile = null;
 
 function notify(text, type = "info") {
   const existing = document.querySelector(".vkr-safe-toast");
@@ -37,6 +39,53 @@ function maskToken(token) {
   if (!token) return "";
   if (token.length < 12) return "••••••";
   return `${token.slice(0, 5)}…${token.slice(-4)}`;
+}
+
+function renderUserAccount(profile, token) {
+  currentUserProfile = profile || null;
+  currentUserToken = token || "";
+  const connected = Boolean(currentUserToken && currentUserProfile?.id);
+  $("user-profile").hidden = !connected;
+  $("user-token-form").hidden = connected;
+  $("cancel-user-token").hidden = !connected;
+  if (!connected) {
+    $("user-token").value = "";
+    $("user-token").placeholder = "Вставьте пользовательский access_token";
+    $("user-token-status").textContent = "Не настроен";
+    $("user-token-status").className = "server-status";
+    return;
+  }
+
+  $("user-profile-name").textContent = currentUserProfile.name || `Пользователь ${currentUserProfile.id}`;
+  $("user-profile-link").textContent = `vk.ru/id${currentUserProfile.id}`;
+  $("user-profile-link").dataset.userId = String(currentUserProfile.id);
+  const avatar = $("user-profile-avatar");
+  const fallback = $("user-profile-fallback");
+  fallback.textContent = String(currentUserProfile.name || "VK").trim().slice(0, 1).toUpperCase() || "VK";
+  if (currentUserProfile.photo) {
+    avatar.hidden = false;
+    fallback.hidden = true;
+    avatar.src = currentUserProfile.photo;
+    avatar.alt = currentUserProfile.name || "Аккаунт VK";
+    avatar.onerror = () => { avatar.hidden = true; fallback.hidden = false; };
+  } else {
+    avatar.removeAttribute("src");
+    avatar.hidden = true;
+    fallback.hidden = false;
+  }
+  $("user-token-status").textContent = "Подключён";
+  $("user-token-status").className = "server-status server-status--connected";
+}
+
+function showUserTokenEditor() {
+  $("user-profile").hidden = true;
+  $("user-token-form").hidden = false;
+  $("cancel-user-token").hidden = !currentUserToken;
+  $("user-token").value = "";
+  $("user-token").placeholder = currentUserToken
+    ? `Новый токен вместо ${maskToken(currentUserToken)}`
+    : "Вставьте пользовательский access_token";
+  $("user-token").focus();
 }
 
 function runtimeMessage(message) {
@@ -191,7 +240,8 @@ async function saveUserToken() {
     const profile = {
       id: user.id,
       name: `${user.first_name} ${user.last_name}`,
-      photo: user.photo_50 || "",
+      photo: user.photo_100 || user.photo_50 || "",
+      screenName: user.screen_name || "",
       status: "active",
       localOnly: true,
     };
@@ -203,12 +253,8 @@ async function saveUserToken() {
       "vk_accounts",
       "vk_publisher_account_id",
     ]);
-    $("user-token").value = "";
-    $("user-token").placeholder = `${profile.name}: ${maskToken(token)}`;
-    $("user-token-status").textContent = "Локально";
-    $("user-token-status").className =
-      "server-status server-status--connected";
-    notify("Токен проверен и сохранён только в браузере.", "success");
+    renderUserAccount(profile, token);
+    notify(`Аккаунт ${profile.name} подключён.`, "success");
   } catch (error) {
     notify(`Токен не сохранён: ${error.message}`, "error");
   } finally {
@@ -224,12 +270,8 @@ async function clearUserToken() {
     "vkr_user_profile",
     "vkr_token_health",
   ]);
-  $("user-token").value = "";
-  $("user-token").placeholder =
-    "Пользовательский access_token (необязательно)";
-  $("user-token-status").textContent = "Не настроен";
-  $("user-token-status").className = "server-status";
-  notify("Локальный пользовательский токен удалён.", "success");
+  renderUserAccount(null, "");
+  notify("Аккаунт отключён от расширения.", "success");
 }
 
 async function saveGroupToken() {
@@ -303,12 +345,25 @@ async function saveServer() {
 async function init() {
   const settings = await readSettings();
   const token = settings.vk_token || "";
-  if (token) {
-    $("user-token").placeholder = `${settings.vkr_user_profile?.name || "Локальный токен"}: ${maskToken(token)}`;
-    $("user-token-status").textContent = "Локально";
-    $("user-token-status").className =
-      "server-status server-status--connected";
+  let profile = settings.vkr_user_profile || null;
+  if (token && (!profile?.id || !profile?.photo)) {
+    try {
+      const response = await runtimeMessage({ type: "validate_local_user_token", token });
+      const user = response.user;
+      profile = {
+        id: user.id,
+        name: `${user.first_name} ${user.last_name}`,
+        photo: user.photo_100 || user.photo_50 || "",
+        screenName: user.screen_name || "",
+        status: "active",
+        localOnly: true,
+      };
+      await chrome.storage.local.set({ vkr_user_profile: profile });
+    } catch {
+      // Existing token stays untouched; the editor remains available to replace it.
+    }
   }
+  renderUserAccount(profile, token);
 
   $("server-url").value = settings.vkr_server_url || "";
   $("server-secret").value = settings.vkr_server_api_secret || "";
@@ -349,6 +404,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
   $("save-user-token").addEventListener("click", saveUserToken);
   $("clear-user-token").addEventListener("click", clearUserToken);
+  $("replace-user-token").addEventListener("click", showUserTokenEditor);
+  $("cancel-user-token").addEventListener("click", () => renderUserAccount(currentUserProfile, currentUserToken));
+  $("user-profile-link").addEventListener("click", () => {
+    const userId = Number($("user-profile-link").dataset.userId);
+    if (Number.isSafeInteger(userId) && userId > 0) chrome.tabs.create({ url: `https://vk.ru/id${userId}` });
+  });
   $("save-group-token").addEventListener("click", saveGroupToken);
   $("save-server").addEventListener("click", saveServer);
   $("generate-secret").addEventListener("click", () => {

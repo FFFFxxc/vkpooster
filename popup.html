@@ -8,8 +8,6 @@
   <link rel="stylesheet" href="tabler-icons.min.css">
   <link rel="stylesheet" href="popup.css">
   <style>
-    .safe-note { padding: 12px; border: 1px solid rgba(59,130,246,.35); border-radius: 12px; background: rgba(30,64,175,.12); font-size: 12px; line-height: 1.45; }
-    .safe-note--warning { border-color: rgba(245,158,11,.4); background: rgba(146,64,14,.14); }
     .field-stack { display: grid; gap: 8px; }
     .token-row { display: grid; grid-template-columns: 96px 1fr auto; gap: 8px; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--color-border); }
     .token-row:last-child { border-bottom: 0; }
@@ -19,6 +17,18 @@
     .btn--compact { min-width: auto; padding: 7px 10px; }
     .status-line { margin-top: 8px; color: var(--color-text-secondary); font-size: 12px; line-height: 1.4; }
     .action-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .section > .field-stack, .section > .action-grid { margin: 16px; }
+    .section > .status-line { margin: 0; padding: 0 16px 16px; }
+    #group-token-list { padding: 0 16px; }
+    #queue-message { padding-top: 14px; }
+    #resume-queue { width: calc(100% - 32px); margin: 0 16px 16px; }
+    .user-profile-card { margin: 16px; padding: 14px; }
+    .user-profile-card:hover { transform: none; }
+    .user-profile-fallback { width: 52px; height: 52px; border-radius: 50%; display: grid; place-items: center; background: var(--gradient-accent); color: #fff; font-size: 19px; font-weight: 800; border: 3px solid var(--color-accent); }
+    .user-profile-link { display: inline-block; margin-top: 2px; padding: 0; border: 0; background: transparent; color: var(--color-text-muted); font: inherit; font-size: 11px; cursor: pointer; }
+    .user-profile-link:hover { color: var(--color-accent); }
+    .user-profile-actions { display: flex; flex-direction: column; gap: 6px; }
+    .user-profile-actions .btn { padding: 7px 9px; font-size: 11px; }
   </style>
 </head>
 <body>
@@ -28,37 +38,43 @@
       <div class="header__content">
         <div class="logo">
           <div id="logo-lottie" class="logo__lottie"></div>
-          <span class="logo__badge">SAFE</span>
         </div>
-        <div class="version">v4.1.1</div>
+        <div class="version">v4.1.2</div>
       </div>
     </header>
 
     <main class="main">
-      <div class="safe-note safe-note--warning">
-        Cookie-вход, Kate Mobile, автолайки и отправка пользовательских токенов
-        на сервер удалены. Пользовательский токен хранится только в этом браузере.
-      </div>
-
       <section class="section">
         <div class="section__header">
           <h2 class="section__title">
             <i class="ti ti-key section__icon-img"></i>
-            Локальный токен
+            Аккаунт VK
           </h2>
           <span class="server-status" id="user-token-status">Не настроен</span>
         </div>
-        <div class="field-stack">
-          <input type="password" id="user-token" class="input" autocomplete="off"
-                 placeholder="Пользовательский access_token (необязательно)">
-          <div class="action-grid">
-            <button class="btn btn--primary" id="save-user-token">Проверить и сохранить</button>
+        <div id="user-profile" class="account-item account-item--primary user-profile-card" hidden>
+          <div class="account-avatar-wrapper">
+            <img id="user-profile-avatar" class="account-avatar" alt="">
+            <span id="user-profile-fallback" class="user-profile-fallback" hidden>VK</span>
+            <span class="account-status-indicator status--active" title="Токен подключён"></span>
+          </div>
+          <div class="account-info">
+            <div id="user-profile-name" class="account-name">Аккаунт VK</div>
+            <div class="account-role"><i class="ti ti-circle-check"></i> Токен подключён</div>
+            <button id="user-profile-link" class="user-profile-link" type="button"></button>
+          </div>
+          <div class="user-profile-actions">
+            <button class="btn btn--secondary" id="replace-user-token">Заменить</button>
             <button class="btn btn--secondary" id="clear-user-token">Удалить</button>
           </div>
         </div>
-        <div class="status-line">
-          Нужен для чтения исходных постов, оригинального репоста и некоторых
-          операций с медиа. На сервер не передаётся.
+        <div id="user-token-form" class="field-stack user-token-form">
+          <input type="password" id="user-token" class="input" autocomplete="off"
+                 placeholder="Вставьте пользовательский access_token">
+          <div class="action-grid">
+            <button class="btn btn--primary" id="save-user-token">Подключить аккаунт</button>
+            <button class="btn btn--secondary" id="cancel-user-token" hidden>Отмена</button>
+          </div>
         </div>
       </section>
 
@@ -143,19 +159,7 @@
         </div>
       </section>
 
-      <div class="safe-note">
-        Первый тест сделайте на одной тестовой группе. Если VK покажет проверку,
-        не нажимайте «продолжить» до её прохождения.
-      </div>
     </main>
-
-    <footer class="footer">
-      <div class="footer__brand">
-        <span class="footer__brand-name">VK Reposter Pro</span>
-        <span class="footer__brand-dot"></span>
-        <span>safe queue</span>
-      </div>
-    </footer>
   </div>
 
   <script src="lottie-player.js"></script>

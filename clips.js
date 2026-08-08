@@ -6,6 +6,7 @@ const sourceId = `source_${crypto.randomUUID()}`;
 let allGroups = [];
 let sourcePort = null;
 let toastTimer = null;
+let lockedFileIds = new Set();
 
 const $ = (id) => document.getElementById(id);
 
@@ -31,6 +32,41 @@ function toast(message, type = "info") {
 function bytesLabel(bytes) {
   if (bytes < 1024 * 1024) return `${Math.ceil(bytes / 1024)} КБ`;
   return `${(bytes / 1024 / 1024).toFixed(1)} МБ`;
+}
+
+function formatScheduleTime(timestamp) {
+  return new Intl.DateTimeFormat("ru-RU", {
+    day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: false,
+  }).format(new Date(timestamp)).replace(",", " ·");
+}
+
+function selectedFilesAreLocked() {
+  return [...fileRegistry.keys()].some((id) => lockedFileIds.has(id));
+}
+
+function syncFileControls() {
+  for (const button of document.querySelectorAll(".icon-button[data-file-id]")) {
+    const locked = lockedFileIds.has(button.dataset.fileId);
+    button.disabled = locked;
+    button.title = locked ? "Файл используется текущей очередью" : "Убрать файл";
+  }
+  const clearButton = $("clear-files");
+  clearButton.disabled = fileRegistry.size === 0 || selectedFilesAreLocked();
+  clearButton.title = selectedFilesAreLocked()
+    ? "Дождитесь завершения текущей очереди: видео ещё передаются в VK"
+    : "Убрать все выбранные видео из формы";
+}
+
+function clearSelectedFiles() {
+  if (selectedFilesAreLocked()) {
+    toast("Эти видео ещё используются текущей очередью. Дождитесь её завершения, затем очистите список.", "error");
+    return;
+  }
+  for (const entry of fileRegistry.values()) URL.revokeObjectURL(entry.url);
+  fileRegistry.clear();
+  $("file-input").value = "";
+  renderFiles();
+  updateReady();
 }
 
 function connectSource() {
@@ -119,20 +155,77 @@ function renderFiles() {
     const copy = document.createElement("div"); copy.className = "file-copy";
     const name = document.createElement("strong"); name.textContent = entry.file.name; name.title = entry.file.name;
     const size = document.createElement("span"); size.textContent = bytesLabel(entry.file.size);
-    const remove = document.createElement("button"); remove.className = "icon-button"; remove.title = "Убрать файл"; remove.textContent = "×";
-    remove.onclick = () => { URL.revokeObjectURL(entry.url); fileRegistry.delete(id); renderFiles(); updateReady(); };
+    const remove = document.createElement("button"); remove.className = "icon-button"; remove.dataset.fileId = id; remove.title = "Убрать файл"; remove.textContent = "×";
+    remove.onclick = () => {
+      if (lockedFileIds.has(id)) return toast("Этот файл ещё используется текущей очередью.", "error");
+      URL.revokeObjectURL(entry.url); fileRegistry.delete(id); renderFiles(); updateReady();
+    };
     copy.append(name, size); card.append(video, copy, remove); container.appendChild(card);
   }
   $("file-count").textContent = String(fileRegistry.size);
+  syncFileControls();
+}
+
+function renderSchedulePreview() {
+  const preview = $("schedule-preview");
+  const container = $("schedule-list");
+  container.replaceChildren();
+  if (!fileRegistry.size) {
+    preview.hidden = true;
+    return;
+  }
+  preview.hidden = false;
+  const publishValue = $("publish-at").value;
+  const firstPublishAt = publishValue ? new Date(publishValue).getTime() : null;
+  const intervalMinutes = Number($("interval-minutes").value);
+  if (!Number.isSafeInteger(intervalMinutes) || intervalMinutes < 0 || intervalMinutes > 10080) {
+    $("schedule-caption").textContent = "Исправьте интервал";
+    const error = document.createElement("div"); error.className = "job-error"; error.textContent = "Интервал должен быть целым числом от 0 до 10080 минут.";
+    container.appendChild(error);
+    return;
+  }
+  const timeline = VkrClipQueueCore.createClipTimeline({
+    count: fileRegistry.size, publishAt: firstPublishAt, intervalMinutes, now: Date.now(),
+  });
+  $("schedule-caption").textContent = selectedGroups.size
+    ? `Каждый клип выйдет в ${selectedGroups.size} ${selectedGroups.size === 1 ? "сообщество" : "сообществ(а)"}`
+    : "Время одинаково для всех выбранных сообществ";
+  [...fileRegistry.values()].forEach((entry, index) => {
+    const row = document.createElement("div"); row.className = "schedule-row";
+    const number = document.createElement("span"); number.className = "schedule-number"; number.textContent = String(index + 1);
+    const name = document.createElement("span"); name.className = "schedule-file"; name.textContent = entry.file.name; name.title = entry.file.name;
+    const time = document.createElement("time"); time.className = "schedule-time";
+    if (firstPublishAt) {
+      time.dateTime = new Date(timeline[index]).toISOString();
+      time.textContent = formatScheduleTime(timeline[index]);
+    } else if (index === 0) {
+      time.textContent = "Сразу после запуска";
+    } else if (intervalMinutes > 0) {
+      time.textContent = `Через ${index * intervalMinutes} мин после запуска`;
+    } else {
+      time.textContent = "Сразу после предыдущего";
+    }
+    row.append(number, name, time); container.appendChild(row);
+  });
 }
 
 function updateReady() {
   const total = fileRegistry.size * selectedGroups.size;
-  const interval = Math.max(0, Number($("interval-minutes").value) || 0);
-  $("start").disabled = total === 0;
-  $("ready-summary").textContent = total
+  const interval = Number($("interval-minutes").value);
+  const validInterval = Number.isSafeInteger(interval) && interval >= 0 && interval <= 10080;
+  const publishValue = $("publish-at").value;
+  const publishAt = publishValue ? new Date(publishValue).getTime() : null;
+  const validTime = !publishAt || publishAt > Date.now();
+  $("start").disabled = total === 0 || !validInterval || !validTime;
+  $("ready-summary").textContent = !validInterval
+    ? "Исправьте интервал между видео"
+    : !validTime
+      ? "Время первого клипа уже прошло"
+      : total
     ? `${fileRegistry.size} видео × ${selectedGroups.size} сообществ = ${total} публикаций${fileRegistry.size > 1 && interval ? ` · интервал ${interval} мин` : ""}`
     : "Выберите видео и сообщества";
+  renderSchedulePreview();
+  syncFileControls();
 }
 
 function statusLabel(status) {
@@ -164,9 +257,22 @@ async function refreshQueue() {
   try {
     const response = await runtimeMessage({ type: "clips_list" });
     const queue = (response.queue || []).filter((job) => !["completed","failed","cancelled"].includes(job.status));
-    $("queue-count").textContent = String(queue.length); $("history-count").textContent = String((response.history || []).length);
-    renderJobs($("queue-list"), queue, true); renderJobs($("history-list"), response.history || [], false);
+    lockedFileIds = new Set(queue.map((job) => job.fileId).filter(Boolean));
+    const history = response.history || [];
+    $("queue-count").textContent = String(queue.length); $("history-count").textContent = String(history.length);
+    $("clear-history").disabled = history.length === 0;
+    renderJobs($("queue-list"), queue, true); renderJobs($("history-list"), history, false);
+    syncFileControls();
   } catch (error) { /* service worker can restart between polling ticks */ }
+}
+
+async function clearHistory() {
+  if (!confirm("Очистить все последние результаты загрузки клипов?")) return;
+  try {
+    await runtimeMessage({ type: "clips_clear_history" });
+    await refreshQueue();
+    toast("Последние результаты очищены.");
+  } catch (error) { toast(error.message, "error"); }
 }
 
 async function startQueue() {
@@ -180,8 +286,11 @@ async function startQueue() {
   $("start").disabled = true;
   try {
     const response = await runtimeMessage({ type:"clips_start", sourceId, files, groups, defaults:{ description:$("description").value, wallPost:$("wall-post").checked, publishAt, intervalMinutes } });
+    for (const job of response.jobs || []) if (job.fileId) lockedFileIds.add(job.fileId);
+    syncFileControls();
     toast(`В очередь добавлено ${response.queued} публикаций.`);
-    document.querySelector('[data-tab="queue"]').click(); await refreshQueue();
+    await refreshQueue();
+    $("queue-tab").scrollIntoView({ behavior: "smooth", block: "start" });
   } catch (error) { toast(error.message, "error"); }
   finally { updateReady(); }
 }
@@ -198,18 +307,16 @@ async function init() {
   $("group-search").oninput = renderGroups;
   $("select-all").onclick = () => { for (const group of allGroups) selectedGroups.add(group.id); renderGroups(); updateReady(); };
   $("clear-groups").onclick = () => { selectedGroups.clear(); renderGroups(); updateReady(); };
-  $("file-input").onchange = (event) => addFiles(event.target.files);
+  $("file-input").onchange = (event) => { addFiles(event.target.files); event.target.value = ""; };
+  $("clear-files").onclick = clearSelectedFiles;
   $("interval-minutes").oninput = updateReady;
+  $("publish-at").oninput = updateReady;
   const dropzone = $("dropzone");
   dropzone.ondragover = (event) => { event.preventDefault(); dropzone.classList.add("drag"); };
   dropzone.ondragleave = () => dropzone.classList.remove("drag");
   dropzone.ondrop = (event) => { event.preventDefault(); dropzone.classList.remove("drag"); addFiles(event.dataTransfer.files); };
   $("start").onclick = startQueue;
-  for (const tab of document.querySelectorAll(".tab[data-tab]")) tab.onclick = () => {
-    document.querySelectorAll(".tab[data-tab]").forEach((item) => item.classList.toggle("active", item === tab));
-    $("upload-tab").hidden = tab.dataset.tab !== "upload"; $("queue-tab").hidden = tab.dataset.tab !== "queue";
-    if (tab.dataset.tab === "queue") void refreshQueue();
-  };
+  $("clear-history").onclick = clearHistory;
   $("open-scheduled").onclick = () => chrome.tabs.create({ url: chrome.runtime.getURL("scheduled.html") });
   await refreshQueue(); setInterval(refreshQueue, 1500);
 }

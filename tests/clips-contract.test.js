@@ -9,6 +9,7 @@ const root = path.resolve(__dirname, "..");
 const background = fs.readFileSync(path.join(root, "background.js"), "utf8");
 const manifest = JSON.parse(fs.readFileSync(path.join(root, "manifest.json"), "utf8"));
 const clips = fs.readFileSync(path.join(root, "clips.js"), "utf8");
+const clipsHtml = fs.readFileSync(path.join(root, "clips.html"), "utf8");
 const clipsCss = fs.readFileSync(path.join(root, "clips-fixes.css"), "utf8");
 const clipUpload = fs.readFileSync(path.join(root, "clip-upload-content.js"), "utf8");
 
@@ -40,7 +41,25 @@ test("clip uploader preserves the community route and verifies the author", () =
 
 test("clip interval and long filenames are visible in the UI", () => {
   assert.match(clips, /intervalMinutes/);
+  assert.match(clips, /createClipTimeline/);
+  assert.match(clips, /formatScheduleTime/);
+  assert.match(clipsHtml, /id="schedule-preview"/);
+  assert.match(clipsHtml, /id="clear-files"/);
+  assert.match(clipsHtml, /id="clear-history"/);
+  assert.doesNotMatch(clipsHtml, /Новая очередь|Очередь и история/);
   assert.match(clips, /copy\.className = "file-copy"/);
   assert.match(clips, /name\.title = entry\.file\.name/);
   assert.match(clipsCss, /\.file-copy/);
+});
+
+test("clip results can be cleared without deleting current queue files", () => {
+  assert.match(background, /type === "clips_clear_history"/);
+  assert.match(background, /chrome\.storage\.local\.remove\(CLIP_HISTORY_KEY\)/);
+  assert.match(clips, /selectedFilesAreLocked/);
+});
+
+test("stale automation state cannot hide controls on a community page", () => {
+  const content = fs.readFileSync(path.join(root, "content.js"), "utf8");
+  assert.match(content, /const isAutomationTab = Boolean\(clipAutomationJobId\)/);
+  assert.doesNotMatch(content, /sessionStorage\.getItem\(['"]vkr_automation_tab['"]\) === ['"]1['"]/);
 });

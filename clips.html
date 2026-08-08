@@ -14,11 +14,9 @@
       <h1>Загрузка клипов</h1>
       <p>Один клип — одна обычная видимая вкладка VK.</p>
     </div>
-    <nav class="tabs" aria-label="Разделы">
-      <button class="tab active" data-tab="upload">Новая очередь</button>
-      <button class="tab" data-tab="queue">Очередь и история</button>
-      <button id="open-scheduled" class="tab">Вся отложка</button>
-    </nav>
+    <div class="header-actions">
+      <button id="open-scheduled" class="tab">Посты, истории и вся отложка</button>
+    </div>
   </header>
 
   <main>
@@ -31,7 +29,10 @@
       </aside>
 
       <section class="panel files-panel">
-        <div class="panel-title"><div><span class="step">2</span><h2>Видео и параметры</h2></div><span id="file-count" class="counter">0</span></div>
+        <div class="panel-title">
+          <div><span class="step">2</span><h2>Видео и параметры</h2></div>
+          <div class="panel-title-actions"><button id="clear-files" class="clear-button" disabled>Очистить видео</button><span id="file-count" class="counter">0</span></div>
+        </div>
         <label id="dropzone" class="dropzone">
           <input id="file-input" type="file" accept="video/mp4,video/webm,video/quicktime" multiple hidden>
           <span class="drop-icon">＋</span>
@@ -47,6 +48,11 @@
           <label class="field compact interval"><span>Интервал между видео, мин</span><input id="interval-minutes" type="number" min="0" max="10080" step="1" value="60"></label>
         </div>
 
+        <section id="schedule-preview" class="schedule-preview" hidden>
+          <div class="schedule-heading"><strong>Расписание выхода</strong><span id="schedule-caption"></span></div>
+          <div id="schedule-list" class="schedule-list"></div>
+        </section>
+
         <div class="safety-note">
           Клипы публикуются по одному в обычной вкладке VK. Не закрывайте эту страницу до завершения очереди. При проверке VK очередь остановится и оставит вкладку открытой.
         </div>
@@ -54,9 +60,15 @@
       </section>
     </section>
 
-    <section id="queue-tab" class="queue-layout" hidden>
+    <section id="queue-tab" class="queue-layout" aria-label="Очередь и последние результаты">
       <section class="panel"><div class="panel-title"><div><span class="step">↻</span><h2>Текущая очередь</h2></div><span id="queue-count" class="counter">0</span></div><div id="queue-list" class="job-list"></div></section>
-      <section class="panel"><div class="panel-title"><div><span class="step">✓</span><h2>Последние результаты</h2></div><span id="history-count" class="counter">0</span></div><div id="history-list" class="job-list"></div></section>
+      <section class="panel">
+        <div class="panel-title">
+          <div><span class="step">✓</span><h2>Последние результаты</h2></div>
+          <div class="panel-title-actions"><button id="clear-history" class="clear-button" disabled>Очистить результаты</button><span id="history-count" class="counter">0</span></div>
+        </div>
+        <div id="history-list" class="job-list"></div>
+      </section>
     </section>
   </main>
 

@@ -50,6 +50,27 @@
     });
   }
 
+  function createClipTimeline({ count, publishAt, intervalMinutes = 0, now = Date.now() }) {
+    const fileCount = Number(count);
+    const interval = Number(intervalMinutes);
+    const firstPublishAt = Number(publishAt) || null;
+    const baseTime = Number(now);
+    if (!Number.isSafeInteger(fileCount) || fileCount < 0 || fileCount > 10_000) {
+      throw new Error("Некорректное количество клипов.");
+    }
+    if (!Number.isSafeInteger(interval) || interval < 0 || interval > 10_080) {
+      throw new Error("Интервал между клипами должен быть от 0 до 10080 минут.");
+    }
+    return Array.from({ length: fileCount }, (_, fileIndex) => {
+      const offsetMs = fileIndex * interval * 60_000;
+      return firstPublishAt
+        ? firstPublishAt + offsetMs
+        : fileIndex > 0 && interval > 0
+          ? baseTime + offsetMs
+          : null;
+    });
+  }
+
   function createClipJobs({ sourceId, files, groups, defaults = {}, now = Date.now(), createId: idFactory = createId }) {
     const safeSourceId = safeText(sourceId, 120);
     if (!safeSourceId) throw new Error("Не найдена страница загрузчика клипов.");
@@ -63,18 +84,11 @@
       ? 0
       : Number(defaults.intervalMinutes);
     if (firstPublishAt && firstPublishAt <= Number(now)) throw new Error("Время публикации клипа должно быть в будущем.");
-    if (!Number.isSafeInteger(intervalMinutes) || intervalMinutes < 0 || intervalMinutes > 10_080) {
-      throw new Error("Интервал между клипами должен быть от 0 до 10080 минут.");
-    }
+    const timeline = createClipTimeline({ count: normalizedFiles.length, publishAt: firstPublishAt, intervalMinutes, now });
     const jobs = [];
     for (let fileIndex = 0; fileIndex < normalizedFiles.length; fileIndex += 1) {
       const file = normalizedFiles[fileIndex];
-      const offsetMs = fileIndex * intervalMinutes * 60_000;
-      const publishAt = firstPublishAt
-        ? firstPublishAt + offsetMs
-        : fileIndex > 0 && intervalMinutes > 0
-          ? Number(now) + offsetMs
-          : null;
+      const publishAt = timeline[fileIndex];
       for (const group of normalizedGroups) {
         jobs.push(Object.freeze({
           id: String(idFactory()), sourceId: safeSourceId, fileId: file.id, fileName: file.name,
@@ -130,5 +144,5 @@
     return record;
   }
 
-  return Object.freeze({ ACTIVE_STATES, TERMINAL_STATES, createClipJobs, nextRunnableJob, toClipHistory, transitionClipJob });
+  return Object.freeze({ ACTIVE_STATES, TERMINAL_STATES, createClipJobs, createClipTimeline, nextRunnableJob, toClipHistory, transitionClipJob });
 });

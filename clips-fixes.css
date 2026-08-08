@@ -11,7 +11,111 @@
   max-width: 100%;
 }
 
+.header-actions,
+.panel-title-actions {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.clear-button {
+  border: 1px solid rgba(251, 113, 133, .32);
+  background: rgba(251, 113, 133, .07);
+  color: #fecdd3;
+  border-radius: 9px;
+  padding: 7px 10px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.clear-button:hover:not(:disabled) {
+  border-color: rgba(251, 113, 133, .62);
+  background: rgba(251, 113, 133, .13);
+}
+
+.clear-button:disabled,
+.icon-button:disabled {
+  cursor: not-allowed;
+  opacity: .4;
+}
+
+.schedule-preview {
+  margin-top: 17px;
+  border: 1px solid rgba(128, 104, 255, .25);
+  border-radius: 14px;
+  padding: 13px;
+  background: rgba(128, 104, 255, .055);
+}
+
+.schedule-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 9px;
+}
+
+.schedule-heading span {
+  color: var(--muted);
+  font-size: 12px;
+  text-align: right;
+}
+
+.schedule-list {
+  display: grid;
+  gap: 6px;
+}
+
+.schedule-row {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 255, 255, .065);
+  border-radius: 10px;
+  background: rgba(8, 7, 20, .35);
+}
+
+.schedule-number {
+  display: grid;
+  place-items: center;
+  width: 27px;
+  height: 27px;
+  border-radius: 8px;
+  background: rgba(128, 104, 255, .15);
+  color: #c8beff;
+  font-weight: 750;
+  font-size: 12px;
+}
+
+.schedule-file {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.schedule-time {
+  color: #7dd3fc;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.queue-layout {
+  margin-top: 20px;
+}
+
+.queue-layout > .panel,
+.job,
+.job-head {
+  min-width: 0;
+}
+
 .job-title {
+  flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -33,5 +137,13 @@
   .compact.interval {
     flex: 1 1 230px;
     width: auto;
+  }
+
+  .schedule-row {
+    grid-template-columns: 28px minmax(0, 1fr);
+  }
+
+  .schedule-time {
+    grid-column: 2;
   }
 }

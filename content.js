@@ -12,10 +12,17 @@ const VKR_VERSION = "3.0.9";
 const POST_SELECTORS = '[data-post-id], div[id^="post-"], article[data-post-id], .post, .wall_item, .feed_row, .Post, [data-testid="post-root"], [data-testid="post"]';
 const IGNORE_SELECTOR = '.reply, .wl_reply, [class*="CommentItem"], [class*="ReplyItem"], [class*="vkitComment"], [data-testid*="comment"], [id^="reply"], [id^="photo_comment"], [id^="video_comment"], .FCThumb, .FCPanel__list, [id*="fastchat"], [class*="FastChat"]';
 
-if (location.hash && location.hash.includes('vkr_')) {
-  sessionStorage.setItem('vkr_automation_tab', '1');
+// В safe-версии служебной бывает только текущая страница загрузки клипа.
+// Старый постоянный флаг sessionStorage переживал переход на страницу паблика
+// в той же вкладке и навсегда скрывал там кнопки расширения.
+const clipAutomationJobId = /^\/clips/.test(location.pathname)
+  ? new URLSearchParams(location.hash.replace(/^#/, "")).get("vkr_clip_job")
+  : null;
+const isAutomationTab = Boolean(clipAutomationJobId);
+if (!isAutomationTab) {
+  sessionStorage.removeItem("vkr_automation_tab");
+  sessionStorage.removeItem("vkr_active_upload_id");
 }
-const isAutomationTab = (location.hash && location.hash.includes('vkr_')) || sessionStorage.getItem('vkr_automation_tab') === '1';
 console.log("[VKR] Content script loaded, version:", VKR_VERSION, "isAutomationTab:", isAutomationTab);
 
 /** True на странице клипов — там не нужны кнопки постов, комментариев и FAB. */
@@ -4901,7 +4908,7 @@ function translateError(error) {
 
   if (window.self !== window.top) return;
 
-  const isAutomation = (location.hash && location.hash.includes('vkr_')) || sessionStorage.getItem('vkr_automation_tab') === '1';
+  const isAutomation = Boolean(clipAutomationJobId);
   if (isAutomation) {
     // Инжектируем стиль, чтобы скрыть фид клипов и разгрузить React/браузер
     const style = document.createElement('style');
@@ -6160,20 +6167,8 @@ function translateError(error) {
   }
 })();
 
-// Сигнализируем расширению о готовности вкладки немедленно, передавая uploadId
+// Старый загрузчик больше не используется. Safe-загрузчик общается с фоновым
+// процессом через vkr_clip_upload_tab в clip-upload-content.js.
 (function () {
-  let uploadId = null;
-  const hash = location.hash || '';
-  if (hash.startsWith('#vkr_')) {
-    uploadId = hash.slice(1);
-    sessionStorage.setItem('vkr_active_upload_id', uploadId);
-  } else {
-    uploadId = sessionStorage.getItem('vkr_active_upload_id');
-  }
-
-  console.log("[VKR Automation] Sending TAB_READY with uploadId immediately:", uploadId);
-  chrome.runtime.sendMessage({
-    type: "VKR_TAB_READY",
-    uploadId: uploadId
-  }).catch(() => { });
+  sessionStorage.removeItem("vkr_active_upload_id");
 })();

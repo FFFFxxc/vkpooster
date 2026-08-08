@@ -928,7 +928,7 @@ async function loadPost(message) {
 async function validateUserToken(token) {
   const response = await vkApi(
     "users.get",
-    { fields: "photo_50" },
+    { fields: "photo_50,photo_100,screen_name" },
     token,
   );
   const user = response?.[0];
@@ -1575,6 +1575,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         chrome.storage.local.get(CLIP_HISTORY_KEY),
       ]);
       return { queue, history: data[CLIP_HISTORY_KEY] || [] };
+    });
+  }
+  if (type === "clips_clear_history") {
+    return respond(async () => {
+      await chrome.storage.local.remove(CLIP_HISTORY_KEY);
+      return { cleared: true };
     });
   }
   if (type === "clips_start") {

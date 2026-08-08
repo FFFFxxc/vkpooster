@@ -4,10 +4,25 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
   createClipJobs,
+  createClipTimeline,
   nextRunnableJob,
   toClipHistory,
   transitionClipJob,
 } = require("../clip-queue-core.js");
+
+test("clip timeline exposes every exact publish time before starting", () => {
+  assert.deepEqual(createClipTimeline({
+    count: 4,
+    publishAt: new Date("2026-08-08T07:05:00+03:00").getTime(),
+    intervalMinutes: 60,
+    now: 100,
+  }), [
+    new Date("2026-08-08T07:05:00+03:00").getTime(),
+    new Date("2026-08-08T08:05:00+03:00").getTime(),
+    new Date("2026-08-08T09:05:00+03:00").getTime(),
+    new Date("2026-08-08T10:05:00+03:00").getTime(),
+  ]);
+});
 
 test("jobs are flattened by file then group and only one can become active", () => {
   const jobs = createClipJobs({
