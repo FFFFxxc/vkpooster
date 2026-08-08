@@ -12,6 +12,7 @@ const clips = fs.readFileSync(path.join(root, "clips.js"), "utf8");
 const clipsHtml = fs.readFileSync(path.join(root, "clips.html"), "utf8");
 const clipsCss = fs.readFileSync(path.join(root, "clips-fixes.css"), "utf8");
 const clipUpload = fs.readFileSync(path.join(root, "clip-upload-content.js"), "utf8");
+const meshText = fs.readFileSync(path.join(root, "mesh-text.js"), "utf8");
 
 test("clips coordinator uses one active normal tab and no cookie automation", () => {
   assert.equal(manifest.permissions.includes("tabs"), true);
@@ -57,6 +58,16 @@ test("ready clip queue gets a lightweight accessible flame action", () => {
   assert.match(clips, /classList\.toggle\("is-active", canStart\)/);
   assert.match(clipsCss, /@keyframes flame-border-turn/);
   assert.match(clipsCss, /@keyframes flame-spark-rise/);
+  assert.match(clipsCss, /prefers-reduced-motion: reduce/);
+});
+
+test("clip title has a progressive WebGL mesh hover with a text fallback", () => {
+  assert.match(clipsHtml, /id="clips-mesh-title"/);
+  assert.match(clipsHtml, /<h1>Загрузка клипов<\/h1>/);
+  assert.match(clipsHtml, /<canvas aria-hidden="true"><\/canvas>/);
+  assert.match(meshText, /getContext\("webgl2"/);
+  assert.match(meshText, /pointermove/);
+  assert.match(meshText, /maximumMotion > 0\.00008/);
   assert.match(clipsCss, /prefers-reduced-motion: reduce/);
 });
 
