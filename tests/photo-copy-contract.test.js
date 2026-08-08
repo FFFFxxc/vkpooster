@@ -16,7 +16,32 @@ test("copy mode uploads photos into every target community before wall.post", ()
   assert.match(background, /buildOwnedPhotoAttachment\(saved\[0\], groupId\)/);
   assert.match(background, /attachments\.filter\(\(attachment\) => attachment\?\.type !== "photo"\)/);
   assert.match(background, /const attachments = await prepareOwnedCopyAttachments\(/);
+  assert.match(background, /operation: "upload"/);
+  assert.match(background, /mediaCredential\?\.token \|\| credential\.token/);
   assert.doesNotMatch(background, /buildReusableAttachments\(job\.post\.attachments\)/);
+});
+
+test("community token posts the wall while local user token uploads copied photos", () => {
+  const uploadSelection = background.indexOf('operation: "upload"');
+  const attachmentPreparation = background.indexOf("prepareOwnedCopyAttachments(", uploadSelection);
+  const wallPost = background.indexOf('vkApi("wall.post"', attachmentPreparation);
+  assert.ok(uploadSelection >= 0);
+  assert.ok(attachmentPreparation > uploadSelection);
+  assert.ok(wallPost > attachmentPreparation);
+  assert.match(
+    background.slice(uploadSelection, wallPost),
+    /userToken: credentials\.userToken/,
+  );
+  assert.match(
+    background.slice(attachmentPreparation, wallPost + 80),
+    /vkApi\("wall\.post", params, credential\.token\)/,
+  );
+});
+
+test("VK group-auth photo error is explained as a local user-token problem", () => {
+  assert.match(background, /async function vkPhotoApi\(/);
+  assert.match(background, /code === 27/);
+  assert.match(background, /токен сообщества для загрузки фотографий не подходит/i);
 });
 
 test("photo preparation is restart-safe and never falls back after ownership failure", () => {

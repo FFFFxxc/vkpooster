@@ -61,6 +61,27 @@ test("selectCredential requires a local user token for a repost", () => {
   );
 });
 
+test("selectCredential always uses a local user token for photo uploads", () => {
+  assert.deepEqual(
+    selectCredential({
+      groupId: 42,
+      operation: "upload",
+      groupTokens: { "42": "group-secret" },
+      userToken: "user-secret",
+    }),
+    { kind: "user", token: "user-secret", groupId: 42 },
+  );
+  assert.throws(
+    () => selectCredential({
+      groupId: 42,
+      operation: "upload",
+      groupTokens: { "42": "group-secret" },
+      userToken: "",
+    }),
+    /VK не разрешает загружать фотографии токеном сообщества/i,
+  );
+});
+
 test("selectCredential never falls back to another community token", () => {
   assert.throws(
     () =>

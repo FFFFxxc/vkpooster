@@ -600,6 +600,23 @@ function mediaCheckpoint(job, groupId, total) {
   return job.preparedMedia[key];
 }
 
+async function vkPhotoApi(method, params, token, position) {
+  try {
+    return await vkApi(method, params, token);
+  } catch (error) {
+    const code = Number(error?.vkError?.error_code ?? error?.code);
+    if (code === 27) {
+      const explained = nonRetryableError(
+        `Фото ${position}: VK отклонил авторизацию загрузки. Переподключите локальный пользовательский токен — токен сообщества для загрузки фотографий не подходит.`,
+      );
+      explained.code = 27;
+      explained.vkError = error.vkError || null;
+      throw explained;
+    }
+    throw error;
+  }
+}
+
 async function uploadOwnedWallPhoto(photo, groupId, token, position) {
   const sourceUrl = largestPhotoUrl(photo);
   if (!sourceUrl) {
@@ -633,10 +650,11 @@ async function uploadOwnedWallPhoto(photo, groupId, token, position) {
     );
   }
 
-  const uploadServer = await vkApi(
+  const uploadServer = await vkPhotoApi(
     "photos.getWallUploadServer",
     { group_id: groupId },
     token,
+    position,
   );
   const uploadUrl = checkedHttpsUrl(
     uploadServer?.upload_url,
@@ -671,7 +689,7 @@ async function uploadOwnedWallPhoto(photo, groupId, token, position) {
     error.transport = true;
     throw error;
   }
-  const saved = await vkApi(
+  const saved = await vkPhotoApi(
     "photos.saveWallPhoto",
     {
       group_id: groupId,
@@ -680,6 +698,7 @@ async function uploadOwnedWallPhoto(photo, groupId, token, position) {
       hash: uploaded.hash,
     },
     token,
+    position,
   );
   if (!Array.isArray(saved) || !saved[0]) {
     const error = new Error(`Фото ${position}: VK не сохранил загруженный файл.`);
@@ -771,10 +790,18 @@ async function publishToGroup(job, groupId, credentials, onPublished) {
     );
     postId = response?.post_id;
   } else {
+    const sourcePhotos = copyPhotoObjects(job.post);
+    const mediaCredential = sourcePhotos.length
+      ? selectCredential({
+          groupId,
+          operation: "upload",
+          userToken: credentials.userToken,
+        })
+      : null;
     const attachments = await prepareOwnedCopyAttachments(
       job,
       groupId,
-      credential.token,
+      mediaCredential?.token || credential.token,
     );
     const params = {
       owner_id: -groupId,

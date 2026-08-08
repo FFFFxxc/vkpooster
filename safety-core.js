@@ -125,9 +125,9 @@
       typeof userToken === "string" ? userToken.trim() : "";
     if (operation === "repost" || operation === "upload") {
       if (!localUserToken) {
-        throw new Error(
-          "Для репоста или загрузки нужен локальный пользовательский токен.",
-        );
+        throw new Error(operation === "upload"
+          ? "VK не разрешает загружать фотографии токеном сообщества. Добавьте локальный пользовательский токен."
+          : "Для репоста нужен локальный пользовательский токен.");
       }
       return {
         kind: "user",
