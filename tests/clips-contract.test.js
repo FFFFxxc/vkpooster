@@ -52,6 +52,14 @@ test("clip interval and long filenames are visible in the UI", () => {
   assert.match(clipsCss, /\.file-copy/);
 });
 
+test("ready clip queue gets a lightweight accessible flame action", () => {
+  assert.match(clipsHtml, /id="start-flame" class="flame-wrap"/);
+  assert.match(clips, /classList\.toggle\("is-active", canStart\)/);
+  assert.match(clipsCss, /@keyframes flame-border-turn/);
+  assert.match(clipsCss, /@keyframes flame-spark-rise/);
+  assert.match(clipsCss, /prefers-reduced-motion: reduce/);
+});
+
 test("clip results can be cleared without deleting current queue files", () => {
   assert.match(background, /type === "clips_clear_history"/);
   assert.match(background, /chrome\.storage\.local\.remove\(CLIP_HISTORY_KEY\)/);

@@ -216,7 +216,9 @@ function updateReady() {
   const publishValue = $("publish-at").value;
   const publishAt = publishValue ? new Date(publishValue).getTime() : null;
   const validTime = !publishAt || publishAt > Date.now();
-  $("start").disabled = total === 0 || !validInterval || !validTime;
+  const canStart = total > 0 && validInterval && validTime;
+  $("start").disabled = !canStart;
+  $("start-flame").classList.toggle("is-active", canStart);
   $("ready-summary").textContent = !validInterval
     ? "Исправьте интервал между видео"
     : !validTime
@@ -284,6 +286,7 @@ async function startQueue() {
   const files = [...fileRegistry].map(([id, entry]) => ({ id, name: entry.file.name, size: entry.file.size, type: entry.file.type }));
   const groups = allGroups.filter((group) => selectedGroups.has(group.id));
   $("start").disabled = true;
+  $("start-flame").classList.remove("is-active");
   try {
     const response = await runtimeMessage({ type:"clips_start", sourceId, files, groups, defaults:{ description:$("description").value, wallPost:$("wall-post").checked, publishAt, intervalMinutes } });
     for (const job of response.jobs || []) if (job.fileId) lockedFileIds.add(job.fileId);
