@@ -369,6 +369,12 @@ document.addEventListener("DOMContentLoaded", () => {
   $("open-scheduled").addEventListener("click", () => {
     chrome.tabs.create({ url: chrome.runtime.getURL("scheduled.html") });
   });
+  $("open-clips").addEventListener("click", () => {
+    chrome.tabs.create({ url: chrome.runtime.getURL("clips.html") });
+  });
+  $("open-stories").addEventListener("click", () => {
+    chrome.tabs.create({ url: chrome.runtime.getURL("stories.html") });
+  });
   $("open-vk").addEventListener("click", () => {
     chrome.tabs.create({ url: "https://vk.ru/" });
   });

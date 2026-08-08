@@ -1,13 +1,14 @@
 {
   "manifest_version": 3,
   "name": "VK Reposter Pro",
-  "version": "4.0.0",
+  "version": "4.1.0",
   "description": "Безопасная очередь постинга и отложенных комментариев для сообществ ВКонтакте",
   "permissions": [
     "storage",
     "alarms",
     "notifications",
-    "contextMenus"
+    "contextMenus",
+    "tabs"
   ],
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'self'"
@@ -35,6 +36,11 @@
       "js": ["main-world-injection.js"],
       "world": "MAIN",
       "run_at": "document_start"
+    },
+    {
+      "matches": ["https://vk.ru/clips/*", "https://vk.com/clips/*"],
+      "js": ["clip-upload-content.js"],
+      "run_at": "document_idle"
     }
   ],
   "action": {

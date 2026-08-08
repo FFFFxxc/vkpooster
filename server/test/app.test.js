@@ -24,9 +24,18 @@ async function withServer(callback) {
       return false;
     },
   };
+  const storyService = {
+    async createDraft() { return { created: true, job: { id: "story-id", groupId: 42, status: "uploading" } }; },
+    async attachMedia(_id, media) { return { id: "story-id", groupId: 42, status: "queued", byteLength: media.buffer.length }; },
+    async list() { return []; },
+    async cancel() { return { removed: false, job: null }; },
+    async reschedule() { throw new Error("Story job cannot be rescheduled"); },
+    async retry() { throw new Error("Story job cannot be retried"); },
+  };
   const app = createApp({
-    config: { apiSecret: "s".repeat(40) },
+    config: { apiSecret: "s".repeat(40), storyMaxBytes: 25 * 1024 * 1024 },
     commentService,
+    storyService,
     databaseReady: () => true,
   });
   const server = app.listen(0);
@@ -53,6 +62,24 @@ test("health is public but API status requires bearer authentication", async () 
     });
     assert.equal(accepted.status, 200);
     assert.equal((await accepted.json()).ok, true);
+  });
+});
+
+test("story draft and raw media responses expose no credential fields", async () => {
+  await withServer(async (baseUrl) => {
+    const headers = { Authorization: `Bearer ${"s".repeat(40)}` };
+    const draft = await fetch(`${baseUrl}/api/scheduled-stories`, {
+      method: "POST",
+      headers: { ...headers, "Content-Type": "application/json" },
+      body: JSON.stringify({ groupToken: "must-not-return", previewDataUrl: "x".repeat(100_000) }),
+    });
+    assert.equal(draft.status, 201);
+    assert.doesNotMatch(await draft.text(), /token|cipher|secret/i);
+    const media = await fetch(`${baseUrl}/api/scheduled-stories/story-id/media`, {
+      method: "PUT", headers: { ...headers, "Content-Type": "image/jpeg", "X-File-Name": "story.jpg" }, body: Buffer.from([1, 2, 3]),
+    });
+    assert.equal(media.status, 200);
+    assert.equal((await media.json()).job.byteLength, 3);
   });
 });
 

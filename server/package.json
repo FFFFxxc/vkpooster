@@ -1,6 +1,6 @@
 {
   "name": "vk-reposter-safe-server",
-  "version": "4.0.0",
+  "version": "4.1.0",
   "private": true,
   "engines": {
     "node": ">=20"
@@ -8,7 +8,7 @@
   "scripts": {
     "start": "node src/server.js",
     "test": "node --test test/*.test.js",
-    "check": "node --check src/server.js && node --check src/app.js && node --check src/worker.js"
+    "check": "node --check src/server.js && node --check src/app.js && node --check src/worker.js && node --check src/story-validation.js && node --check src/story-media-store.js && node --check src/story-service.js && node --check src/story-worker.js"
   },
   "dependencies": {
     "express": "^5.1.0",

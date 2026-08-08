@@ -6,6 +6,10 @@ const { createApp } = require("./app.js");
 const { createCommentService } = require("./comment-service.js");
 const { loadConfig } = require("./config.js");
 const ScheduledComment = require("./models/scheduled-comment.js");
+const ScheduledStory = require("./models/scheduled-story.js");
+const { createStoryMediaStore } = require("./story-media-store.js");
+const { createStoryService } = require("./story-service.js");
+const { createStoryWorker } = require("./story-worker.js");
 const { createTokenVault } = require("./token-vault.js");
 const { createVkClient } = require("./vk-client.js");
 const { createCommentWorker } = require("./worker.js");
@@ -18,6 +22,10 @@ async function main() {
   });
 
   const tokenVault = createTokenVault(config.tokenEncryptionKey);
+  const bucket = new mongoose.mongo.GridFSBucket(mongoose.connection.db, {
+    bucketName: "scheduled_story_media",
+  });
+  const storyMediaStore = createStoryMediaStore({ bucket, maxBytes: config.storyMaxBytes });
   const commentService = createCommentService({
     CommentModel: ScheduledComment,
     tokenVault,
@@ -30,16 +38,39 @@ async function main() {
     intervalMs: config.workerIntervalMs,
     staleLockMs: config.staleLockMs,
   });
-  const app = createApp({ config, commentService });
+  const storyService = createStoryService({
+    StoryModel: ScheduledStory,
+    tokenVault,
+    mediaStore: storyMediaStore,
+    maxBytes: config.storyMaxBytes,
+  });
+  const storyWorker = createStoryWorker({
+    StoryModel: ScheduledStory,
+    tokenVault,
+    mediaStore: storyMediaStore,
+    vkClient,
+    intervalMs: config.workerIntervalMs,
+    staleLockMs: config.staleLockMs,
+  });
+  const app = createApp({ config, commentService, storyService });
   const server = http.createServer(app);
 
   await new Promise((resolve) => server.listen(config.port, resolve));
   worker.start();
+  storyWorker.start();
+  const mediaCleanupTimer = setInterval(() => {
+    void storyService.cleanupExpiredMedia().catch((error) => {
+      console.error("[server] Story media cleanup failed", { message: error.message });
+    });
+  }, 60 * 60_000);
+  mediaCleanupTimer.unref?.();
   console.log(`[server] VK Reposter Safe Server listening on ${config.port}`);
 
   async function shutdown(signal) {
     console.log(`[server] ${signal}: shutting down`);
     worker.stop();
+    storyWorker.stop();
+    clearInterval(mediaCleanupTimer);
     await new Promise((resolve) => server.close(resolve));
     await mongoose.disconnect();
     process.exit(0);
@@ -52,4 +83,3 @@ main().catch((error) => {
   console.error("[server] Startup failed", { message: error.message });
   process.exit(1);
 });
-

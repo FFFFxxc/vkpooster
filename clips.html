@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VK Reposter Pro — Клипы</title>
+  <link rel="stylesheet" href="clips.css">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <span class="eyebrow">VK Reposter Pro</span>
+      <h1>Загрузка клипов</h1>
+      <p>Один клип — одна обычная видимая вкладка VK.</p>
+    </div>
+    <nav class="tabs" aria-label="Разделы">
+      <button class="tab active" data-tab="upload">Новая очередь</button>
+      <button class="tab" data-tab="queue">Очередь и история</button>
+      <button id="open-scheduled" class="tab">Вся отложка</button>
+    </nav>
+  </header>
+
+  <main>
+    <section id="upload-tab" class="workspace">
+      <aside class="panel groups-panel">
+        <div class="panel-title"><div><span class="step">1</span><h2>Сообщества</h2></div><span id="selected-count" class="counter">0</span></div>
+        <input id="group-search" class="control" type="search" placeholder="Поиск по названию или ID">
+        <div class="small-actions"><button id="select-all">Выбрать все</button><button id="clear-groups">Снять выбор</button></div>
+        <div id="groups" class="group-list"><div class="empty">Загружаю сообщества…</div></div>
+      </aside>
+
+      <section class="panel files-panel">
+        <div class="panel-title"><div><span class="step">2</span><h2>Видео и параметры</h2></div><span id="file-count" class="counter">0</span></div>
+        <label id="dropzone" class="dropzone">
+          <input id="file-input" type="file" accept="video/mp4,video/webm,video/quicktime" multiple hidden>
+          <span class="drop-icon">＋</span>
+          <strong>Перетащите видео сюда</strong>
+          <span>или нажмите, чтобы выбрать MP4, WebM или MOV</span>
+        </label>
+        <div id="files" class="file-list"></div>
+
+        <label class="field"><span>Общее описание</span><textarea id="description" maxlength="4096" rows="4" placeholder="Текст для всех выбранных клипов"></textarea></label>
+        <div class="options-row">
+          <label class="check"><input id="wall-post" type="checkbox"> Добавлять запись о клипе на стену</label>
+          <label class="field compact"><span>Время публикации (необязательно)</span><input id="publish-at" type="datetime-local"></label>
+        </div>
+
+        <div class="safety-note">
+          Клипы публикуются по одному в обычной вкладке VK. Не закрывайте эту страницу до завершения очереди. При проверке VK очередь остановится и оставит вкладку открытой.
+        </div>
+        <div class="start-row"><span id="ready-summary">Выберите видео и сообщества</span><button id="start" class="primary" disabled>Запустить очередь</button></div>
+      </section>
+    </section>
+
+    <section id="queue-tab" class="queue-layout" hidden>
+      <section class="panel"><div class="panel-title"><div><span class="step">↻</span><h2>Текущая очередь</h2></div><span id="queue-count" class="counter">0</span></div><div id="queue-list" class="job-list"></div></section>
+      <section class="panel"><div class="panel-title"><div><span class="step">✓</span><h2>Последние результаты</h2></div><span id="history-count" class="counter">0</span></div><div id="history-list" class="job-list"></div></section>
+    </section>
+  </main>
+
+  <div id="toast" class="toast" hidden></div>
+  <script src="clip-queue-core.js"></script>
+  <script src="clips.js"></script>
+</body>
+</html>

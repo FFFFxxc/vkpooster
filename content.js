@@ -1052,7 +1052,7 @@ if (!isClipsPage() && !isAutomationTab) {
 // Функция openBulkDeleteModal уже используется в createFAB выше
 
 // Открываем модальное окно массового удаления
-function openBulkDeleteModal(groupId) {
+function openLegacyBulkDeleteModal(groupId) {
   // Создаем overlay
   const overlay = document.createElement("div");
   overlay.className = "vkr-bulk-delete-overlay";
@@ -1347,7 +1347,7 @@ function openBulkDeleteModal(groupId) {
 }
 
 // ========== ALBUM CLEAN MODAL ==========
-function openAlbumCleanModal(groupId) {
+function openLegacyAlbumCleanModal(groupId) {
   const overlay = document.createElement("div");
   overlay.className = "vkr-bulk-delete-overlay";
 

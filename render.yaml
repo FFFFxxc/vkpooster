@@ -24,3 +24,5 @@ services:
         value: "600000"
       - key: VK_API_VERSION
         value: "5.199"
+      - key: STORY_MAX_BYTES
+        value: "26214400"

@@ -20,18 +20,18 @@ const scheduled = fs.readFileSync(
 const content = fs.readFileSync(path.join(root, "content.js"), "utf8");
 
 test("manifest has no cookie interception, OAuth impersonation, or global hosts", () => {
-  assert.equal(manifest.version, "4.0.0");
+  assert.equal(manifest.version, "4.1.0");
   for (const permission of [
     "cookies",
     "declarativeNetRequest",
     "webRequest",
     "webRequestBlocking",
     "downloads",
-    "tabs",
     "scripting",
   ]) {
     assert.equal(manifest.permissions.includes(permission), false);
   }
+  assert.equal(manifest.permissions.includes("tabs"), true);
   assert.equal(manifest.host_permissions.includes("<all_urls>"), false);
   assert.equal(
     manifest.host_permissions.some((host) => host.includes("oauth.vk.")),
@@ -74,5 +74,5 @@ test("video cookie automation is absent and queue cleanup goes through worker", 
     ),
     false,
   );
-  assert.equal(scheduled.includes('type: "clear_finished_queue"'), true);
+  assert.match(scheduled, /type\s*:\s*"clear_finished_queue"/);
 });

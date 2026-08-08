@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>VK Reposter Pro — Истории</title>
+  <link rel="stylesheet" href="stories.css">
+</head>
+<body>
+  <header><div><span>VK Reposter Pro</span><h1>Истории сообществ</h1><p>Отложенная публикация через официальный VK API</p></div><nav><button id="open-scheduled">Вся отложка</button><button id="open-clips">Клипы</button></nav></header>
+  <main>
+    <section class="composer card">
+      <div class="title"><b>Новая история</b><span>1 файл · до 25 МБ</span></div>
+      <div class="compose-grid">
+        <label id="file-zone" class="file-zone"><input id="file" type="file" accept="image/jpeg,image/png,video/mp4,video/webm,video/quicktime" hidden><img id="preview" alt=""><span id="file-label">Выберите фото или видео<br><small>Лучший формат — 9:16</small></span></label>
+        <div class="fields">
+          <label><span>Сообщество</span><select id="group"></select></label>
+          <label><span>Дата и время</span><input id="publish-at" type="datetime-local"></label>
+          <label><span>Ссылка внутри VK (необязательно)</span><input id="link-url" type="url" placeholder="https://vk.ru/club123"></label>
+          <label><span>Текст кнопки</span><select id="link-text"><option value="">Без кнопки</option><option value="go_to">Перейти</option><option value="more">Подробнее</option><option value="open">Открыть</option><option value="write">Написать</option><option value="view">Посмотреть</option><option value="watch">Смотреть</option><option value="buy">Купить</option><option value="signup">Записаться</option><option value="contact">Связаться</option></select></label>
+          <div class="note">Токен выбранного сообщества отправляется только на ваш Render, сразу шифруется AES‑256‑GCM и не возвращается в ответах. Для Историй сообщество должно иметь право публикации, которое требует VK.</div>
+          <button id="schedule" class="primary" disabled>Поставить в отложку</button>
+        </div>
+      </div>
+      <div id="progress" class="progress" hidden><span></span><b>Подготовка…</b></div>
+    </section>
+    <section class="card"><div class="title"><b>Очередь историй</b><button id="refresh">Обновить</button></div><div id="jobs" class="jobs"></div></section>
+  </main>
+  <div id="toast" class="toast" hidden></div>
+  <script src="extension-server-client.js"></script><script src="stories.js"></script>
+</body>
+</html>

@@ -34,8 +34,11 @@ function loadConfig(environment = process.env) {
       Number(environment.STALE_LOCK_MS) || 10 * 60_000,
     ),
     vkApiVersion: String(environment.VK_API_VERSION || "5.199"),
+    storyMaxBytes: Math.max(
+      1024 * 1024,
+      Number(environment.STORY_MAX_BYTES) || 25 * 1024 * 1024,
+    ),
   });
 }
 
 module.exports = { loadConfig };
-

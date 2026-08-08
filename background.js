@@ -5,7 +5,7 @@
  * impersonation, auto-likes and multi-account automation are intentionally absent.
  */
 
-importScripts("safety-core.js", "cleanup-core.js", "cleanup-runner.js");
+importScripts("safety-core.js", "cleanup-core.js", "cleanup-runner.js", "clip-queue-core.js");
 
 const VK_API_VERSION = "5.199";
 const PUBLISH_QUEUE_KEY = "vkr_publish_queue";
@@ -15,6 +15,9 @@ const QUEUE_PAUSE_KEY = "vkr_queue_pause";
 const DEFAULT_COMMENT_DELAY_SECONDS = 60;
 const API_INTERVAL_MS = 1200;
 const API_TIMEOUT_MS = 20_000;
+const CLIP_QUEUE_KEY = "vkr_clips_queue";
+const CLIP_HISTORY_KEY = "vkr_clips_history";
+const CLIP_CHUNK_BYTES = 128 * 1024;
 
 const {
   buildReusableAttachments,
@@ -33,6 +36,12 @@ const {
   normalizeOwnerId,
 } = globalThis.VkrCleanupCore;
 const { runCleanup } = globalThis.VkrCleanupRunner;
+const {
+  createClipJobs,
+  nextRunnableJob,
+  toClipHistory,
+  transitionClipJob,
+} = globalThis.VkrClipQueueCore;
 
 const vkScheduler = createSerialScheduler({ minIntervalMs: API_INTERVAL_MS });
 const storageLocks = new Map();
@@ -41,6 +50,9 @@ let localCommentsRunning = false;
 let localDeletionsRunning = false;
 const cleanupPreviews = new Map();
 let activeCleanupRun = null;
+const clipSources = new Map();
+const clipUploadTabs = new Map();
+let activeClipJobId = null;
 
 function delay(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -1242,6 +1254,222 @@ function stopCleanup(message, sender) {
   return { stopping: true };
 }
 
+async function readClipQueue() {
+  const data = await chrome.storage.session.get(CLIP_QUEUE_KEY);
+  return Array.isArray(data[CLIP_QUEUE_KEY]) ? data[CLIP_QUEUE_KEY] : [];
+}
+
+async function writeClipQueue(queue) {
+  await chrome.storage.session.set({ [CLIP_QUEUE_KEY]: queue });
+}
+
+async function writeClipHistory(job) {
+  await withStorageLock(CLIP_HISTORY_KEY, async () => {
+    const data = await chrome.storage.local.get(CLIP_HISTORY_KEY);
+    const history = Array.isArray(data[CLIP_HISTORY_KEY]) ? data[CLIP_HISTORY_KEY] : [];
+    const next = [toClipHistory(job), ...history.filter((item) => item.id !== job.id)].slice(0, 50);
+    await chrome.storage.local.set({ [CLIP_HISTORY_KEY]: next });
+  });
+}
+
+async function updateClipJob(jobId, event) {
+  const updated = await withStorageLock(CLIP_QUEUE_KEY, async () => {
+    const queue = await readClipQueue();
+    const index = queue.findIndex((job) => job.id === jobId);
+    if (index < 0) throw new Error("Задание клипа не найдено.");
+    const next = transitionClipJob(queue[index], event, Date.now());
+    queue[index] = next;
+    await writeClipQueue(queue);
+    return next;
+  });
+  if (["completed", "failed", "cancelled"].includes(updated.status)) {
+    await writeClipHistory(updated);
+  }
+  return updated;
+}
+
+function getClipSource(sourceId) {
+  const source = clipSources.get(String(sourceId || ""));
+  if (!source) throw new Error("Страница загрузчика клипов закрыта. Откройте её и запустите очередь заново.");
+  return source;
+}
+
+async function listClipGroups() {
+  const { groupTokens, userToken } = await getLocalCredentials();
+  const known = new Map(Object.entries(groupTokens)
+    .map(([id, entry]) => ({
+      id: Math.abs(Number(id)),
+      name: typeof entry === "object" && entry?.label ? String(entry.label) : `Сообщество ${id}`,
+    }))
+    .filter((group) => Number.isSafeInteger(group.id) && group.id > 0)
+    .map((group) => [group.id, group]));
+  if (userToken) {
+    const response = await vkApi(
+      "groups.get",
+      { extended: 1, filter: "admin,editor", count: 100 },
+      userToken,
+    );
+    for (const group of response?.items || []) {
+      const id = Math.abs(Number(group?.id));
+      if (Number.isSafeInteger(id) && id > 0) {
+        known.set(id, { id, name: String(group.name || `Сообщество ${id}`).slice(0, 160) });
+      }
+    }
+  }
+  return [...known.values()].sort((first, second) => first.name.localeCompare(second.name, "ru"));
+}
+
+async function startNextClipJob() {
+  if (activeClipJobId) return;
+  const queue = await readClipQueue();
+  const job = nextRunnableJob(queue);
+  if (!job) return;
+  if (!clipSources.has(job.sourceId)) {
+    await updateClipJob(job.id, { type: "source_disconnected" });
+    return;
+  }
+  activeClipJobId = job.id;
+  const clipUrl = `https://vk.ru/clips/club${job.groupId}#vkr_clip_job=${encodeURIComponent(job.id)}`;
+  try {
+    const tab = await chrome.tabs.create({ url: clipUrl, active: true });
+    await updateClipJob(job.id, { type: "tab_opened", tabId: tab.id });
+  } catch (error) {
+    await updateClipJob(job.id, { type: "pause", error: `Не удалось открыть вкладку VK: ${error.message}` });
+    activeClipJobId = null;
+  }
+}
+
+async function beginClipTransfer(jobId, tabId) {
+  const queue = await readClipQueue();
+  const job = queue.find((item) => item.id === jobId);
+  if (!job || job.status !== "opening_tab") return;
+  const tabPort = clipUploadTabs.get(tabId);
+  if (!tabPort) return;
+  await updateClipJob(job.id, { type: "tab_ready" });
+  getClipSource(job.sourceId).postMessage({
+    type: "read_chunk", jobId: job.id, fileId: job.fileId, offset: 0, size: CLIP_CHUNK_BYTES,
+  });
+}
+
+async function relayClipChunk(message, sourceId) {
+  const jobId = String(message.jobId || "");
+  const queue = await readClipQueue();
+  const job = queue.find((item) => item.id === jobId);
+  if (!job || job.sourceId !== sourceId || job.status !== "transferring") return;
+  const tabPort = clipUploadTabs.get(Number(job.tabId));
+  if (!tabPort) {
+    await updateClipJob(jobId, { type: "pause", error: "Вкладка загрузки клипа закрыта." });
+    activeClipJobId = null;
+    return;
+  }
+  const encoded = String(message.data || "");
+  const offset = Number(message.offset);
+  const byteLength = Number(message.byteLength);
+  if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(byteLength) || byteLength < 0 || byteLength > CLIP_CHUNK_BYTES || encoded.length > Math.ceil(CLIP_CHUNK_BYTES * 1.4)) {
+    await updateClipJob(jobId, { type: "pause", error: "Получен некорректный фрагмент файла." });
+    activeClipJobId = null;
+    return;
+  }
+  if (byteLength > 0) {
+    await updateClipJob(jobId, { type: "transfer_progress", progress: Math.floor(((offset + byteLength) / job.fileSize) * 99) });
+  }
+  tabPort.postMessage({ type: "clip_chunk", jobId, offset, byteLength, data: encoded, done: message.done === true, file: { name: job.fileName, type: job.fileType, size: job.fileSize }, description: job.description, wallPost: job.wallPost, publishAt: job.publishAt, groupId: job.groupId });
+}
+
+async function handleClipTabMessage(port, message) {
+  const tabId = Number(port.sender?.tab?.id);
+  const jobId = String(message?.jobId || "");
+  if (!Number.isSafeInteger(tabId) || !jobId) return;
+  const queue = await readClipQueue();
+  const job = queue.find((item) => item.id === jobId);
+  if (!job || job.tabId !== tabId) return;
+  if (message.type === "clip_tab_ready") {
+    clipUploadTabs.set(tabId, port);
+    if (job.status === "opening_tab") {
+      await beginClipTransfer(jobId, tabId);
+    } else if (job.status === "transferring") {
+      getClipSource(job.sourceId).postMessage({
+        type: "read_chunk", jobId, fileId: job.fileId, offset: 0, size: CLIP_CHUNK_BYTES,
+      });
+    }
+  } else if (message.type === "clip_chunk_ack") {
+    if (job.status !== "transferring") return;
+    getClipSource(job.sourceId).postMessage({ type: "read_chunk", jobId, fileId: job.fileId, offset: Number(message.nextOffset), size: CLIP_CHUNK_BYTES });
+  } else if (message.type === "clip_upload_started") {
+    if (job.status === "transferring") await updateClipJob(jobId, { type: "upload_started" });
+  } else if (message.type === "clip_upload_progress") {
+    if (job.status === "uploading") await updateClipJob(jobId, { type: "upload_progress", progress: message.progress });
+  } else if (message.type === "clip_terminal") {
+    const event = ["complete", "pause", "fail"].includes(message.event) ? message.event : "pause";
+    const updated = await updateClipJob(jobId, { type: event, error: message.error, tabId });
+    if (event === "complete") {
+      try { await chrome.tabs.remove(tabId); } catch { /* already closed */ }
+    }
+    if (activeClipJobId === updated.id) activeClipJobId = null;
+    if (event === "complete" || event === "fail") void startNextClipJob().catch(reportClipCoordinatorError);
+  }
+}
+
+async function handleClipSourceDisconnect(sourceId) {
+  clipSources.delete(sourceId);
+  let changed = false;
+  const updated = await withStorageLock(CLIP_QUEUE_KEY, async () => {
+    const queue = await readClipQueue();
+    const next = queue.map((job) => {
+      if (job.sourceId !== sourceId || ["completed", "failed", "cancelled"].includes(job.status)) return job;
+      changed = true;
+      return transitionClipJob(job, { type: "source_disconnected" }, Date.now());
+    });
+    if (changed) await writeClipQueue(next);
+    return next;
+  });
+  if (activeClipJobId && updated.some((job) => job.id === activeClipJobId && job.status === "paused")) activeClipJobId = null;
+}
+
+async function handleClipTabDisconnect(tabId) {
+  const queue = await readClipQueue();
+  const job = queue.find((item) => item.tabId === tabId && ["opening_tab", "transferring", "uploading"].includes(item.status));
+  if (!job) return;
+  await updateClipJob(job.id, { type: "pause", error: "Связь с вкладкой VK прервана. Проверьте вкладку и возобновите задание вручную.", tabId });
+  if (activeClipJobId === job.id) activeClipJobId = null;
+}
+
+function reportClipCoordinatorError(error) {
+  console.warn("[clips] Coordinator paused after an internal error", {
+    message: String(error?.message || "Unknown clip coordinator error").slice(0, 300),
+  });
+}
+
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name === "vkr_clips_source") {
+    let sourceId = "";
+    port.onMessage.addListener((message) => {
+      void (async () => {
+        if (message?.type === "register_source") {
+          const value = String(message.sourceId || "").trim().slice(0, 120);
+          if (!value) return;
+          sourceId = value;
+          clipSources.set(sourceId, port);
+          port.postMessage({ type: "source_registered", sourceId });
+          void startNextClipJob().catch(reportClipCoordinatorError);
+          return;
+        }
+        if (message?.type === "clip_chunk" && sourceId) await relayClipChunk(message, sourceId);
+      })().catch(reportClipCoordinatorError);
+    });
+    port.onDisconnect.addListener(() => { if (sourceId) void handleClipSourceDisconnect(sourceId).catch(reportClipCoordinatorError); });
+    return;
+  }
+  if (port.name === "vkr_clip_upload_tab") {
+    port.onMessage.addListener((message) => { void handleClipTabMessage(port, message).catch(reportClipCoordinatorError); });
+    port.onDisconnect.addListener(() => {
+      const tabId = Number(port.sender?.tab?.id);
+      clipUploadTabs.delete(tabId);
+      if (Number.isSafeInteger(tabId)) void handleClipTabDisconnect(tabId).catch(reportClipCoordinatorError);
+    });
+  }
+});
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   const type = message?.type;
   const respond = (operation) => {
@@ -1300,6 +1528,63 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
   if (type === "cleanup_stop") {
     return respond(() => stopCleanup(message, sender));
+  }
+  if (type === "list_clip_groups") {
+    return respond(async () => ({ groups: await listClipGroups() }));
+  }
+  if (type === "clips_list") {
+    return respond(async () => {
+      const [queue, data] = await Promise.all([
+        readClipQueue(),
+        chrome.storage.local.get(CLIP_HISTORY_KEY),
+      ]);
+      return { queue, history: data[CLIP_HISTORY_KEY] || [] };
+    });
+  }
+  if (type === "clips_start") {
+    return respond(async () => {
+      const sourceId = String(message.sourceId || "");
+      getClipSource(sourceId);
+      const jobs = createClipJobs({
+        sourceId,
+        files: message.files,
+        groups: message.groups,
+        defaults: message.defaults,
+      });
+      await withStorageLock(CLIP_QUEUE_KEY, async () => {
+        const queue = await readClipQueue();
+        await writeClipQueue([...queue, ...jobs]);
+      });
+      void startNextClipJob().catch(reportClipCoordinatorError);
+      return { queued: jobs.length, jobs };
+    });
+  }
+  if (type === "clips_cancel") {
+    return respond(async () => {
+      const queue = await readClipQueue();
+      const job = queue.find((item) => item.id === message.jobId);
+      if (!job || ["completed", "failed", "cancelled"].includes(job.status)) {
+        throw new Error("Задание клипа уже нельзя отменить.");
+      }
+      const updated = await updateClipJob(job.id, { type: "cancel" });
+      if (job.tabId) {
+        try { await chrome.tabs.remove(job.tabId); } catch { /* already closed */ }
+      }
+      if (activeClipJobId === updated.id) activeClipJobId = null;
+      void startNextClipJob().catch(reportClipCoordinatorError);
+      return { cancelled: true };
+    });
+  }
+  if (type === "clips_resume") {
+    return respond(async () => {
+      const queue = await readClipQueue();
+      const job = queue.find((item) => item.id === message.jobId && item.status === "paused");
+      if (!job) throw new Error("Приостановленное задание не найдено.");
+      getClipSource(job.sourceId);
+      await updateClipJob(job.id, { type: "resume" });
+      void startNextClipJob().catch(reportClipCoordinatorError);
+      return { resumed: true };
+    });
   }
   if (type === "list_scheduled_comments") {
     return respond(async () => {

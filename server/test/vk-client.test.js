@@ -36,3 +36,20 @@ test("VK client posts the token in the body and sends a stable guid", async () =
   assert.equal(requestOptions.body.get("guid"), "stable-comment-guid");
   assert.equal(requestOptions.body.get("from_group"), "42");
 });
+
+test("story upload server uses community fields and save sends upload result only", async () => {
+  const requests = [];
+  const client = createVkClient({
+    fetchImpl: async (url, options) => {
+      requests.push({ url, options });
+      return { ok: true, async json() { return url.includes("getPhoto") ? { response: { upload_url: "https://upload.example" } } : { response: { count: 1, items: [{ id: 7 }] } }; } };
+    },
+  });
+  await client.createStoryUploadServer({ kind: "photo", groupId: 42, groupToken: "secret", linkUrl: "https://vk.ru/club42", linkText: "go_to" });
+  await client.saveCommunityStory({ groupToken: "secret", uploadResult: { response: "upload-result" } });
+  assert.equal(requests[0].options.body.get("group_id"), "42");
+  assert.equal(requests[0].options.body.get("link_url"), "https://vk.ru/club42");
+  assert.equal(requests[0].url.includes("secret"), false);
+  assert.equal(requests[1].options.body.has("link_url"), false);
+  assert.match(requests[1].options.body.get("upload_results_json"), /upload-result/);
+});
