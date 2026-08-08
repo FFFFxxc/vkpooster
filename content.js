@@ -3396,6 +3396,10 @@ function openSafeCleanupModal(groupId, kind) {
           <div><span>Фотографий</span><b data-role="preview-photos">0</b></div>
           <div><span>Всего действий</span><b data-role="preview-total">0</b></div>
         </div>
+        <div data-role="photo-budget" class="vkr-safe-cleanup-budget" aria-live="polite" hidden>
+          <span class="vkr-safe-cleanup-budget-badge">24ч</span>
+          <div><strong data-role="photo-budget-title">Лимит фотографий проверен</strong><p data-role="photo-budget-text"></p></div>
+        </div>
         <div data-role="sample" class="vkr-safe-cleanup-sample"></div>
       </section>
       <section data-role="progress" class="vkr-safe-cleanup-progress" hidden>
@@ -3435,6 +3439,9 @@ function openSafeCleanupModal(groupId, kind) {
   const previewPosts = modal.querySelector('[data-role="preview-posts"]');
   const previewPhotos = modal.querySelector('[data-role="preview-photos"]');
   const previewTotal = modal.querySelector('[data-role="preview-total"]');
+  const photoBudgetBox = modal.querySelector('[data-role="photo-budget"]');
+  const photoBudgetTitle = modal.querySelector('[data-role="photo-budget-title"]');
+  const photoBudgetText = modal.querySelector('[data-role="photo-budget-text"]');
   const today = cleanupDateValue(0);
   from.max = today;
   to.max = today;
@@ -3445,6 +3452,7 @@ function openSafeCleanupModal(groupId, kind) {
   let isRunning = false;
   let knownAlbums = [];
   let lastCounts = { posts: 0, photos: 0 };
+  let lastMatchedCounts = { posts: 0, photos: 0 };
   let lastProgress = { current: 0, total: 0 };
 
   function setStep(step) {
@@ -3467,9 +3475,12 @@ function openSafeCleanupModal(groupId, kind) {
     if (isRunning) return;
     previewId = "";
     lastCounts = { posts: 0, photos: 0 };
+    lastMatchedCounts = { posts: 0, photos: 0 };
     startButton.disabled = true;
     previewBox.hidden = true;
     progressBox.hidden = true;
+    photoBudgetBox.hidden = true;
+    photoBudgetBox.classList.remove("is-warning", "is-cooldown");
     setStep(1);
   };
   for (const days of (isWall ? [7, 30, 90] : [30, 90, 180, 365])) {
@@ -3535,6 +3546,53 @@ function openSafeCleanupModal(groupId, kind) {
       runErrors.appendChild(row);
     }
   }
+  function formatCleanupBudgetTime(timestamp) {
+    const value = Number(timestamp);
+    if (!Number.isFinite(value) || value <= 0) return "после новой проверки VK";
+    return new Intl.DateTimeFormat("ru-RU", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(new Date(value));
+  }
+  function renderPhotoBudget(budget, matchedCounts = {}) {
+    const matched = Math.max(0, Number(matchedCounts.photos) || 0);
+    if (!budget || matched === 0) {
+      photoBudgetBox.hidden = true;
+      photoBudgetBox.classList.remove("is-warning", "is-cooldown");
+      return;
+    }
+    const scheduled = Math.max(0, Number(budget.scheduled) || 0);
+    const deferred = Math.max(0, Number(budget.deferred) || 0);
+    const remaining = Math.max(0, Number(budget.remainingAfterRun) || 0);
+    const limit = Math.max(1, Number(budget.limit) || 950);
+    const isAfterRun = budget.isAfterRun === true;
+    photoBudgetBox.classList.toggle("is-warning", deferred > 0 && !budget.cooldownUntil);
+    photoBudgetBox.classList.toggle("is-cooldown", Boolean(budget.cooldownUntil));
+    if (budget.cooldownUntil) {
+      photoBudgetTitle.textContent = "Фотографии этого паблика на защитной паузе";
+      photoBudgetText.textContent = isAfterRun
+        ? `В этом запуске удалено ${scheduled} фото. Оставшиеся ${deferred} фото из списка не будут отправлены на удаление до ${formatCleanupBudgetTime(budget.cooldownUntil)}.`
+        : `Найдено ${matched} фото, но они не будут отправлены на удаление до ${formatCleanupBudgetTime(budget.cooldownUntil)}. Записи стены без удаления фото можно очистить отдельно.`;
+    } else if (deferred > 0) {
+      const estimate = budget.nextAvailableEstimated ? " ориентировочно" : "";
+      photoBudgetTitle.textContent = "Большой список разделён на безопасную пачку";
+      if (isAfterRun) {
+        const canContinueNow = Number(budget.nextAvailableAt) <= Date.now() + 60_000;
+        photoBudgetText.textContent = `В этом запуске удалено ${scheduled} фото, в выбранном списке осталось ${deferred}. ${canContinueNow ? "Новую пачку можно сформировать уже сейчас." : `Новые места начнут освобождаться${estimate} ${formatCleanupBudgetTime(budget.nextAvailableAt)}.`}`;
+      } else {
+        photoBudgetText.textContent = `Найдено ${matched} фото. Сейчас войдёт ${scheduled}, ещё ${deferred} останутся. Новые места начнут освобождаться${estimate} ${formatCleanupBudgetTime(budget.nextAvailableAt)}.`;
+      }
+    } else {
+      photoBudgetTitle.textContent = "Лимит фотографий проверен";
+      photoBudgetText.textContent = isAfterRun
+        ? `В этом запуске удалено ${scheduled} фото. Сейчас доступно ещё ${remaining}. Защита расширения — не более ${limit} фото на один паблик за скользящие 24 часа.`
+        : `В этот запуск войдёт ${scheduled} фото; после него останется ${remaining} свободных удалений. Защита расширения — не более ${limit} фото на один паблик за скользящие 24 часа.`;
+    }
+    photoBudgetBox.hidden = false;
+  }
   function updateProgress(message) {
     const total = Math.max(0, Number(message.total) || 0);
     const current = Math.min(total || Number(message.current) || 0, Math.max(0, Number(message.current) || 0));
@@ -3564,6 +3622,7 @@ function openSafeCleanupModal(groupId, kind) {
       previewButton.textContent = message.status === "paused" ? "Сначала проверьте VK" : "Сформировать новый список";
       const finalTotal = Number(message.total) || lastProgress.total;
       const finalCurrent = message.status === "completed" ? finalTotal : Number(message.completed) || lastProgress.current;
+      renderPhotoBudget(message.photoBudget, lastMatchedCounts);
       updateProgress({ ...message, current: finalCurrent, total: finalTotal });
       progressBox.classList.remove("is-success", "is-paused", "is-cancelled");
       progressBox.classList.add(`is-${message.status}`);
@@ -3609,11 +3668,18 @@ function openSafeCleanupModal(groupId, kind) {
       });
       previewId = response.previewId;
       const suffix = response.counts.photos ? ` и ${response.counts.photos} фото` : "";
-      counts.textContent = `Будет удалено: ${response.counts.posts} записей${suffix}.`;
+      counts.textContent = response.photoBudget?.deferred
+        ? `Безопасная пачка: ${response.counts.posts} записей${suffix}.`
+        : `Будет удалено: ${response.counts.posts} записей${suffix}.`;
       lastCounts = { posts: Number(response.counts.posts) || 0, photos: Number(response.counts.photos) || 0 };
+      lastMatchedCounts = {
+        posts: Number(response.matchedCounts?.posts) || lastCounts.posts,
+        photos: Number(response.matchedCounts?.photos) || lastCounts.photos,
+      };
       previewPosts.textContent = String(lastCounts.posts);
       previewPhotos.textContent = String(lastCounts.photos);
       previewTotal.textContent = String(lastCounts.posts + lastCounts.photos);
+      renderPhotoBudget(response.photoBudget, response.matchedCounts);
       appendCleanupSample(sample, response.sample);
       previewBox.hidden = false;
       startButton.disabled = lastCounts.posts + lastCounts.photos === 0;
@@ -3629,6 +3695,10 @@ function openSafeCleanupModal(groupId, kind) {
     try {
       const response = await sendMessage("cleanup_start", { previewId });
       runId = response.runId;
+      if (response.counts) {
+        lastCounts = { posts: Number(response.counts.posts) || 0, photos: Number(response.counts.photos) || 0 };
+      }
+      renderPhotoBudget(response.photoBudget, lastMatchedCounts);
       isRunning = true;
       lastProgress = { current: 0, total: Number(response.total) || 0 };
       lockForm(true);

@@ -2,6 +2,13 @@
 
 const { publicStoryJob, validateStoryDraftInput, validateStoryMedia } = require("./story-validation.js");
 
+function storyPurgeStatuses(scope) {
+  if (scope === "errors") return ["failed"];
+  if (scope === "completed") return ["completed", "cancelled"];
+  if (scope === "all") return ["completed", "failed", "cancelled"];
+  throw new Error("scope must be errors, completed, or all");
+}
+
 function createStoryService({ StoryModel, tokenVault, mediaStore, maxBytes, now = () => new Date() }) {
   return Object.freeze({
     async createDraft(rawInput) {
@@ -54,7 +61,7 @@ function createStoryService({ StoryModel, tokenVault, mediaStore, maxBytes, now 
     async cancel(id) {
       const cleanupDueAt = now();
       const document = await StoryModel.findOneAndUpdate(
-        { _id: id, status: { $in: ["uploading", "queued", "failed", "paused"] } },
+        { _id: id, status: { $in: ["uploading", "queued", "failed", "paused"] }, maintenancePending: { $ne: true } },
         {
           $set: { status: "cancelled", lockedAt: null, lockId: null, mediaExpiresAt: cleanupDueAt },
           $unset: { tokenCiphertext: "", tokenIv: "", tokenTag: "" },
@@ -84,7 +91,7 @@ function createStoryService({ StoryModel, tokenVault, mediaStore, maxBytes, now 
       const current = now();
       if (!Number.isFinite(date.getTime()) || date.getTime() < current.getTime() + 60_000) throw new Error("publishAt must be at least 60 seconds in the future");
       const job = await StoryModel.findOneAndUpdate(
-        { _id: id, status: { $in: ["queued", "failed", "paused"] }, mediaId: { $ne: null } },
+        { _id: id, status: { $in: ["queued", "failed", "paused"] }, mediaId: { $ne: null }, maintenancePending: { $ne: true } },
         { $set: { publishAt: date, status: "queued", lastError: null, lastErrorCode: null, lockedAt: null, lockId: null, mediaExpiresAt: null } },
         { new: true },
       );
@@ -94,7 +101,7 @@ function createStoryService({ StoryModel, tokenVault, mediaStore, maxBytes, now 
 
     async retry(id) {
       const job = await StoryModel.findOneAndUpdate(
-        { _id: id, status: { $in: ["failed", "paused"] }, mediaId: { $ne: null } },
+        { _id: id, status: { $in: ["failed", "paused"] }, mediaId: { $ne: null }, maintenancePending: { $ne: true } },
         { $set: { status: "queued", publishAt: new Date(now().getTime() + 60_000), attempts: 0, lastError: null, lastErrorCode: null, lockedAt: null, lockId: null, mediaExpiresAt: null } },
         { new: true },
       );
@@ -102,8 +109,61 @@ function createStoryService({ StoryModel, tokenVault, mediaStore, maxBytes, now 
       return publicStoryJob(job);
     },
 
+    async purge({ scope }) {
+      const statuses = storyPurgeStatuses(scope);
+      const candidates = await StoryModel.find({
+        status: { $in: statuses },
+        maintenancePending: { $ne: true },
+      }).select("+mediaId").limit(100);
+      let removedJobs = 0;
+      let removedMedia = 0;
+      let retainedJobs = 0;
+
+      for (const candidate of candidates) {
+        const claimed = await StoryModel.findOneAndUpdate(
+          {
+            _id: candidate._id,
+            status: { $in: statuses },
+            maintenancePending: { $ne: true },
+          },
+          { $set: { maintenancePending: true } },
+          { new: true },
+        ).select("+mediaId +maintenancePending");
+        if (!claimed) continue;
+        try {
+          if (claimed.mediaId && await mediaStore.remove(claimed.mediaId)) removedMedia += 1;
+        } catch {
+          retainedJobs += 1;
+          await StoryModel.updateOne(
+            { _id: claimed._id, maintenancePending: true },
+            { $set: { maintenancePending: false } },
+          );
+          continue;
+        }
+        const removed = await StoryModel.deleteOne({
+          _id: claimed._id,
+          status: { $in: statuses },
+          maintenancePending: true,
+        });
+        if (removed.deletedCount > 0) {
+          removedJobs += 1;
+        } else {
+          await StoryModel.updateOne(
+            { _id: claimed._id, maintenancePending: true },
+            { $set: { maintenancePending: false } },
+          );
+        }
+      }
+      return {
+        removedJobs,
+        removedMedia,
+        retainedJobs,
+        hasMore: candidates.length >= 100,
+      };
+    },
+
     async cleanupExpiredMedia(reference = now()) {
-      const jobs = await StoryModel.find({ mediaExpiresAt: { $ne: null, $lte: reference } }).select("+mediaId").limit(100);
+      const jobs = await StoryModel.find({ mediaExpiresAt: { $ne: null, $lte: reference }, maintenancePending: { $ne: true } }).select("+mediaId").limit(100);
       let removed = 0;
       for (const job of jobs) {
         if (job.mediaId) await mediaStore.remove(job.mediaId);

@@ -9,7 +9,7 @@
 <body>
   <header class="topbar">
     <div><span class="eyebrow">VK Reposter Pro</span><h1>Публикации и отложка</h1><p>Все локальные и серверные очереди в одном месте</p></div>
-    <div class="head-actions"><button id="new-story">＋ История</button><button id="new-clips">＋ Клипы</button><button id="refresh">Обновить</button><button id="settings">Настройки</button></div>
+    <div class="head-actions"><button id="new-story">＋ История</button><button id="new-clips">＋ Клипы</button><button id="cleanup-data">Очистка данных</button><button id="refresh">Обновить</button><button id="settings">Настройки</button></div>
   </header>
   <main>
     <section id="pause-alert" class="pause-alert" hidden>
@@ -66,6 +66,25 @@
       <label><span>Комментарий после публикации</span><textarea id="publish-comment" rows="3" placeholder="Необязательно"></textarea></label>
       <button id="publish-submit" class="primary" type="submit">Поставить в очередь</button>
     </form>
+  </dialog>
+  <dialog id="maintenance-dialog">
+    <section class="dialog-body maintenance-dialog-body">
+      <div class="dialog-head"><div><span>Локальное хранилище и MongoDB</span><h2>Очистка данных</h2></div><button type="button" id="maintenance-close" aria-label="Закрыть">×</button></div>
+      <p class="maintenance-intro">Удаляются только завершённые записи. Ожидающие, выполняющиеся и приостановленные задания останутся на месте.</p>
+      <div class="maintenance-stats">
+        <article><span>Локальные записи</span><b id="maintenance-local-count">0</b></article>
+        <article><span>Комментарии MongoDB</span><b id="maintenance-comment-count">0</b></article>
+        <article><span>Истории MongoDB</span><b id="maintenance-story-count">0</b></article>
+        <article><span>С ошибками</span><b id="maintenance-error-count">0</b></article>
+      </div>
+      <div class="maintenance-note"><b>Что действительно освободится</b><span>История постинга и Клипов — в браузере; комментарии и записи Историй — в MongoDB. Оставшиеся файлы Историй удаляются из GridFS до удаления записи.</span></div>
+      <div id="maintenance-status" class="maintenance-status" aria-live="polite" hidden></div>
+      <div class="maintenance-actions">
+        <button type="button" id="maintenance-errors">Очистить ошибки</button>
+        <button type="button" id="maintenance-completed">Очистить завершённые</button>
+        <button type="button" id="maintenance-all" class="maintenance-danger">Очистить всю историю</button>
+      </div>
+    </section>
   </dialog>
   <div id="toast" class="toast" hidden></div>
   <script src="extension-server-client.js"></script><script src="scheduled.js"></script>

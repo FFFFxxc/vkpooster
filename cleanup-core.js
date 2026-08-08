@@ -11,6 +11,8 @@
 
   const PREVIEW_TTL_MS = 10 * 60_000;
   const SAMPLE_LIMIT = 5;
+  const PHOTO_DELETE_WINDOW_MS = 24 * 60 * 60_000;
+  const PHOTO_DELETE_SOFT_LIMIT = 950;
 
   function normalizeOwnerId(ownerId) {
     const numeric = Math.abs(Number(ownerId));
@@ -170,6 +172,96 @@
     }));
   }
 
+  function countCleanupItems(items) {
+    let posts = 0;
+    let photos = 0;
+    for (const item of Array.isArray(items) ? items : []) {
+      if (item?.kind === "wall") {
+        posts += 1;
+        photos += Array.isArray(item.photoIds) ? item.photoIds.length : 0;
+      } else if (item?.kind === "album") {
+        photos += 1;
+      }
+    }
+    return { posts, photos };
+  }
+
+  function normalizePhotoDeleteState(rawState, now = Date.now()) {
+    const currentTime = Number(now);
+    const source = rawState && typeof rawState === "object" ? rawState : {};
+    const timestamps = (Array.isArray(source.timestamps) ? source.timestamps : [])
+      .map(Number)
+      .filter(
+        (timestamp) =>
+          Number.isFinite(timestamp) &&
+          timestamp > currentTime - PHOTO_DELETE_WINDOW_MS &&
+          timestamp <= currentTime,
+      )
+      .sort((first, second) => first - second);
+    const rawCooldownUntil = Number(source.cooldownUntil);
+    const cooldownUntil =
+      Number.isFinite(rawCooldownUntil) && rawCooldownUntil > currentTime
+        ? rawCooldownUntil
+        : null;
+    return {
+      timestamps,
+      cooldownUntil,
+      cooldownReason: cooldownUntil
+        ? sanitizeText(source.cooldownReason, 240) || null
+        : null,
+    };
+  }
+
+  function photoDeleteBudget(
+    rawState,
+    now = Date.now(),
+    limit = PHOTO_DELETE_SOFT_LIMIT,
+  ) {
+    const state = normalizePhotoDeleteState(rawState, now);
+    const safeLimit = Math.max(1, Math.floor(Number(limit) || PHOTO_DELETE_SOFT_LIMIT));
+    const used = state.timestamps.length;
+    const isCoolingDown = Number(state.cooldownUntil) > Number(now);
+    const remaining = isCoolingDown ? 0 : Math.max(0, safeLimit - used);
+    const nextAvailableAt = isCoolingDown
+      ? state.cooldownUntil
+      : remaining === 0 && state.timestamps.length
+        ? state.timestamps[0] + PHOTO_DELETE_WINDOW_MS
+        : null;
+    return {
+      ...state,
+      limit: safeLimit,
+      used,
+      remaining,
+      nextAvailableAt,
+    };
+  }
+
+  function capCleanupItemsByPhotoBudget(items, remainingPhotos) {
+    let available = Math.max(0, Math.floor(Number(remainingPhotos) || 0));
+    const cappedItems = [];
+
+    for (const item of Array.isArray(items) ? items : []) {
+      if (item?.kind === "wall") {
+        const photoIds = Array.isArray(item.photoIds) ? item.photoIds : [];
+        const scheduledPhotoIds = photoIds.slice(0, available);
+        available -= scheduledPhotoIds.length;
+        cappedItems.push({ ...item, photoIds: scheduledPhotoIds });
+      } else if (item?.kind === "album" && available > 0) {
+        cappedItems.push({ ...item });
+        available -= 1;
+      }
+    }
+
+    const matchedCounts = countCleanupItems(items);
+    const counts = countCleanupItems(cappedItems);
+    return {
+      items: cappedItems,
+      counts,
+      matchedCounts,
+      deferredPhotos: Math.max(0, matchedCounts.photos - counts.photos),
+    };
+  }
+
   function createPreviewTicket({
     id,
     kind,
@@ -197,11 +289,17 @@
   }
 
   return Object.freeze({
+    PHOTO_DELETE_SOFT_LIMIT,
+    PHOTO_DELETE_WINDOW_MS,
     PREVIEW_TTL_MS,
     buildAlbumPreview,
     buildWallPreview,
+    capCleanupItemsByPhotoBudget,
+    countCleanupItems,
     createPreviewTicket,
     normalizeCleanupRange,
     normalizeOwnerId,
+    normalizePhotoDeleteState,
+    photoDeleteBudget,
   });
 });

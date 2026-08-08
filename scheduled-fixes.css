@@ -1,3 +1,9 @@
+.pause-alert[hidden],
+.analytics-panel[hidden],
+[hidden] {
+  display: none !important;
+}
+
 .status.partial {
   color: var(--amber);
   background: rgba(251, 191, 36, 0.11);
@@ -192,6 +198,111 @@
 .pause-resume {
   border-color: rgba(131, 106, 255, 0.48);
   background: linear-gradient(135deg, rgba(111, 85, 223, 0.35), rgba(57, 127, 174, 0.28));
+  color: #fff;
+}
+
+.maintenance-dialog-body {
+  gap: 16px;
+}
+
+.maintenance-intro {
+  margin: 0;
+  color: #b8b2c8;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.maintenance-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.maintenance-stats article {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.075);
+  border-radius: 12px;
+  background: rgba(4, 4, 14, 0.28);
+}
+
+.maintenance-stats span,
+.maintenance-stats b {
+  display: block;
+}
+
+.maintenance-stats span {
+  min-height: 32px;
+  color: #8f899f;
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.maintenance-stats b {
+  margin-top: 4px;
+  color: #fff;
+  font-size: 22px;
+  font-variant-numeric: tabular-nums;
+}
+
+.maintenance-stats article:last-child b {
+  color: #fda4af;
+}
+
+.maintenance-note {
+  padding: 12px 13px;
+  border: 1px solid rgba(56, 189, 248, 0.18);
+  border-radius: 11px;
+  background: linear-gradient(135deg, rgba(14, 116, 144, 0.1), rgba(15, 23, 42, 0.16));
+}
+
+.maintenance-note b,
+.maintenance-note span {
+  display: block;
+}
+
+.maintenance-note b {
+  color: #bae6fd;
+  font-size: 11px;
+}
+
+.maintenance-note span {
+  margin-top: 4px;
+  color: #9690a7;
+  font-size: 10px;
+  line-height: 1.55;
+}
+
+.maintenance-status {
+  padding: 10px 12px;
+  border: 1px solid rgba(52, 211, 153, 0.24);
+  border-radius: 10px;
+  background: rgba(16, 185, 129, 0.08);
+  color: #a7f3d0;
+  font-size: 11px;
+  white-space: pre-wrap;
+}
+
+.maintenance-status.has-warning {
+  border-color: rgba(251, 191, 36, 0.26);
+  background: rgba(180, 83, 9, 0.1);
+  color: #fde68a;
+}
+
+.maintenance-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.maintenance-actions button {
+  min-height: 39px;
+}
+
+.maintenance-actions .maintenance-danger {
+  border-color: rgba(251, 113, 133, 0.36);
+  background: linear-gradient(135deg, rgba(190, 49, 81, 0.54), rgba(126, 52, 95, 0.48));
   color: #fff;
 }
 
@@ -845,6 +956,14 @@ button:disabled {
 }
 
 @media (max-width: 560px) {
+  .maintenance-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .maintenance-actions button {
+    flex: 1 1 160px;
+  }
+
   .analytics-panel {
     padding: 14px;
   }

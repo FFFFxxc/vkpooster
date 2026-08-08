@@ -42,3 +42,19 @@ test("comment expiration stays 30 days beyond a future schedule", async () => {
   const retentionMs = created.expiresAt.getTime() - scheduledAt.getTime();
   assert.equal(retentionMs, 30 * 24 * 60 * 60 * 1000);
 });
+
+test("comment maintenance deletes terminal scopes but never queued or paused jobs", async () => {
+  let filter;
+  const service = createCommentService({
+    CommentModel: {
+      async deleteMany(value) { filter = value; return { deletedCount: 7 }; },
+    },
+    tokenVault: {},
+  });
+
+  assert.deepEqual(await service.purge({ scope: "errors" }), { removedJobs: 7 });
+  assert.deepEqual(filter, { status: { $in: ["failed"] } });
+  await service.purge({ scope: "all" });
+  assert.deepEqual(filter, { status: { $in: ["completed", "failed"] } });
+  await assert.rejects(() => service.purge({ scope: "queued" }), /scope/i);
+});

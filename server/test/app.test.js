@@ -23,6 +23,9 @@ async function withServer(callback) {
     async remove() {
       return false;
     },
+    async purge() {
+      return { removedJobs: 3 };
+    },
   };
   const storyService = {
     async createDraft() { return { created: true, job: { id: "story-id", groupId: 42, status: "uploading" } }; },
@@ -31,6 +34,7 @@ async function withServer(callback) {
     async cancel() { return { removed: false, job: null }; },
     async reschedule() { throw new Error("Story job cannot be rescheduled"); },
     async retry() { throw new Error("Story job cannot be retried"); },
+    async purge() { return { removedJobs: 2, removedMedia: 1, retainedJobs: 0, hasMore: false }; },
   };
   const app = createApp({
     config: { apiSecret: "s".repeat(40), storyMaxBytes: 25 * 1024 * 1024 },
@@ -96,5 +100,24 @@ test("scheduled comment response contains no credential fields", async () => {
     const text = await response.text();
     assert.equal(response.status, 201);
     assert.doesNotMatch(text, /token|cipher|secret/i);
+  });
+});
+
+test("authenticated maintenance endpoints return actual MongoDB cleanup counts", async () => {
+  await withServer(async (baseUrl) => {
+    const headers = { Authorization: `Bearer ${"s".repeat(40)}` };
+    const comments = await fetch(`${baseUrl}/api/scheduled-comments?scope=errors`, { method: "DELETE", headers });
+    assert.equal(comments.status, 200);
+    assert.deepEqual(await comments.json(), { ok: true, removedJobs: 3 });
+
+    const stories = await fetch(`${baseUrl}/api/scheduled-stories?scope=all`, { method: "DELETE", headers });
+    assert.equal(stories.status, 200);
+    assert.deepEqual(await stories.json(), {
+      ok: true,
+      removedJobs: 2,
+      removedMedia: 1,
+      retainedJobs: 0,
+      hasMore: false,
+    });
   });
 });

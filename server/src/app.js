@@ -25,7 +25,7 @@ function createApp({
     const connected = databaseReady();
     response.status(connected ? 200 : 503).json({
       status: connected ? "ok" : "degraded",
-      version: "4.1.0",
+      version: "4.2.0",
       database: connected ? "connected" : "disconnected",
     });
   });
@@ -47,7 +47,7 @@ function createApp({
     response.json({
       ok: true,
       status: connected ? "ready" : "degraded",
-      version: "4.1.0",
+      version: "4.2.0",
       database: connected ? "connected" : "disconnected",
     });
   });
@@ -81,6 +81,19 @@ function createApp({
       });
       response.json({ ok: true, jobs });
     } catch (error) {
+      next(error);
+    }
+  });
+
+  api.delete("/scheduled-comments", async (request, response, next) => {
+    try {
+      const result = await commentService.purge({ scope: request.query.scope });
+      response.json({ ok: true, ...result });
+    } catch (error) {
+      if (/scope/i.test(error.message)) {
+        response.status(400).json({ ok: false, error: error.message });
+        return;
+      }
       next(error);
     }
   });
@@ -138,6 +151,19 @@ function createApp({
       const jobs = await storyService.list({ status: request.query.status, limit: request.query.limit });
       response.json({ ok: true, jobs });
     } catch (error) { next(error); }
+  });
+
+  api.delete("/scheduled-stories", async (request, response, next) => {
+    try {
+      const result = await storyService.purge({ scope: request.query.scope });
+      response.json({ ok: true, ...result });
+    } catch (error) {
+      if (/scope/i.test(error.message)) {
+        response.status(400).json({ ok: false, error: error.message });
+        return;
+      }
+      next(error);
+    }
   });
 
   api.delete("/scheduled-stories/:id", async (request, response, next) => {

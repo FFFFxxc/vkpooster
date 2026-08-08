@@ -65,6 +65,11 @@ function postPhotos(post,cachedImages=[]) {
   return uniqueImageUrls(remote.length?remote:cached);
 }
 function active(items) { return items.filter((item)=>!["completed","done","failed","cancelled"].includes(item.status)); }
+function terminal(item) { return ["completed","done","failed","cancelled"].includes(String(item?.status||"")); }
+function hasRecordError(item) {
+  if(String(item?.status||"")==="cancelled")return false;
+  return String(item?.status||"")==="failed"||Number(item?.fail)>0||Number(item?.progress?.fail)>0||(Array.isArray(item?.results)&&item.results.some((result)=>result?.ok===false))||Boolean(String(item?.error||item?.lastError||"").trim());
+}
 function postJobTime(job) { return Number(job.pubDate||job.completedAt||job.createdAt)||0; }
 function sortPostJobs(items) {
   const finalStatuses=new Set(["completed","done","failed","cancelled"]);
@@ -422,6 +427,54 @@ function renderClips() {
 
 function renderHistory(){if(!state.history.length)return empty("История публикаций пока пуста.");for(const item of state.history){const displayStatus=(item.ok||0)>0&&(item.fail||0)>0?"partial":item.status||"completed";const {card,body}=baseCard({title:item.label||"Публикация",status:displayStatus,text:item.mode==="repost"?"Оригинальный репост":"Копия поста",meta:`${formatDate(item.timestamp)} · успешно ${item.ok||0}, ошибок ${item.fail||0}`,error:item.error});appendPublishResults(body,item.results);$("cards").appendChild(card);}}
 
+function maintenanceRecords() {
+  const local=[...state.posts.filter(terminal),...state.history,...state.clips.filter(terminal)];
+  const comments=state.comments.filter((item)=>!item.local&&terminal(item));
+  const stories=state.stories.filter(terminal);
+  return {local,comments,stories,all:[...local,...comments,...stories]};
+}
+
+function updateMaintenanceStats() {
+  const records=maintenanceRecords();
+  $("maintenance-local-count").textContent=String(records.local.length);
+  $("maintenance-comment-count").textContent=String(records.comments.length);
+  $("maintenance-story-count").textContent=String(records.stories.length);
+  $("maintenance-error-count").textContent=String(records.all.filter(hasRecordError).length);
+}
+
+function maintenanceButtons() {
+  return [$("maintenance-errors"),$("maintenance-completed"),$("maintenance-all")];
+}
+
+function openMaintenanceDialog() {
+  const status=$("maintenance-status");
+  status.hidden=true;status.textContent="";status.classList.remove("has-warning");
+  updateMaintenanceStats();
+  $("maintenance-dialog").showModal();
+}
+
+async function runMaintenance(scope) {
+  const labels={errors:"завершённые записи с ошибками",completed:"успешно завершённые записи",all:"всю завершённую историю"};
+  if(!confirm(`Удалить ${labels[scope]}?\n\nОжидающие, выполняющиеся и приостановленные задания удалены не будут.`))return;
+  const buttons=maintenanceButtons();buttons.forEach((button)=>{button.disabled=true;});
+  const status=$("maintenance-status");status.hidden=false;status.classList.remove("has-warning");status.textContent="Очищаю локальные данные и MongoDB…";
+  try{
+    const result=await runtimeMessage({type:"purge_maintenance",scope});
+    const localCount=Object.entries(result.local||{}).reduce((sum,[key,value])=>sum+(key==="analyticsCache"?0:(Number(value)||0)),0);
+    const commentCount=Number(result.comments?.removedJobs)||0;
+    const storyCount=Number(result.stories?.removedJobs)||0;
+    const mediaCount=Number(result.stories?.removedMedia)||0;
+    const total=localCount+commentCount+storyCount;
+    const warnings=Array.isArray(result.warnings)?result.warnings:[];
+    status.textContent=`${total?`Удалено записей: ${total}.`:`Подходящих завершённых записей не найдено.`}${mediaCount?` Файлов Историй из GridFS: ${mediaCount}.`:""}${warnings.length?`\n${warnings.join("\n")}`:""}`;
+    status.classList.toggle("has-warning",warnings.length>0);
+    toast(warnings.length?"Локальные данные очищены, но сервер ответил не на всё.":"Очистка данных завершена.",warnings.length?"error":"info");
+    if(scope==="all"){state.analytics.loaded=false;state.analytics.groups=[];}
+    await loadAll();updateMaintenanceStats();
+  }catch(error){status.textContent=`Очистка не завершена: ${error.message}`;status.classList.add("has-warning");toast(error.message,"error");}
+  finally{buttons.forEach((button)=>{button.disabled=false;});}
+}
+
 const tabInfo={waiting:["Ожидания","Посты, которые вы отметили во ВКонтакте"],posts:["Очередь постов","Сначала ближайшие активные задания, затем завершённые — от новых к старым"],comments:["Комментарии 24/7","Серверные и локальные отложенные комментарии"],stories:["Истории","Отложенные истории сообществ с превью"],clips:["Клипы","Одна видимая вкладка VK на публикацию"],history:["История и аналитика","Результаты публикаций и сравнение активности сообществ"]};
 function render(){const cards=$("cards");cards.replaceChildren();const [title,hint]=tabInfo[state.tab];$("section-title").textContent=title;$("section-hint").textContent=hint;$("clear-finished").hidden=state.tab!=="posts";$("analytics-panel").hidden=state.tab!=="history";if(state.tab==="history")renderAnalytics();({waiting:renderWaiting,posts:renderPosts,comments:renderComments,stories:renderStories,clips:renderClips,history:renderHistory})[state.tab]();}
 
@@ -432,7 +485,7 @@ async function submitPublish(event){event.preventDefault();const groups=[...docu
 async function resumePublishQueue() {
   const result=await runtimeMessage({type:"resume_publish_queue"});
   if(result.requiresDecision){toast(result.message||"Сначала решите, что делать со спорным репостом.","error");showPausedJob();return;}
-  toast("Локальная очередь продолжена.");await loadAll();
+  state.pause=null;updatePauseAlert();toast("Локальная очередь продолжена.");await loadAll();
 }
 
 async function init(){
@@ -443,12 +496,21 @@ async function init(){
   $("settings").onclick=()=>chrome.tabs.create({url:chrome.runtime.getURL("popup.html")});
   $("new-story").onclick=()=>chrome.tabs.create({url:chrome.runtime.getURL("stories.html")});
   $("new-clips").onclick=()=>chrome.tabs.create({url:chrome.runtime.getURL("clips.html")});
+  $("cleanup-data").onclick=openMaintenanceDialog;
+  $("maintenance-close").onclick=()=>$("maintenance-dialog").close();
+  $("maintenance-errors").onclick=()=>runMaintenance("errors");
+  $("maintenance-completed").onclick=()=>runMaintenance("completed");
+  $("maintenance-all").onclick=()=>runMaintenance("all");
   $("close-dialog").onclick=()=>$("publish-dialog").close();
   $("publish-form").onsubmit=submitPublish;
   $("pause-open-vk").onclick=()=>chrome.tabs.create({url:"https://vk.ru/"});
   $("pause-open-job").onclick=showPausedJob;
   $("resume").onclick=resumePublishQueue;
   $("clear-finished").onclick=async()=>{await runtimeMessage({type:"clear_finished_queue"});await loadAll();};
+  chrome.storage.onChanged.addListener((changes,areaName)=>{
+    if(areaName!=="local"||!("vkr_queue_pause" in changes))return;
+    state.pause=changes.vkr_queue_pause.newValue||null;updatePauseAlert();
+  });
   await loadAll();
   setInterval(loadAll,15_000);
 }

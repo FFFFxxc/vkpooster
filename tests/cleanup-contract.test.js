@@ -17,3 +17,14 @@ test("cleanup uses ticketed sequential messages and never VK execute", () => {
   assert.match(background, /type: "cleanup_progress"/);
   assert.doesNotMatch(background, /vkApi\(\s*["']execute["']/);
 });
+
+test("photo cleanup has a persisted per-community rolling budget and VK cooldown", () => {
+  assert.match(background, /CLEANUP_PHOTO_LEDGER_KEY = "vkr_cleanup_photo_ledger_v1"/);
+  assert.match(background, /cleanupPhotoLedgerOwnerKey\(ownerId\)/);
+  assert.match(background, /await readCleanupPhotoBudget\(ownerId, previewNow\)/);
+  assert.match(background, /await readCleanupPhotoBudget\(ticket\.ownerId\)/);
+  assert.match(background, /await recordCleanupPhotoDeletion\(run\.ownerId\)/);
+  assert.match(background, /await setCleanupPhotoCooldown/);
+  assert.match(background, /code === 9 \|\| code === 29/);
+  assert.match(background, /capCleanupItemsByPhotoBudget\(preview\.items, budget\.remaining\)/);
+});

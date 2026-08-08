@@ -1,11 +1,11 @@
 {
   "name": "vk-reposter-pro",
-  "version": "4.1.6",
+  "version": "4.2.0",
   "description": "VK Reposter Pro — расширение для репоста в ВКонтакте",
   "private": true,
   "scripts": {
     "test": "node --test tests/*.test.js && npm --prefix server test",
-    "check:js": "node --check safety-core.js && node --check cleanup-core.js && node --check cleanup-runner.js && node --check clip-queue-core.js && node --check background.js && node --check popup-auth.js && node --check content.js && node --check clips.js && node --check mesh-text.js && node --check clip-upload-content.js && node --check extension-server-client.js && node --check stories.js && node --check scheduled.js && npm --prefix server run check",
+    "check:js": "node --check safety-core.js && node --check cleanup-core.js && node --check cleanup-runner.js && node --check clip-queue-core.js && node --check maintenance-core.js && node --check background.js && node --check popup-auth.js && node --check content.js && node --check clips.js && node --check mesh-text.js && node --check clip-upload-content.js && node --check extension-server-client.js && node --check stories.js && node --check scheduled.js && npm --prefix server run check",
     "verify": "npm test && npm run check:js"
   }
 }

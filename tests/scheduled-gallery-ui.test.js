@@ -33,6 +33,25 @@ test("queue pause always explains the safety stop and exposes the right action",
   assert.match(scheduled, /comment:"Расширение поставило отложенный комментарий на паузу"/);
   assert.match(scheduled, /pause\.reason==="ambiguous_repost"/);
   assert.match(scheduled, /result\.requiresDecision/);
+  assert.match(scheduled, /state\.pause=null;updatePauseAlert\(\)/);
+  assert.match(scheduled, /chrome\.storage\.onChanged\.addListener/);
+  assert.match(css, /\.pause-alert\[hidden\]/);
   assert.match(background, /setQueuePause\(error, job\.id, "post"\)/);
   assert.match(background, /setQueuePause\(error, null, "comment"\)/);
+});
+
+test("data maintenance exposes scoped cleanup without deleting active jobs", () => {
+  assert.match(html, /id="cleanup-data"/);
+  assert.match(html, /id="maintenance-dialog"/);
+  assert.match(html, /id="maintenance-errors"/);
+  assert.match(html, /id="maintenance-completed"/);
+  assert.match(html, /id="maintenance-all"/);
+  assert.match(scheduled, /type:"purge_maintenance",scope/);
+  assert.match(scheduled, /Ожидающие, выполняющиеся и приостановленные задания удалены не будут/);
+  assert.match(background, /type === "purge_maintenance"/);
+  assert.match(background, /purgeLocalMaintenanceRecords/);
+  assert.match(background, /scheduled-comments\?scope=/);
+  assert.match(background, /scheduled-stories\?scope=/);
+  assert.match(css, /\.maintenance-stats/);
+  assert.match(css, /\.maintenance-danger/);
 });

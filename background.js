@@ -5,10 +5,11 @@
  * impersonation, auto-likes and multi-account automation are intentionally absent.
  */
 
-importScripts("safety-core.js", "cleanup-core.js", "cleanup-runner.js", "clip-queue-core.js");
+importScripts("safety-core.js", "cleanup-core.js", "cleanup-runner.js", "clip-queue-core.js", "maintenance-core.js");
 
 const VK_API_VERSION = "5.199";
 const PUBLISH_QUEUE_KEY = "vkr_publish_queue";
+const POST_HISTORY_KEY = "vkr_posts_history";
 const LOCAL_COMMENTS_KEY = "vkr_scheduled_comments";
 const GROUP_TOKENS_KEY = "vkr_group_tokens";
 const QUEUE_PAUSE_KEY = "vkr_queue_pause";
@@ -23,6 +24,9 @@ const CLIP_CHUNK_BYTES = 128 * 1024;
 const GROUP_ANALYTICS_CACHE_KEY = "vkr_group_analytics_cache";
 const GROUP_ANALYTICS_CACHE_TTL_MS = 15 * 60_000;
 const GROUP_ANALYTICS_POST_LIMIT = 100;
+const CLEANUP_PHOTO_LEDGER_KEY = "vkr_cleanup_photo_ledger_v1";
+const CLEANUP_SHORT_COOLDOWN_MS = 15 * 60_000;
+const CLEANUP_FLOOD_COOLDOWN_MS = 24 * 60 * 60_000;
 
 const {
   buildOwnedPhotoAttachment,
@@ -35,12 +39,16 @@ const {
 } = globalThis.VkrSafetyCore;
 
 const {
+  PHOTO_DELETE_SOFT_LIMIT,
+  PHOTO_DELETE_WINDOW_MS,
   PREVIEW_TTL_MS,
   buildAlbumPreview,
   buildWallPreview,
+  capCleanupItemsByPhotoBudget,
   createPreviewTicket,
   normalizeCleanupRange,
   normalizeOwnerId,
+  photoDeleteBudget,
 } = globalThis.VkrCleanupCore;
 const { runCleanup } = globalThis.VkrCleanupRunner;
 const {
@@ -49,6 +57,10 @@ const {
   toClipHistory,
   transitionClipJob,
 } = globalThis.VkrClipQueueCore;
+const {
+  normalizeMaintenanceScope,
+  purgeRecords,
+} = globalThis.VkrMaintenanceCore;
 
 const vkScheduler = createSerialScheduler({ minIntervalMs: API_INTERVAL_MS });
 const storageLocks = new Map();
@@ -364,30 +376,32 @@ async function persistJob(job) {
 }
 
 async function writePublishHistory(job) {
-  const data = await chrome.storage.local.get("vkr_posts_history");
-  const history = Array.isArray(data.vkr_posts_history)
-    ? data.vkr_posts_history
-    : [];
-  history.unshift({
-    id: job.id,
-    timestamp: job.completedAt || Date.now(),
-    label: job.label,
-    type: "publish_job",
-    mode: job.mode,
-    status: job.status,
-    ok: job.results.filter((result) => result.ok).length,
-    fail: job.results.filter((result) => !result.ok).length,
-    total: job.results.length,
-    results: job.results.map(({ gid, ok, postId, error, warning }) => ({
-      gid,
-      ok,
-      postId: postId || null,
-      error: error || null,
-      warning: warning || null,
-    })),
-    error: job.error || null,
+  await withStorageLock(POST_HISTORY_KEY, async () => {
+    const data = await chrome.storage.local.get(POST_HISTORY_KEY);
+    const history = Array.isArray(data[POST_HISTORY_KEY])
+      ? data[POST_HISTORY_KEY]
+      : [];
+    history.unshift({
+      id: job.id,
+      timestamp: job.completedAt || Date.now(),
+      label: job.label,
+      type: "publish_job",
+      mode: job.mode,
+      status: job.status,
+      ok: job.results.filter((result) => result.ok).length,
+      fail: job.results.filter((result) => !result.ok).length,
+      total: job.results.length,
+      results: job.results.map(({ gid, ok, postId, error, warning }) => ({
+        gid,
+        ok,
+        postId: postId || null,
+        error: error || null,
+        warning: warning || null,
+      })),
+      error: job.error || null,
+    });
+    await chrome.storage.local.set({ [POST_HISTORY_KEY]: history.slice(0, 100) });
   });
-  await chrome.storage.local.set({ vkr_posts_history: history.slice(0, 100) });
 }
 
 async function scheduleLocalComment({
@@ -1246,6 +1260,131 @@ async function handleReadOnlyMessage(type, message) {
   throw new Error("Операция не поддерживается безопасной версией.");
 }
 
+function cleanupPhotoLedgerOwnerKey(ownerId) {
+  return String(Math.abs(normalizeOwnerId(ownerId)));
+}
+
+function cleanupPhotoLedgerEntry(budget) {
+  return {
+    timestamps: [...budget.timestamps],
+    cooldownUntil: budget.cooldownUntil,
+    cooldownReason: budget.cooldownReason,
+  };
+}
+
+async function readCleanupPhotoBudget(ownerId, now = Date.now()) {
+  return withStorageLock(CLEANUP_PHOTO_LEDGER_KEY, async () => {
+    const ownerKey = cleanupPhotoLedgerOwnerKey(ownerId);
+    const data = await chrome.storage.local.get(CLEANUP_PHOTO_LEDGER_KEY);
+    const rawLedger = data[CLEANUP_PHOTO_LEDGER_KEY];
+    const ledger = rawLedger && typeof rawLedger === "object" && !Array.isArray(rawLedger)
+      ? { ...rawLedger }
+      : {};
+    const budget = photoDeleteBudget(ledger[ownerKey], now);
+    if (budget.timestamps.length || budget.cooldownUntil) {
+      ledger[ownerKey] = cleanupPhotoLedgerEntry(budget);
+    } else {
+      delete ledger[ownerKey];
+    }
+    await chrome.storage.local.set({ [CLEANUP_PHOTO_LEDGER_KEY]: ledger });
+    return budget;
+  });
+}
+
+async function recordCleanupPhotoDeletion(ownerId, now = Date.now()) {
+  return withStorageLock(CLEANUP_PHOTO_LEDGER_KEY, async () => {
+    const ownerKey = cleanupPhotoLedgerOwnerKey(ownerId);
+    const data = await chrome.storage.local.get(CLEANUP_PHOTO_LEDGER_KEY);
+    const rawLedger = data[CLEANUP_PHOTO_LEDGER_KEY];
+    const ledger = rawLedger && typeof rawLedger === "object" && !Array.isArray(rawLedger)
+      ? { ...rawLedger }
+      : {};
+    const current = photoDeleteBudget(ledger[ownerKey], now);
+    const next = photoDeleteBudget({
+      timestamps: [...current.timestamps, Number(now)],
+      cooldownUntil: current.cooldownUntil,
+      cooldownReason: current.cooldownReason,
+    }, now);
+    ledger[ownerKey] = cleanupPhotoLedgerEntry(next);
+    await chrome.storage.local.set({ [CLEANUP_PHOTO_LEDGER_KEY]: ledger });
+    return next;
+  });
+}
+
+async function setCleanupPhotoCooldown(ownerId, error, durationMs, now = Date.now()) {
+  return withStorageLock(CLEANUP_PHOTO_LEDGER_KEY, async () => {
+    const ownerKey = cleanupPhotoLedgerOwnerKey(ownerId);
+    const data = await chrome.storage.local.get(CLEANUP_PHOTO_LEDGER_KEY);
+    const rawLedger = data[CLEANUP_PHOTO_LEDGER_KEY];
+    const ledger = rawLedger && typeof rawLedger === "object" && !Array.isArray(rawLedger)
+      ? { ...rawLedger }
+      : {};
+    const current = photoDeleteBudget(ledger[ownerKey], now);
+    const cooldownUntil = Math.max(
+      Number(current.cooldownUntil) || 0,
+      Number(now) + Math.max(0, Number(durationMs) || 0),
+    );
+    const next = photoDeleteBudget({
+      timestamps: current.timestamps,
+      cooldownUntil,
+      cooldownReason: String(error?.message || "VK временно ограничил удаление фотографий"),
+    }, now);
+    ledger[ownerKey] = cleanupPhotoLedgerEntry(next);
+    await chrome.storage.local.set({ [CLEANUP_PHOTO_LEDGER_KEY]: ledger });
+    return next;
+  });
+}
+
+function cleanupPhotoCooldownDuration(error) {
+  const code = Number(error?.vkError?.error_code ?? error?.code);
+  if (code === 6) return CLEANUP_SHORT_COOLDOWN_MS;
+  if (code === 9 || code === 29) return CLEANUP_FLOOD_COOLDOWN_MS;
+  return 0;
+}
+
+function cleanupPhotoBudgetSummary(
+  budget,
+  {
+    matchedPhotos = 0,
+    scheduledPhotos = 0,
+    now = Date.now(),
+    budgetAlreadyIncludesScheduled = false,
+  } = {},
+) {
+  const matched = Math.max(0, Math.floor(Number(matchedPhotos) || 0));
+  const scheduled = Math.max(0, Math.floor(Number(scheduledPhotos) || 0));
+  const deferred = Math.max(0, matched - scheduled);
+  let nextAvailableAt =
+    deferred > 0 && budgetAlreadyIncludesScheduled && budget.remaining > 0
+      ? Number(now)
+      : deferred > 0
+        ? budget.nextAvailableAt
+        : null;
+  let nextAvailableEstimated = false;
+  if (deferred > 0 && !nextAvailableAt && budget.timestamps.length) {
+    nextAvailableAt = budget.timestamps[0] + PHOTO_DELETE_WINDOW_MS;
+  } else if (deferred > 0 && !nextAvailableAt && scheduled > 0) {
+    nextAvailableAt = Number(now) + PHOTO_DELETE_WINDOW_MS;
+    nextAvailableEstimated = true;
+  }
+  return {
+    limit: PHOTO_DELETE_SOFT_LIMIT,
+    windowMs: PHOTO_DELETE_WINDOW_MS,
+    used: budget.used,
+    availableNow: budget.remaining,
+    scheduled,
+    deferred,
+    remainingAfterRun: budgetAlreadyIncludesScheduled
+      ? budget.remaining
+      : Math.max(0, budget.remaining - scheduled),
+    nextAvailableAt,
+    nextAvailableEstimated,
+    isAfterRun: budgetAlreadyIncludesScheduled,
+    cooldownUntil: budget.cooldownUntil,
+    cooldownReason: budget.cooldownReason,
+  };
+}
+
 function purgeExpiredCleanupPreviews() {
   const now = Date.now();
   for (const [id, preview] of cleanupPreviews.entries()) {
@@ -1380,18 +1519,33 @@ async function createCleanupPreview(message, sender) {
     albums = allAlbums;
   }
 
-  const ticket = createPreviewTicket({
+  const previewNow = Date.now();
+  const budget = await readCleanupPhotoBudget(ownerId, previewNow);
+  const capped = capCleanupItemsByPhotoBudget(preview.items, budget.remaining);
+  const photoBudget = cleanupPhotoBudgetSummary(budget, {
+    matchedPhotos: capped.matchedCounts.photos,
+    scheduledPhotos: capped.counts.photos,
+    now: previewNow,
+  });
+  const baseTicket = createPreviewTicket({
     id: `cleanup_preview_${crypto.randomUUID()}`,
     kind,
     tabId,
     ownerId,
-    items: preview.items,
+    items: capped.items,
+    now: previewNow,
+  });
+  const ticket = Object.freeze({
+    ...baseTicket,
+    matchedCounts: Object.freeze({ ...capped.matchedCounts }),
   });
   cleanupPreviews.set(ticket.id, ticket);
   return {
     previewId: ticket.id,
     kind,
-    counts: preview.counts,
+    counts: capped.counts,
+    matchedCounts: capped.matchedCounts,
+    photoBudget,
     sample: preview.sample,
     albums,
     expiresAt: ticket.expiresAt,
@@ -1431,8 +1585,31 @@ async function executeCleanupRun(run, operations, token) {
           deletedPosts += 1;
           return;
         }
-        await vkApi("photos.delete", { owner_id: run.ownerId, photo_id: operation.photoId }, token);
+        try {
+          await vkApi("photos.delete", { owner_id: run.ownerId, photo_id: operation.photoId }, token);
+        } catch (error) {
+          const cooldownDuration = cleanupPhotoCooldownDuration(error);
+          if (cooldownDuration > 0) {
+            try {
+              run.latestPhotoBudget = await setCleanupPhotoCooldown(
+                run.ownerId,
+                error,
+                cooldownDuration,
+              );
+            } catch (storageError) {
+              console.error("[cleanup] Failed to persist VK photo cooldown", storageError);
+            }
+          }
+          throw error;
+        }
         deletedPhotos += 1;
+        try {
+          run.latestPhotoBudget = await recordCleanupPhotoDeletion(run.ownerId);
+        } catch (error) {
+          run.trackingError = "Счётчик защитной квоты не сохранился. Очистка остановлена, чтобы не превысить лимит.";
+          run.stopRequested = true;
+          console.error("[cleanup] Failed to persist photo deletion budget", error);
+        }
       },
       onProgress: (progress) => {
         void sendCleanupEvent(run.tabId, {
@@ -1452,18 +1629,28 @@ async function executeCleanupRun(run, operations, token) {
       const error = Object.assign(new Error(result.pausedError.message), { code: result.pausedError.code });
       await setQueuePause(error, null, "cleanup");
     }
+    const finalStatus = run.trackingError && result.status === "completed"
+      ? "cancelled"
+      : result.status;
+    const errors = result.errors.slice(-5);
+    if (run.trackingError) errors.push({ id: "quota", message: run.trackingError });
     await sendCleanupEvent(run.tabId, {
       type: "cleanup_finished",
       runId: run.id,
       kind: run.kind,
-      status: result.status,
+      status: finalStatus,
       completed: result.completed,
       total: operations.length,
       deletedPosts,
       deletedPhotos,
       skipped: result.skipped,
-      errors: result.errors.slice(-5),
+      errors,
       pausedError: result.pausedError,
+      photoBudget: cleanupPhotoBudgetSummary(run.latestPhotoBudget, {
+        matchedPhotos: run.matchedPhotos,
+        scheduledPhotos: deletedPhotos,
+        budgetAlreadyIncludesScheduled: true,
+      }),
     });
   } finally {
     if (activeCleanupRun?.id === run.id) activeCleanupRun = null;
@@ -1481,18 +1668,37 @@ async function startCleanup(message, sender) {
   if (activeCleanupRun) throw new Error("Другая очистка уже выполняется. Сначала дождитесь её завершения.");
   const { userToken } = await getLocalCredentials();
   if (!userToken) throw new Error("Сначала добавьте личный токен VK в расширение.");
-  const operations = cleanupOperations(ticket);
+  const budget = await readCleanupPhotoBudget(ticket.ownerId);
+  if (activeCleanupRun) throw new Error("Другая очистка уже выполняется. Сначала дождитесь её завершения.");
+  const capped = capCleanupItemsByPhotoBudget(ticket.items, budget.remaining);
+  const operations = cleanupOperations({ ...ticket, items: capped.items });
+  if (operations.length === 0) {
+    throw new Error("Для этого паблика сейчас нет доступных действий. Сформируйте список заново — там будет указано время снятия паузы.");
+  }
   const run = {
     id: `cleanup_${crypto.randomUUID()}`,
     tabId,
     kind: ticket.kind,
     ownerId: ticket.ownerId,
     stopRequested: false,
+    matchedPhotos: Number(ticket.matchedCounts?.photos) || capped.matchedCounts.photos,
+    scheduledPhotos: capped.counts.photos,
+    latestPhotoBudget: budget,
+    trackingError: null,
   };
   cleanupPreviews.delete(previewId);
   activeCleanupRun = run;
   void executeCleanupRun(run, operations, userToken);
-  return { started: true, runId: run.id, total: operations.length };
+  return {
+    started: true,
+    runId: run.id,
+    total: operations.length,
+    counts: capped.counts,
+    photoBudget: cleanupPhotoBudgetSummary(budget, {
+      matchedPhotos: run.matchedPhotos,
+      scheduledPhotos: run.scheduledPhotos,
+    }),
+  };
 }
 
 function stopCleanup(message, sender) {
@@ -1836,6 +2042,63 @@ function reportClipCoordinatorError(error) {
   });
 }
 
+async function purgeLocalMaintenanceRecords(scope) {
+  const normalizedScope = normalizeMaintenanceScope(scope);
+  const counts = { postQueue: 0, postHistory: 0, clipQueue: 0, clipHistory: 0, analyticsCache: 0 };
+
+  await withStorageLock(PUBLISH_QUEUE_KEY, async () => {
+    const data = await chrome.storage.local.get(PUBLISH_QUEUE_KEY);
+    const result = purgeRecords(data[PUBLISH_QUEUE_KEY], normalizedScope);
+    counts.postQueue = result.removedCount;
+    if (result.kept.length) {
+      await chrome.storage.local.set({ [PUBLISH_QUEUE_KEY]: result.kept });
+    } else {
+      await chrome.storage.local.remove(PUBLISH_QUEUE_KEY);
+    }
+  });
+
+  await withStorageLock(POST_HISTORY_KEY, async () => {
+    const data = await chrome.storage.local.get(POST_HISTORY_KEY);
+    const result = purgeRecords(data[POST_HISTORY_KEY], normalizedScope, { assumeTerminal: true });
+    counts.postHistory = result.removedCount;
+    if (result.kept.length) {
+      await chrome.storage.local.set({ [POST_HISTORY_KEY]: result.kept });
+    } else {
+      await chrome.storage.local.remove(POST_HISTORY_KEY);
+    }
+  });
+
+  await withStorageLock(CLIP_HISTORY_KEY, async () => {
+    const data = await chrome.storage.local.get(CLIP_HISTORY_KEY);
+    const result = purgeRecords(data[CLIP_HISTORY_KEY], normalizedScope, { assumeTerminal: true });
+    counts.clipHistory = result.removedCount;
+    if (result.kept.length) {
+      await chrome.storage.local.set({ [CLIP_HISTORY_KEY]: result.kept });
+    } else {
+      await chrome.storage.local.remove(CLIP_HISTORY_KEY);
+    }
+  });
+
+  await withStorageLock(CLIP_QUEUE_KEY, async () => {
+    const queue = await readClipQueue();
+    const result = purgeRecords(queue, normalizedScope);
+    counts.clipQueue = result.removedCount;
+    if (result.kept.length) {
+      await writeClipQueue(result.kept);
+    } else {
+      await chrome.storage.session.remove(CLIP_QUEUE_KEY);
+    }
+  });
+
+  if (normalizedScope === "all") {
+    const cache = await chrome.storage.local.get(GROUP_ANALYTICS_CACHE_KEY);
+    if (cache[GROUP_ANALYTICS_CACHE_KEY]) counts.analyticsCache = 1;
+    await chrome.storage.local.remove(GROUP_ANALYTICS_CACHE_KEY);
+  }
+  await updateBadge();
+  return counts;
+}
+
 chrome.runtime.onConnect.addListener((port) => {
   if (port.name === "vkr_clips_source") {
     let sourceId = "";
@@ -1944,8 +2207,46 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
   if (type === "clips_clear_history") {
     return respond(async () => {
+      await withStorageLock(CLIP_QUEUE_KEY, async () => {
+        const queue = await readClipQueue();
+        const result = purgeRecords(queue, "all");
+        if (result.kept.length) await writeClipQueue(result.kept);
+        else await chrome.storage.session.remove(CLIP_QUEUE_KEY);
+      });
       await chrome.storage.local.remove(CLIP_HISTORY_KEY);
       return { cleared: true };
+    });
+  }
+  if (type === "purge_maintenance") {
+    return respond(async () => {
+      const scope = normalizeMaintenanceScope(message.scope);
+      const local = await purgeLocalMaintenanceRecords(scope);
+      const warnings = [];
+      let comments = { removedJobs: 0 };
+      let stories = { removedJobs: 0, removedMedia: 0, retainedJobs: 0, hasMore: false };
+      try {
+        comments = await serverRequest(
+          `/api/scheduled-comments?scope=${encodeURIComponent(scope)}`,
+          { method: "DELETE" },
+        );
+      } catch (error) {
+        warnings.push(`Комментарии на сервере не очищены: ${error.message}`);
+      }
+      try {
+        stories = await serverRequest(
+          `/api/scheduled-stories?scope=${encodeURIComponent(scope)}`,
+          { method: "DELETE" },
+        );
+      } catch (error) {
+        warnings.push(`Истории на сервере не очищены: ${error.message}`);
+      }
+      if (stories.hasMore) {
+        warnings.push("На сервере осталось больше 100 записей Историй. Нажмите очистку ещё раз.");
+      }
+      if (Number(stories.retainedJobs) > 0) {
+        warnings.push(`Не удалось удалить медиа у ${stories.retainedJobs} Историй; записи сохранены для безопасного повтора.`);
+      }
+      return { cleared: true, scope, local, comments, stories, warnings };
     });
   }
   if (type === "clips_start") {

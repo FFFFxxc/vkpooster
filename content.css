@@ -1122,6 +1122,71 @@
   font-variant-numeric: tabular-nums !important;
 }
 
+.vkr-safe-cleanup-budget {
+  display: grid !important;
+  grid-template-columns: 42px minmax(0, 1fr) !important;
+  gap: 11px !important;
+  align-items: center !important;
+  margin-top: 11px !important;
+  padding: 11px 12px !important;
+  border: 1px solid rgba(52, 211, 153, 0.2) !important;
+  border-radius: 11px !important;
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.09), rgba(15, 23, 42, 0.18)) !important;
+}
+
+.vkr-safe-cleanup-budget.is-warning {
+  border-color: rgba(251, 191, 36, 0.3) !important;
+  background: linear-gradient(135deg, rgba(180, 83, 9, 0.13), rgba(15, 23, 42, 0.18)) !important;
+}
+
+.vkr-safe-cleanup-budget.is-cooldown {
+  border-color: rgba(251, 113, 133, 0.32) !important;
+  background: linear-gradient(135deg, rgba(159, 18, 57, 0.14), rgba(15, 23, 42, 0.18)) !important;
+}
+
+.vkr-safe-cleanup-budget-badge {
+  display: grid !important;
+  width: 42px !important;
+  height: 42px !important;
+  place-items: center !important;
+  border: 1px solid rgba(52, 211, 153, 0.25) !important;
+  border-radius: 12px !important;
+  background: rgba(52, 211, 153, 0.1) !important;
+  color: #6ee7b7 !important;
+  font: 800 10px/1 ui-monospace, SFMono-Regular, Consolas, monospace !important;
+}
+
+.vkr-safe-cleanup-budget.is-warning .vkr-safe-cleanup-budget-badge {
+  border-color: rgba(251, 191, 36, 0.28) !important;
+  background: rgba(251, 191, 36, 0.1) !important;
+  color: #fcd34d !important;
+}
+
+.vkr-safe-cleanup-budget.is-cooldown .vkr-safe-cleanup-budget-badge {
+  border-color: rgba(251, 113, 133, 0.3) !important;
+  background: rgba(251, 113, 133, 0.1) !important;
+  color: #fda4af !important;
+}
+
+.vkr-safe-cleanup-budget strong,
+.vkr-safe-cleanup-budget p {
+  display: block !important;
+  margin: 0 !important;
+}
+
+.vkr-safe-cleanup-budget strong {
+  color: #f5f3ff !important;
+  font-size: 10px !important;
+  font-weight: 750 !important;
+}
+
+.vkr-safe-cleanup-budget p {
+  margin-top: 3px !important;
+  color: #9993a8 !important;
+  font-size: 9px !important;
+  line-height: 1.5 !important;
+}
+
 .vkr-safe-cleanup-sample {
   max-height: 205px !important;
   margin-top: 11px !important;

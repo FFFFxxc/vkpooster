@@ -4,10 +4,14 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 const {
+  PHOTO_DELETE_SOFT_LIMIT,
+  PHOTO_DELETE_WINDOW_MS,
   buildAlbumPreview,
   buildWallPreview,
+  capCleanupItemsByPhotoBudget,
   createPreviewTicket,
   normalizeCleanupRange,
+  photoDeleteBudget,
 } = require("../cleanup-core.js");
 
 test("wall preview keeps pinned posts and photos owned by another community", () => {
@@ -118,4 +122,87 @@ test("preview tickets expire after ten minutes and never hold a token", () => {
   assert.equal(ticket.expiresAt, 1_754_000_600_000);
   assert.equal("token" in ticket, false);
   assert.deepEqual(ticket.items, [{ kind: "wall", postId: 10, photoIds: [] }]);
+});
+
+test("photo budget is rolling, discards expired entries and exposes the next slot", () => {
+  const now = 1_800_000_000_000;
+  const budget = photoDeleteBudget({
+    timestamps: [
+      now - PHOTO_DELETE_WINDOW_MS,
+      now - PHOTO_DELETE_WINDOW_MS + 1,
+      now - 10_000,
+      now + 1,
+      "invalid",
+    ],
+  }, now, 2);
+
+  assert.equal(PHOTO_DELETE_SOFT_LIMIT, 950);
+  assert.equal(budget.used, 2);
+  assert.equal(budget.remaining, 0);
+  assert.equal(budget.nextAvailableAt, now + 1);
+  assert.deepEqual(budget.timestamps, [
+    now - PHOTO_DELETE_WINDOW_MS + 1,
+    now - 10_000,
+  ]);
+});
+
+test("an explicit VK cooldown blocks only the supplied community budget", () => {
+  const now = 1_800_000_000_000;
+  const budget = photoDeleteBudget({
+    timestamps: [now - 1_000],
+    cooldownUntil: now + 15 * 60_000,
+    cooldownReason: "Flood control",
+  }, now);
+
+  assert.equal(budget.used, 1);
+  assert.equal(budget.remaining, 0);
+  assert.equal(budget.nextAvailableAt, now + 15 * 60_000);
+  assert.equal(budget.cooldownReason, "Flood control");
+});
+
+test("album cleanup is capped to the available photo slots", () => {
+  const capped = capCleanupItemsByPhotoBudget([
+    { kind: "album", albumId: 1, photoId: 10 },
+    { kind: "album", albumId: 1, photoId: 11 },
+    { kind: "album", albumId: 2, photoId: 12 },
+  ], 2);
+
+  assert.deepEqual(capped.items, [
+    { kind: "album", albumId: 1, photoId: 10 },
+    { kind: "album", albumId: 1, photoId: 11 },
+  ]);
+  assert.deepEqual(capped.counts, { posts: 0, photos: 2 });
+  assert.deepEqual(capped.matchedCounts, { posts: 0, photos: 3 });
+  assert.equal(capped.deferredPhotos, 1);
+});
+
+test("a 2205-photo cleanup becomes one 950-photo batch without losing the remainder count", () => {
+  const items = Array.from({ length: 2_205 }, (_, index) => ({
+    kind: "album",
+    albumId: "wall",
+    photoId: index + 1,
+  }));
+  const capped = capCleanupItemsByPhotoBudget(items, PHOTO_DELETE_SOFT_LIMIT);
+
+  assert.equal(capped.items.length, 950);
+  assert.deepEqual(capped.counts, { posts: 0, photos: 950 });
+  assert.deepEqual(capped.matchedCounts, { posts: 0, photos: 2_205 });
+  assert.equal(capped.deferredPhotos, 1_255);
+});
+
+test("wall cleanup keeps every post while deferring photos beyond the budget", () => {
+  const capped = capCleanupItemsByPhotoBudget([
+    { kind: "wall", postId: 1, photoIds: [10, 11] },
+    { kind: "wall", postId: 2, photoIds: [12] },
+    { kind: "wall", postId: 3, photoIds: [] },
+  ], 2);
+
+  assert.deepEqual(capped.items, [
+    { kind: "wall", postId: 1, photoIds: [10, 11] },
+    { kind: "wall", postId: 2, photoIds: [] },
+    { kind: "wall", postId: 3, photoIds: [] },
+  ]);
+  assert.deepEqual(capped.counts, { posts: 3, photos: 2 });
+  assert.deepEqual(capped.matchedCounts, { posts: 3, photos: 3 });
+  assert.equal(capped.deferredPhotos, 1);
 });

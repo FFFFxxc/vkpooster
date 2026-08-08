@@ -5,6 +5,13 @@ const {
   validateScheduledCommentInput,
 } = require("./validation.js");
 
+function commentPurgeStatuses(scope) {
+  if (scope === "errors") return ["failed"];
+  if (scope === "completed") return ["completed"];
+  if (scope === "all") return ["completed", "failed"];
+  throw new Error("scope must be errors, completed, or all");
+}
+
 function createCommentService({ CommentModel, tokenVault }) {
   return Object.freeze({
     async enqueue(rawInput) {
@@ -52,6 +59,12 @@ function createCommentService({ CommentModel, tokenVault }) {
     async remove(id) {
       const result = await CommentModel.deleteOne({ _id: id });
       return result.deletedCount > 0;
+    },
+
+    async purge({ scope }) {
+      const statuses = commentPurgeStatuses(scope);
+      const result = await CommentModel.deleteMany({ status: { $in: statuses } });
+      return { removedJobs: Number(result.deletedCount) || 0 };
     },
   });
 }

@@ -28,6 +28,10 @@ test("safe cleanup dialog has preview, live progress, stop and finished states",
   assert.match(content, /vkr-safe-cleanup-steps/);
   assert.match(content, /data-role="preview-posts"/);
   assert.match(content, /data-role="preview-photos"/);
+  assert.match(content, /data-role="photo-budget"/);
+  assert.match(content, /data-role="photo-budget-title"/);
+  assert.match(content, /function renderPhotoBudget/);
+  assert.match(content, /скользящие 24 часа/);
   assert.match(content, /data-role="progress-text"/);
   assert.match(content, /data-role="deleted-posts"/);
   assert.match(content, /data-role="deleted-photos"/);
@@ -36,5 +40,7 @@ test("safe cleanup dialog has preview, live progress, stop and finished states",
   assert.match(content, /message\.type === "cleanup_finished"/);
   assert.match(css, /\.vkr-safe-cleanup-dialog/);
   assert.match(css, /\.vkr-safe-cleanup-track/);
+  assert.match(css, /\.vkr-safe-cleanup-budget/);
+  assert.match(css, /\.vkr-safe-cleanup-budget\.is-cooldown/);
   assert.match(css, /\.vkr-safe-cleanup-progress\.is-completed/);
 });

@@ -27,6 +27,7 @@ const scheduledStorySchema = new mongoose.Schema({
   storyId: { type: String, default: null, maxlength: 100 },
   lastError: { type: String, default: null, maxlength: 1000 },
   lastErrorCode: { type: Number, default: null },
+  maintenancePending: { type: Boolean, default: false, select: false },
   expiresAt: { type: Date, required: true },
 }, { timestamps: true, versionKey: false });
 
