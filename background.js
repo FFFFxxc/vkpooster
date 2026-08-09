@@ -82,6 +82,27 @@ function delay(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
+function isServiceWorkerLifecycleError(error) {
+  const message = String(error?.message || error || "");
+  return /(?:^|\b)No SW(?:\b|$)|Extension context invalidated|service worker.*(?:stopped|terminated)/i.test(
+    message,
+  );
+}
+
+function runInBackground(label, operation) {
+  void Promise.resolve()
+    .then(operation)
+    .catch((error) => {
+      if (isServiceWorkerLifecycleError(error)) return;
+      console.warn(`[VKR] ${label} failed`, {
+        message: String(error?.message || "Unknown background error").slice(
+          0,
+          300,
+        ),
+      });
+    });
+}
+
 async function withStorageLock(key, operation) {
   while (storageLocks.has(key)) await storageLocks.get(key);
 
@@ -373,7 +394,7 @@ async function enqueuePublishJob(message) {
   });
   await updateBadge();
   await scheduleNextPublishAlarm();
-  void processPublishQueue();
+  runInBackground("Publish queue", () => processPublishQueue());
   return job;
 }
 
@@ -390,11 +411,15 @@ async function scheduleNextPublishAlarm(queueOverride = null) {
         Number(job.pubDate) > now,
     )
     .map((job) => Number(job.pubDate));
-  await chrome.alarms.clear(PUBLISH_DUE_ALARM);
-  if (publishTimes.length) {
-    chrome.alarms.create(PUBLISH_DUE_ALARM, {
-      when: Math.max(now + 1_000, Math.min(...publishTimes)),
-    });
+  try {
+    await chrome.alarms.clear(PUBLISH_DUE_ALARM);
+    if (publishTimes.length) {
+      await chrome.alarms.create(PUBLISH_DUE_ALARM, {
+        when: Math.max(now + 1_000, Math.min(...publishTimes)),
+      });
+    }
+  } catch (error) {
+    if (!isServiceWorkerLifecycleError(error)) throw error;
   }
 }
 
@@ -1180,7 +1205,7 @@ async function recoverQueue() {
   }
   await updateBadge();
   await scheduleNextPublishAlarm();
-  void processPublishQueue();
+  runInBackground("Recovered publish queue", () => processPublishQueue());
 }
 
 async function processLocalComments() {
@@ -2554,7 +2579,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
       await chrome.storage.local.remove(QUEUE_PAUSE_KEY);
       await updateBadge();
-      void processPublishQueue();
+      runInBackground("Resumed publish queue", () => processPublishQueue());
       return { resumed: true };
     });
   }
@@ -2621,7 +2646,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (resolved) {
         await chrome.storage.local.remove(QUEUE_PAUSE_KEY);
         await updateBadge();
-        void processPublishQueue();
+        runInBackground("Resolved repost queue", () => processPublishQueue());
       }
       return { resolved, action };
     });
@@ -2700,13 +2725,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === PUBLISH_DUE_ALARM) {
-    void processPublishQueue();
+    runInBackground("Scheduled photo alarm", () => processPublishQueue());
     return;
   }
   if (alarm.name === "vkr_safe_jobs") {
-    void processLocalComments();
-    void processLocalDeletions();
-    void recoverQueue();
+    runInBackground("Local comments", () => processLocalComments());
+    runInBackground("Local deletions", () => processLocalDeletions());
+    runInBackground("Periodic queue recovery", () => recoverQueue());
   }
 });
 
@@ -2725,7 +2750,7 @@ function setupContextMenus() {
   return contextMenusSetup;
 }
 
-chrome.runtime.onInstalled.addListener(async (details) => {
+async function handleInstalled(details) {
   await chrome.alarms.clear("autolike_check");
   await chrome.alarms.clear("cookie_keepalive");
   await chrome.alarms.clear("vk_token_health_check");
@@ -2748,15 +2773,21 @@ chrome.runtime.onInstalled.addListener(async (details) => {
     "vkr_last_sync_ts",
     "vkr_video_download",
   ]);
-  chrome.alarms.create("vkr_safe_jobs", { periodInMinutes: 1 });
+  await chrome.alarms.create("vkr_safe_jobs", { periodInMinutes: 1 });
   await setupContextMenus();
   await recoverQueue();
+}
+
+chrome.runtime.onInstalled.addListener((details) => {
+  runInBackground("Extension installation", () => handleInstalled(details));
 });
 
 chrome.runtime.onStartup.addListener(() => {
-  chrome.alarms.create("vkr_safe_jobs", { periodInMinutes: 1 });
-  void setupContextMenus();
-  void recoverQueue();
+  runInBackground("Browser startup", async () => {
+    await chrome.alarms.create("vkr_safe_jobs", { periodInMinutes: 1 });
+    await setupContextMenus();
+    await recoverQueue();
+  });
 });
 
 chrome.contextMenus.onClicked.addListener((info) => {
@@ -2774,5 +2805,5 @@ chrome.notifications.onClicked.addListener(async (notificationId) => {
   await chrome.tabs.create({ url: chrome.runtime.getURL("scheduled.html") });
 });
 
-void recoverQueue();
-void setupContextMenus();
+runInBackground("Initial queue recovery", () => recoverQueue());
+runInBackground("Initial context menus", () => setupContextMenus());
