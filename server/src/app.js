@@ -25,7 +25,7 @@ function createApp({
     const connected = databaseReady();
     response.status(connected ? 200 : 503).json({
       status: connected ? "ok" : "degraded",
-      version: "4.2.0",
+      version: "4.2.1",
       database: connected ? "connected" : "disconnected",
     });
   });
@@ -47,7 +47,7 @@ function createApp({
     response.json({
       ok: true,
       status: connected ? "ready" : "degraded",
-      version: "4.2.0",
+      version: "4.2.1",
       database: connected ? "connected" : "disconnected",
     });
   });
@@ -91,6 +91,21 @@ function createApp({
       response.json({ ok: true, ...result });
     } catch (error) {
       if (/scope/i.test(error.message)) {
+        response.status(400).json({ ok: false, error: error.message });
+        return;
+      }
+      next(error);
+    }
+  });
+
+  api.post("/scheduled-comments/:id/retry", async (request, response, next) => {
+    try {
+      response.json({
+        ok: true,
+        job: await commentService.retry(request.params.id),
+      });
+    } catch (error) {
+      if (/cannot be retried/i.test(error.message)) {
         response.status(400).json({ ok: false, error: error.message });
         return;
       }

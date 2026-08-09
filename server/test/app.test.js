@@ -26,6 +26,9 @@ async function withServer(callback) {
     async purge() {
       return { removedJobs: 3 };
     },
+    async retry(id) {
+      return { id, idempotencyKey: "same-safe-key", status: "queued" };
+    },
   };
   const storyService = {
     async createDraft() { return { created: true, job: { id: "story-id", groupId: 42, status: "uploading" } }; },
@@ -100,6 +103,27 @@ test("scheduled comment response contains no credential fields", async () => {
     const text = await response.text();
     assert.equal(response.status, 201);
     assert.doesNotMatch(text, /token|cipher|secret/i);
+  });
+});
+
+test("authenticated comment retry returns the requeued public job", async () => {
+  await withServer(async (baseUrl) => {
+    const response = await fetch(
+      `${baseUrl}/api/scheduled-comments/comment-id/retry`,
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${"s".repeat(40)}` },
+      },
+    );
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), {
+      ok: true,
+      job: {
+        id: "comment-id",
+        idempotencyKey: "same-safe-key",
+        status: "queued",
+      },
+    });
   });
 });
 

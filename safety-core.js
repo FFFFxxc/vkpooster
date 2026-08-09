@@ -204,6 +204,32 @@
     });
   }
 
+  function hasPostPhotos(post) {
+    return (Array.isArray(post?.attachments) ? post.attachments : []).some(
+      (attachment) => attachment?.type === "photo",
+    );
+  }
+
+  function shouldDeferPhotoPublish({ post, mode, pubDate } = {}) {
+    const scheduledAt = Number(pubDate);
+    return (
+      mode === "copy" &&
+      Number.isFinite(scheduledAt) &&
+      scheduledAt > 0 &&
+      hasPostPhotos(post)
+    );
+  }
+
+  function nextRunnablePublishJobIndex(jobs, now = Date.now()) {
+    if (!Array.isArray(jobs)) return -1;
+    return jobs.findIndex((job) => {
+      if (job?.status !== "queued") return false;
+      if (!job.deferMediaUntilPublish) return true;
+      const publishAt = Number(job.pubDate);
+      return !Number.isFinite(publishAt) || publishAt <= now;
+    });
+  }
+
   function createSerialScheduler({
     minIntervalMs = 1200,
     now = Date.now,
@@ -240,9 +266,12 @@
     buildReusableAttachments,
     classifyVkError,
     createSerialScheduler,
+    hasPostPhotos,
     largestPhotoUrl,
     isUploadedPhotoAttachment,
+    nextRunnablePublishJobIndex,
     normalizeQueueJobs,
     selectCredential,
+    shouldDeferPhotoPublish,
   });
 });

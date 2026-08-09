@@ -56,6 +56,34 @@ function createCommentService({ CommentModel, tokenVault }) {
       return documents.map(publicCommentJob);
     },
 
+    async retry(id) {
+      const now = new Date();
+      const document = await CommentModel.findOneAndUpdate(
+        {
+          _id: id,
+          status: { $in: ["failed", "paused"] },
+        },
+        {
+          $set: {
+            status: "queued",
+            attempts: 0,
+            commentAt: now,
+            lockedAt: null,
+            lockId: null,
+            completedAt: null,
+            lastError: null,
+            lastErrorCode: null,
+            expiresAt: new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000),
+          },
+        },
+        { new: true },
+      );
+      if (!document) {
+        throw new Error("Comment job cannot be retried");
+      }
+      return publicCommentJob(document);
+    },
+
     async remove(id) {
       const result = await CommentModel.deleteOne({ _id: id });
       return result.deletedCount > 0;

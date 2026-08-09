@@ -61,6 +61,7 @@ function publicCommentJob(document) {
     status: source.status,
     attempts: source.attempts || 0,
     lastError: source.lastError || null,
+    lastErrorCode: source.lastErrorCode || null,
     createdAt: source.createdAt,
     updatedAt: source.updatedAt,
     completedAt: source.completedAt || null,
@@ -72,4 +73,3 @@ module.exports = {
   requirePositiveInteger,
   validateScheduledCommentInput,
 };
-

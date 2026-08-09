@@ -3,6 +3,17 @@
 const crypto = require("node:crypto");
 const { classifyVkError } = require("../../safety-core.js");
 
+const MAX_COMMENT_ATTEMPTS = 6;
+const COMMENT_RETRY_MINUTES = Object.freeze([2, 5, 10, 20, 30]);
+
+function commentRetryDelayMs(attempts) {
+  const index = Math.min(
+    COMMENT_RETRY_MINUTES.length - 1,
+    Math.max(0, Number(attempts) - 1),
+  );
+  return COMMENT_RETRY_MINUTES[index] * 60_000;
+}
+
 function safeErrorMessage(error) {
   return String(error?.message || "Unknown error").slice(0, 1000);
 }
@@ -83,13 +94,13 @@ function createCommentWorker({
             transport: error.transport === true,
           },
         );
-        const exhausted = Number(job.attempts) >= 3;
+        const exhausted = Number(job.attempts) >= MAX_COMMENT_ATTEMPTS;
         let status = "failed";
         let commentAt = job.commentAt;
         if (decision.action === "pause") status = "paused";
         if (decision.action === "retry" && !exhausted) {
           status = "queued";
-          commentAt = new Date(Date.now() + job.attempts * 5 * 60_000);
+          commentAt = new Date(Date.now() + commentRetryDelayMs(job.attempts));
         }
 
         await CommentModel.updateOne(
@@ -146,4 +157,9 @@ function createCommentWorker({
   });
 }
 
-module.exports = { createCommentWorker };
+module.exports = {
+  COMMENT_RETRY_MINUTES,
+  MAX_COMMENT_ATTEMPTS,
+  commentRetryDelayMs,
+  createCommentWorker,
+};

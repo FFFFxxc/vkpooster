@@ -58,3 +58,37 @@ test("comment maintenance deletes terminal scopes but never queued or paused job
   assert.deepEqual(filter, { status: { $in: ["completed", "failed"] } });
   await assert.rejects(() => service.purge({ scope: "queued" }), /scope/i);
 });
+
+test("manual comment retry keeps the idempotency key and clears the failed attempt", async () => {
+  let filter;
+  let update;
+  const service = createCommentService({
+    CommentModel: {
+      async findOneAndUpdate(nextFilter, nextUpdate) {
+        filter = nextFilter;
+        update = nextUpdate;
+        return {
+          _id: "job-id",
+          idempotencyKey: "same-guid-forever",
+          groupId: 42,
+          postId: 10,
+          commentText: "comment",
+          commentAt: nextUpdate.$set.commentAt,
+          status: nextUpdate.$set.status,
+          attempts: nextUpdate.$set.attempts,
+        };
+      },
+    },
+    tokenVault: {},
+  });
+
+  const job = await service.retry("job-id");
+  assert.deepEqual(filter, {
+    _id: "job-id",
+    status: { $in: ["failed", "paused"] },
+  });
+  assert.equal(update.$set.status, "queued");
+  assert.equal(update.$set.attempts, 0);
+  assert.equal(update.$set.lastError, null);
+  assert.equal(job.idempotencyKey, "same-guid-forever");
+});

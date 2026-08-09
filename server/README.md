@@ -67,7 +67,7 @@ Health check: `/health`
 После deploy откройте `https://ИМЯ-СЕРВИСА.onrender.com/health`. Нормальный ответ:
 
 ```json
-{"status":"ok","version":"4.2.0","database":"connected"}
+{"status":"ok","version":"4.2.1","database":"connected"}
 ```
 
 ## 4. Расширение

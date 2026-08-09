@@ -27,16 +27,20 @@ const GROUP_ANALYTICS_POST_LIMIT = 100;
 const CLEANUP_PHOTO_LEDGER_KEY = "vkr_cleanup_photo_ledger_v1";
 const CLEANUP_SHORT_COOLDOWN_MS = 15 * 60_000;
 const CLEANUP_FLOOD_COOLDOWN_MS = 24 * 60 * 60_000;
+const PUBLISH_DUE_ALARM = "vkr_publish_due";
 
 const {
   buildUploadedPhotoAttachment,
   buildReusableAttachments,
   classifyVkError,
   createSerialScheduler,
+  hasPostPhotos,
   largestPhotoUrl,
   isUploadedPhotoAttachment,
+  nextRunnablePublishJobIndex,
   normalizeQueueJobs,
   selectCredential,
+  shouldDeferPhotoPublish,
 } = globalThis.VkrSafetyCore;
 
 const {
@@ -318,13 +322,21 @@ function sanitizeJob(message) {
     throw new Error("Время публикации должно быть в будущем.");
   }
 
+  const mode = message.mode === "repost" ? "repost" : "copy";
+  const deferMediaUntilPublish = shouldDeferPhotoPublish({
+    post: message.post,
+    mode,
+    pubDate,
+  });
+
   return {
     id: `pub_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`,
     post: message.post,
     groups,
-    mode: message.mode === "repost" ? "repost" : "copy",
+    mode,
     text: String(message.text || ""),
     pubDate,
+    deferMediaUntilPublish,
     processedPhotos: Array.isArray(message.processedPhotos)
       ? message.processedPhotos.length
       : 0,
@@ -360,8 +372,30 @@ async function enqueuePublishJob(message) {
     await chrome.storage.local.set({ [PUBLISH_QUEUE_KEY]: queue });
   });
   await updateBadge();
+  await scheduleNextPublishAlarm();
   void processPublishQueue();
   return job;
+}
+
+async function scheduleNextPublishAlarm(queueOverride = null) {
+  const queue = Array.isArray(queueOverride)
+    ? queueOverride
+    : (await chrome.storage.local.get(PUBLISH_QUEUE_KEY))[PUBLISH_QUEUE_KEY] || [];
+  const now = Date.now();
+  const publishTimes = queue
+    .filter(
+      (job) =>
+        job?.status === "queued" &&
+        job.deferMediaUntilPublish === true &&
+        Number(job.pubDate) > now,
+    )
+    .map((job) => Number(job.pubDate));
+  await chrome.alarms.clear(PUBLISH_DUE_ALARM);
+  if (publishTimes.length) {
+    chrome.alarms.create(PUBLISH_DUE_ALARM, {
+      when: Math.max(now + 1_000, Math.min(...publishTimes)),
+    });
+  }
 }
 
 async function persistJob(job) {
@@ -479,6 +513,7 @@ async function completePostSideEffects(
   postId,
   credentialKind,
   credentials,
+  publishedAt = Date.now(),
 ) {
   const warnings = [];
   if (job.autoCommentText && postId) {
@@ -491,7 +526,10 @@ async function completePostSideEffects(
         Number(storage.vkr_comment_delay_seconds) ||
           DEFAULT_COMMENT_DELAY_SECONDS,
       );
-      const commentAt = (job.pubDate || Date.now()) + delaySeconds * 1000;
+      const publicationBase = job.deferMediaUntilPublish
+        ? publishedAt
+        : job.pubDate || publishedAt;
+      const commentAt = publicationBase + delaySeconds * 1000;
       const groupTokenEntry =
         credentials.groupTokens[String(groupId)] ||
         credentials.groupTokens[groupId];
@@ -538,7 +576,10 @@ async function completePostSideEffects(
             deletions.push({
               ownerId: -groupId,
               postId,
-              deleteAt: (job.pubDate || Date.now()) + job.autoDeleteAfter,
+              deleteAt:
+                (job.deferMediaUntilPublish
+                  ? publishedAt
+                  : job.pubDate || publishedAt) + job.autoDeleteAfter,
               idempotencyKey,
             });
             await chrome.storage.local.set({
@@ -572,6 +613,62 @@ function reusableNonPhotoAttachments(post) {
   return buildReusableAttachments(
     attachments.filter((attachment) => attachment?.type !== "photo"),
   );
+}
+
+function photoIdentity(photo) {
+  const ownerId = Number(photo?.owner_id ?? photo?.ownerId);
+  const photoId = Number(photo?.id);
+  if (!Number.isSafeInteger(ownerId) || !Number.isSafeInteger(photoId)) {
+    return "";
+  }
+  return `${ownerId}_${photoId}`;
+}
+
+async function refreshDeferredPhotoSources(job, userToken) {
+  if (!job.deferMediaUntilPublish || !hasPostPhotos(job.post)) return;
+  const ownerId = Number(job.post?.owner_id);
+  const postId = Number(job.post?.id);
+  if (!Number.isSafeInteger(ownerId) || !Number.isSafeInteger(postId)) return;
+
+  try {
+    const response = await vkApi(
+      "wall.getById",
+      { posts: `${ownerId}_${postId}` },
+      userToken,
+    );
+    const freshPost = response?.items?.[0] || response?.[0];
+    const freshPhotos = new Map(
+      copyPhotoObjects(freshPost)
+        .map((photo) => [photoIdentity(photo), photo])
+        .filter(([identity]) => identity),
+    );
+    const originalAttachments = Array.isArray(job.post?.attachments)
+      ? job.post.attachments
+      : [];
+    let refreshedCount = 0;
+    const attachments = originalAttachments.map((attachment) => {
+      if (attachment?.type !== "photo") return attachment;
+      const source = attachment.photo || attachment;
+      const fresh = freshPhotos.get(photoIdentity(source));
+      if (!fresh) return attachment;
+      refreshedCount += 1;
+      return { ...attachment, photo: fresh };
+    });
+    if (!refreshedCount) {
+      throw new Error("VK не вернул свежие адреса выбранных фотографий.");
+    }
+    job.post = { ...job.post, attachments };
+    job.sourcePhotosRefreshedAt = Date.now();
+    await persistJob(job);
+  } catch (error) {
+    console.warn(
+      "[VKR] Could not refresh scheduled photo URLs; using the saved URLs",
+      {
+        jobId: job.id,
+        message: String(error?.message || "Unknown error").slice(0, 300),
+      },
+    );
+  }
 }
 
 function mediaCheckpoint(job, groupId, total) {
@@ -811,18 +908,22 @@ async function publishToGroup(job, groupId, credentials, onPublished) {
       random_id: stableRandomId(job.id, groupId),
     };
     if (attachments.length) params.attachments = attachments.join(",");
-    if (job.pubDate) params.publish_date = Math.floor(job.pubDate / 1000);
+    if (job.pubDate && !job.deferMediaUntilPublish) {
+      params.publish_date = Math.floor(job.pubDate / 1000);
+    }
     const response = await vkApi("wall.post", params, credential.token);
     postId = response?.post_id;
   }
 
   delete job.mediaProgress;
+  const publishedAt = Date.now();
 
   const checkpoint = {
     gid: groupId,
     ok: true,
     postId,
     credential: credential.kind,
+    publishedAt,
     sideEffectsPending: true,
   };
   await onPublished(checkpoint);
@@ -832,6 +933,7 @@ async function publishToGroup(job, groupId, credentials, onPublished) {
     postId,
     credential.kind,
     credentials,
+    publishedAt,
   );
   return { ...checkpoint, sideEffectsPending: false, warning };
 }
@@ -839,6 +941,10 @@ async function publishToGroup(job, groupId, credentials, onPublished) {
 async function executePublishJob(job) {
   const credentials = await getLocalCredentials();
   job.results = Array.isArray(job.results) ? job.results : [];
+
+  if (job.deferMediaUntilPublish && !job.sourcePhotosRefreshedAt) {
+    await refreshDeferredPhotoSources(job, credentials.userToken);
+  }
 
   for (const groupId of job.groups) {
     const existingIndex = job.results.findIndex(
@@ -852,6 +958,7 @@ async function executePublishJob(job) {
         existing.postId,
         existing.credential,
         credentials,
+        existing.publishedAt || Date.now(),
       );
       job.results[existingIndex] = {
         ...existing,
@@ -974,7 +1081,7 @@ async function processPublishQueue() {
         const queue = Array.isArray(data[PUBLISH_QUEUE_KEY])
           ? data[PUBLISH_QUEUE_KEY]
           : [];
-        const index = queue.findIndex((item) => item.status === "queued");
+        const index = nextRunnablePublishJobIndex(queue, Date.now());
         if (index >= 0) {
           job = {
             ...queue[index],
@@ -995,6 +1102,7 @@ async function processPublishQueue() {
     }
   } finally {
     publishWorkerRunning = false;
+    await scheduleNextPublishAlarm();
   }
 }
 
@@ -1022,6 +1130,16 @@ async function recoverQueue() {
             ? new Date(job.startedAt).toISOString()
             : undefined),
       };
+      if (
+        preparedJob.deferMediaUntilPublish === undefined &&
+        preparedJob.status === "queued"
+      ) {
+        preparedJob.deferMediaUntilPublish = shouldDeferPhotoPublish({
+          post: preparedJob.post,
+          mode: preparedJob.mode,
+          pubDate: preparedJob.pubDate,
+        });
+      }
       const startedAt = Date.parse(preparedJob.processingStartedAt || "");
       const stale =
         preparedJob.status === "processing" &&
@@ -1061,6 +1179,7 @@ async function recoverQueue() {
     await chrome.storage.local.set({ [QUEUE_PAUSE_KEY]: ambiguousRepost });
   }
   await updateBadge();
+  await scheduleNextPublishAlarm();
   void processPublishQueue();
 }
 
@@ -2367,6 +2486,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return { removed: true };
     });
   }
+  if (type === "retry_scheduled_comment") {
+    return respond(async () => {
+      const result = await serverRequest(
+        `/api/scheduled-comments/${encodeURIComponent(message.id)}/retry`,
+        { method: "POST" },
+      );
+      return { retried: true, job: result.job };
+    });
+  }
   if (type === "get_queue_status") {
     return respond(async () => {
       const data = await chrome.storage.local.get([
@@ -2571,6 +2699,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === PUBLISH_DUE_ALARM) {
+    void processPublishQueue();
+    return;
+  }
   if (alarm.name === "vkr_safe_jobs") {
     void processLocalComments();
     void processLocalDeletions();

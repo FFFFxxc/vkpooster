@@ -8,10 +8,13 @@ const {
   buildReusableAttachments,
   classifyVkError,
   createSerialScheduler,
+  hasPostPhotos,
   largestPhotoUrl,
   isUploadedPhotoAttachment,
+  nextRunnablePublishJobIndex,
   normalizeQueueJobs,
   selectCredential,
+  shouldDeferPhotoPublish,
 } = require("../safety-core.js");
 
 test("classifyVkError pauses on VK protection and rate-limit errors", () => {
@@ -222,6 +225,38 @@ test("normalizeQueueJobs recovers stale processing jobs only", () => {
   assert.equal(jobs[0].processingStartedAt, undefined);
   assert.equal(jobs[1].status, "processing");
   assert.equal(jobs[2].status, "completed");
+});
+
+test("scheduled photo copies wait locally while other queued jobs remain runnable", () => {
+  const now = Date.parse("2026-08-09T10:00:00Z");
+  const photoPost = {
+    attachments: [{ type: "photo", photo: { owner_id: -1, id: 2 } }],
+  };
+  assert.equal(hasPostPhotos(photoPost), true);
+  assert.equal(
+    shouldDeferPhotoPublish({
+      post: photoPost,
+      mode: "copy",
+      pubDate: now + 60_000,
+    }),
+    true,
+  );
+  assert.equal(
+    shouldDeferPhotoPublish({ post: photoPost, mode: "repost", pubDate: now }),
+    false,
+  );
+
+  const jobs = [
+    {
+      id: "future-photo",
+      status: "queued",
+      deferMediaUntilPublish: true,
+      pubDate: now + 60_000,
+    },
+    { id: "text-now", status: "queued", deferMediaUntilPublish: false },
+  ];
+  assert.equal(nextRunnablePublishJobIndex(jobs, now), 1);
+  assert.equal(nextRunnablePublishJobIndex(jobs, now + 60_000), 0);
 });
 
 test("createSerialScheduler never overlaps work and enforces the interval", async () => {

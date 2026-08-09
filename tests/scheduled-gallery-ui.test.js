@@ -55,3 +55,12 @@ test("data maintenance exposes scoped cleanup without deleting active jobs", () 
   assert.match(css, /\.maintenance-stats/);
   assert.match(css, /\.maintenance-danger/);
 });
+
+test("scheduled photo copies explain local due-time upload and failed comments can retry", () => {
+  assert.match(scheduled, /Фото будут загружены/);
+  assert.match(scheduled, /Chrome должен быть запущен/);
+  assert.match(scheduled, /retry_scheduled_comment/);
+  assert.match(background, /nextRunnablePublishJobIndex/);
+  assert.match(background, /PUBLISH_DUE_ALARM/);
+  assert.match(background, /!job\.deferMediaUntilPublish/);
+});

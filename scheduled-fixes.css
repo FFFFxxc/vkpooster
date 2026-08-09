@@ -562,6 +562,17 @@ button:disabled {
   background: rgba(14, 116, 144, 0.07);
 }
 
+.media-schedule-note {
+  margin-top: 10px;
+  padding: 9px 11px;
+  border: 1px solid rgba(125, 211, 252, .22);
+  border-radius: 10px;
+  background: rgba(56, 189, 248, .07);
+  color: #bae6fd;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
 .media-preparation > span,
 .media-preparation > b {
   display: inline-block;
