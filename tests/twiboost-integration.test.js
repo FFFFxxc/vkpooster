@@ -21,6 +21,7 @@ test("TwiBoost is available through a narrowly scoped background integration", (
 
 test("TwiBoost key stays local and is never embedded in tracked source", () => {
   assert.match(background, /TWIBOOST_KEY_STORAGE = "vkr_twiboost_api_key"/);
+  assert.match(background, /key = await loadTwiBoostKey\(\)/);
   assert.doesNotMatch(background, /const TWIBOOST_KEY\s*=/);
   assert.match(gitignore, /twiboost-key\.local\.txt/);
   assert.match(content, /type: "twiboost_save_key"/);

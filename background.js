@@ -2857,7 +2857,14 @@ async function loadTwiBoostKey() {
 
 async function twiBoostSettings() {
   const stored = await chrome.storage.local.get(TWIBOOST_KEY_STORAGE);
-  const key = String(stored[TWIBOOST_KEY_STORAGE] || "").trim();
+  let key = String(stored[TWIBOOST_KEY_STORAGE] || "").trim();
+  if (!key) {
+    try {
+      key = await loadTwiBoostKey();
+    } catch {
+      // A clean checkout has no migration file until the user saves a key.
+    }
+  }
   return {
     configured: Boolean(key),
     masked: key ? `••••${key.slice(-4)}` : "",
