@@ -1014,3 +1014,210 @@ button:disabled {
     transition: none;
   }
 }
+
+.summary article {
+  position: relative;
+  overflow: hidden;
+  transition: border-color 220ms ease, transform 220ms ease, box-shadow 220ms ease;
+}
+
+.summary article::before {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  background: radial-gradient(circle at 20% 20%, rgba(131, 106, 255, 0.18), transparent 55%);
+  content: "";
+  transition: opacity 260ms ease;
+  pointer-events: none;
+}
+
+.summary article:hover {
+  border-color: rgba(131, 106, 255, 0.45);
+  transform: translateY(-2px);
+  box-shadow: 0 16px 45px rgba(9, 8, 21, 0.35);
+}
+
+.summary article:hover::before {
+  opacity: 1;
+}
+
+.tabs button {
+  position: relative;
+  padding: 9px 14px;
+  border-radius: 10px;
+  transition: color 180ms ease, background 220ms ease, transform 180ms ease;
+}
+
+.tabs button::after {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 6px;
+  height: 2px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #8068ff, #38bdf8);
+  opacity: 0;
+  transform: scaleX(0.4);
+  transition: opacity 200ms ease, transform 220ms ease;
+  content: "";
+}
+
+.tabs button:hover {
+  color: #fff;
+  background: rgba(131, 106, 255, 0.08);
+}
+
+.tabs button.active::after {
+  opacity: 1;
+  transform: scaleX(1);
+}
+
+.tabs span {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(131, 106, 255, 0.12);
+  color: #e9e5ff;
+  font-variant-numeric: tabular-nums;
+  transition: background 200ms ease, border-color 200ms ease, color 200ms ease;
+}
+
+.tabs button.active span {
+  border-color: rgba(131, 106, 255, 0.35);
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+}
+
+.card-body {
+  position: relative;
+}
+
+.card-text {
+  position: relative;
+  padding: 9px 10px;
+  border-radius: 10px;
+  background: rgba(6, 5, 16, 0.35);
+  transition: background 200ms ease, transform 200ms ease;
+}
+
+.card:hover .card-text {
+  background: rgba(131, 106, 255, 0.06);
+  transform: translateZ(0);
+}
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  align-items: center;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.actions button {
+  position: relative;
+  overflow: hidden;
+  transition: transform 180ms ease, border-color 200ms ease, background 200ms ease, color 200ms ease;
+}
+
+.actions button::before {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  background: linear-gradient(135deg, rgba(131, 106, 255, 0.22), rgba(56, 189, 248, 0.18));
+  content: "";
+  transition: opacity 200ms ease;
+}
+
+.actions button:hover {
+  transform: translateY(-1px);
+}
+
+.actions button:hover::before {
+  opacity: 1;
+}
+
+.actions .primary {
+  box-shadow: 0 10px 30px rgba(111, 85, 223, 0.25);
+}
+
+.actions .primary:hover {
+  box-shadow: 0 14px 40px rgba(111, 85, 223, 0.35);
+}
+
+.empty {
+  position: relative;
+  overflow: hidden;
+  color: #b8b2c8;
+  background:
+    radial-gradient(circle at 20% 30%, rgba(131, 106, 255, 0.08), transparent 45%),
+    rgba(255, 255, 255, 0.018);
+}
+
+.empty::before {
+  position: absolute;
+  inset: 12px;
+  border-radius: 12px;
+  border: 1px dashed rgba(131, 106, 255, 0.25);
+  content: "";
+  pointer-events: none;
+}
+
+.toolbar h2 {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.toolbar h2::before {
+  width: 4px;
+  height: 18px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #8068ff, #38bdf8);
+  content: "";
+}
+
+#publish-submit,
+.pause-resume,
+.maintenance-actions .maintenance-danger {
+  position: relative;
+  overflow: hidden;
+}
+
+#publish-submit::after,
+.pause-resume::after,
+.maintenance-actions .maintenance-danger::after {
+  position: absolute;
+  top: -50%;
+  left: -30%;
+  width: 45%;
+  height: 200%;
+  transform: rotate(18deg);
+  background: linear-gradient(110deg, transparent 30%, rgba(255, 255, 255, 0.18) 50%, transparent 70%);
+  opacity: 0;
+  content: "";
+  transition: opacity 250ms ease;
+}
+
+#publish-submit:hover::after,
+.pause-resume:hover::after,
+.maintenance-actions .maintenance-danger:hover::after {
+  opacity: 1;
+  animation: scheduled-shimmer 1.4s ease infinite;
+}
+
+@keyframes scheduled-shimmer {
+  0% { transform: translateX(-120%) rotate(18deg); }
+  100% { transform: translateX(260%) rotate(18deg); }
+}
+
+@media (max-width: 520px) {
+  .summary article:hover {
+    transform: none;
+  }
+
+  .tabs button::after {
+    left: 8px;
+    right: 8px;
+  }
+}

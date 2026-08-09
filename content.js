@@ -1,14 +1,14 @@
 /**
  * VK Reposter Pro - Content Script
  * Modern UI with Glassmorphism Design
- * @version 4.3.2
+ * @version 4.3.3
  * @updated 2026-08-09
  */
 
 // ========== CONSTANTS ==========
 const BUTTON_CLASS = "vkr-btn";
 const PROCESSED_ATTR = "data-vkr-checked";
-const VKR_VERSION = "4.3.2";
+const VKR_VERSION = "4.3.3";
 const GROUP_SETS_STORAGE_KEY = "vkr_group_sets_v1";
 const groupSetsCore = globalThis.VkrGroupSetsCore;
 const POST_SELECTORS = '[data-post-id], div[id^="post-"], article[data-post-id], .post, .wall_item, .feed_row, .Post, [data-testid="post-root"], [data-testid="post"]';
@@ -317,6 +317,22 @@ function addButton(postEl) {
     await openCommentModal(postUrl);
   });
   vkrContainer.appendChild(btnComment);
+
+  // Boost button - используем только CSS-классы
+  const btnBoost = document.createElement("button");
+  btnBoost.type = "button";
+  btnBoost.className = `${BUTTON_CLASS} vkr-btn-boost`;
+  btnBoost.innerHTML = "🚀 Накрутка";
+
+  btnBoost.addEventListener("click", async (event) => {
+    event.stopPropagation();
+    event.preventDefault();
+    const postUrl = getPostUrl(postEl);
+    if (!postUrl)
+      return showCustomAlert("Не удалось определить ссылку на пост.");
+    await openBoostModal(postUrl, postEl);
+  });
+  vkrContainer.appendChild(btnBoost);
 
   // Pending button - используем только CSS-классы
   const btnPending = document.createElement("button");
@@ -4912,9 +4928,14 @@ async function openBoostModal(postUrl, postEl, filterType = null) {
         : "🚀 Накрутка лайков";
   }
 
+  const configured = await loadBoostSettings();
+  if (!configured) {
+    showBoostStatus("Сохраните API-ключ TwiBoost, чтобы загрузить услуги.", "info");
+    return;
+  }
+
   // Load services and balance via background script
-  await loadBoostServices(filterType);
-  await loadBoostBalance();
+  await Promise.all([loadBoostServices(filterType), loadBoostBalance()]);
 }
 
 function createBoostModal() {
@@ -4959,6 +4980,30 @@ function createBoostModal() {
           font-size: 18px;
           transition: all 0.2s;
         ">✕</button>
+      </div>
+
+      <div style="margin-bottom: 16px; padding: 12px; background: rgba(99, 102, 241, 0.08); border: 1px solid rgba(99, 102, 241, 0.22); border-radius: 12px;">
+        <label for="vkr-boost-key" style="color: #c4b5fd; font-size: 12px; display: block; margin-bottom: 7px;">🔑 API-ключ TwiBoost</label>
+        <div style="display: flex; gap: 8px;">
+          <input type="password" id="vkr-boost-key" autocomplete="off" placeholder="Введите ключ" style="
+            min-width: 0;
+            flex: 1;
+            padding: 10px 12px;
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 9px;
+            color: #f8fafc;
+          ">
+          <button type="button" id="vkr-boost-key-save" style="
+            padding: 10px 13px;
+            border: 1px solid rgba(99,102,241,0.35);
+            border-radius: 9px;
+            background: rgba(99,102,241,0.2);
+            color: #fff;
+            cursor: pointer;
+          ">Сохранить</button>
+        </div>
+        <div id="vkr-boost-key-state" style="color: #64748b; font-size: 11px; margin-top: 7px;">Ключ хранится только в этом браузере.</div>
       </div>
 
       <div style="margin-bottom: 16px; padding: 12px; background: rgba(34, 197, 94, 0.1); border: 1px solid rgba(34, 197, 94, 0.2); border-radius: 12px;">
@@ -5116,6 +5161,7 @@ function createBoostModal() {
   };
 
   modal.querySelector("#vkr-boost-quantity").oninput = updateBoostPrice;
+  modal.querySelector("#vkr-boost-key-save").onclick = saveBoostKey;
 
   // Prevent page scroll when using mouse wheel on quantity input
   const quantityInput = modal.querySelector("#vkr-boost-quantity");
@@ -5154,14 +5200,66 @@ function createBoostModal() {
   };
 }
 
+async function loadBoostSettings() {
+  const state = boostModalEl.querySelector("#vkr-boost-key-state");
+  try {
+    const response = await new Promise((resolve) => {
+      chrome.runtime.sendMessage({ type: "twiboost_settings" }, resolve);
+    });
+    if (!response?.ok) {
+      throw new Error(response?.error || "Не удалось проверить ключ");
+    }
+    state.textContent = response.configured
+      ? `Ключ сохранён: ${response.masked}`
+      : "Ключ не настроен. Он будет храниться только в этом браузере.";
+    state.style.color = response.configured ? "#22c55e" : "#f59e0b";
+    return response.configured === true;
+  } catch (error) {
+    state.textContent = error.message;
+    state.style.color = "#ef4444";
+    return false;
+  }
+}
+
+async function saveBoostKey() {
+  const input = boostModalEl.querySelector("#vkr-boost-key");
+  const button = boostModalEl.querySelector("#vkr-boost-key-save");
+  const key = input.value.trim();
+  if (!key) {
+    showBoostStatus("Введите API-ключ TwiBoost.", "error");
+    return;
+  }
+
+  button.disabled = true;
+  try {
+    const response = await new Promise((resolve) => {
+      chrome.runtime.sendMessage({ type: "twiboost_save_key", key }, resolve);
+    });
+    if (!response?.ok) {
+      throw new Error(response?.error || "Не удалось сохранить ключ");
+    }
+    input.value = "";
+    await loadBoostSettings();
+    showBoostStatus("API-ключ сохранён локально.", "success");
+    await Promise.all([
+      loadBoostServices(boostModalEl.dataset.filterType || null),
+      loadBoostBalance(),
+    ]);
+  } catch (error) {
+    showBoostStatus(error.message, "error");
+  } finally {
+    button.disabled = false;
+  }
+}
+
 async function loadBoostServices(filterType = null) {
   try {
     const response = await new Promise((resolve) => {
       chrome.runtime.sendMessage({ type: "twiboost_services" }, resolve);
     });
 
-    if (!response.ok) {
-      throw new Error(response.error || "Failed to load services");
+    if (!response?.ok) {
+      throw new Error(response?.error || "Failed to load services");
     }
 
     // Filter services based on type
@@ -5250,10 +5348,13 @@ async function loadBoostServices(filterType = null) {
           justify-content: space-between;
           align-items: center;
         `;
-        item.innerHTML = `
-          <span style="flex: 1;">${s.name}</span>
-          <span style="color: #f59e0b; font-size: 12px; font-weight: 600; background: rgba(245, 158, 11, 0.1); padding: 2px 8px; border-radius: 4px; margin-left: 8px;">${s.rate}₽/1K</span>
-        `;
+        const name = document.createElement("span");
+        name.style.flex = "1";
+        name.textContent = String(s.name || "Услуга");
+        const rate = document.createElement("span");
+        rate.style.cssText = "color: #f59e0b; font-size: 12px; font-weight: 600; background: rgba(245, 158, 11, 0.1); padding: 2px 8px; border-radius: 4px; margin-left: 8px;";
+        rate.textContent = `${Number(s.rate) || 0}₽/1K`;
+        item.append(name, rate);
         item.dataset.service = s.service;
         item.dataset.min = s.min;
         item.dataset.max = s.max;
@@ -5315,8 +5416,8 @@ async function loadBoostBalance() {
       chrome.runtime.sendMessage({ type: "twiboost_balance" }, resolve);
     });
 
-    if (!response.ok) {
-      throw new Error(response.error || "Failed to load balance");
+    if (!response?.ok) {
+      throw new Error(response?.error || "Failed to load balance");
     }
 
     boostBalance = parseFloat(response.balance) || 0;
@@ -5389,8 +5490,8 @@ async function submitBoostOrder() {
       );
     });
 
-    if (!response.ok) {
-      showBoostStatus(`❌ Ошибка: ${translateError(response.error)}`, "error");
+    if (!response?.ok) {
+      showBoostStatus(`❌ Ошибка: ${translateError(response?.error)}`, "error");
     } else if (response.order) {
       showBoostStatus(`✅ Заказ #${response.order} создан!`, "success");
       showToast(`Заказ #${response.order} создан!`, "success");

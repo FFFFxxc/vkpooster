@@ -861,13 +861,6 @@ body {
   }
 }
 
-/* ========== Stats Grid ========== */
-.stats-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: var(--space-md);
-}
-
 /* ========== Alert - Premium Warning ========== */
 .alert {
   display: flex;

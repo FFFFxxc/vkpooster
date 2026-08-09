@@ -9,6 +9,10 @@ NEW.rar
 .claude/
 .kiro/
 .vscode/
+.postman/
+postman/
+*.bak
+twiboost-key.local.txt
 fonts/tabler-icons-200.*
 fonts/tabler-icons-300.*
 fonts/tabler-icons-filled.*

@@ -2347,6 +2347,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   };
 
+  // TwiBoost API handlers. The key is kept only in chrome.storage.local.
+  if (type === "twiboost_settings") {
+    return respond(() => twiBoostSettings());
+  }
+  if (type === "twiboost_save_key") {
+    return respond(() => saveTwiBoostKey(message.key));
+  }
+  if (type === "twiboost_services") {
+    return respond(() => getTwiBoostServices());
+  }
+  if (type === "twiboost_balance") {
+    return respond(() => getTwiBoostBalance());
+  }
+  if (type === "twiboost_order") {
+    return respond(() => createTwiBoostOrder(message));
+  }
   if (type === "enqueue_publish") {
     return respond(async () => {
       const job = await enqueuePublishJob(message);
@@ -2807,3 +2823,126 @@ chrome.notifications.onClicked.addListener(async (notificationId) => {
 
 runInBackground("Initial queue recovery", () => recoverQueue());
 runInBackground("Initial context menus", () => setupContextMenus());
+
+// ========== TwiBoost API Functions ==========
+const TWIBOOST_API = "https://twiboost.com/api/v2";
+const TWIBOOST_KEY_STORAGE = "vkr_twiboost_api_key";
+const TWIBOOST_LOCAL_KEY_FILE = "twiboost-key.local.txt";
+
+function normalizeTwiBoostKey(value) {
+  const key = String(value || "").trim();
+  if (key.length < 16 || key.length > 512 || /\s/.test(key)) {
+    throw new Error("Некорректный API-ключ TwiBoost.");
+  }
+  return key;
+}
+
+async function loadTwiBoostKey() {
+  const stored = await chrome.storage.local.get(TWIBOOST_KEY_STORAGE);
+  const saved = String(stored[TWIBOOST_KEY_STORAGE] || "").trim();
+  if (saved) return normalizeTwiBoostKey(saved);
+
+  try {
+    const response = await fetch(chrome.runtime.getURL(TWIBOOST_LOCAL_KEY_FILE));
+    if (response.ok) {
+      const migrated = normalizeTwiBoostKey(await response.text());
+      await chrome.storage.local.set({ [TWIBOOST_KEY_STORAGE]: migrated });
+      return migrated;
+    }
+  } catch {
+    // The optional ignored migration file is absent in a clean checkout.
+  }
+  throw new Error("Сначала сохраните API-ключ TwiBoost в окне накрутки.");
+}
+
+async function twiBoostSettings() {
+  const stored = await chrome.storage.local.get(TWIBOOST_KEY_STORAGE);
+  const key = String(stored[TWIBOOST_KEY_STORAGE] || "").trim();
+  return {
+    configured: Boolean(key),
+    masked: key ? `••••${key.slice(-4)}` : "",
+  };
+}
+
+async function saveTwiBoostKey(value) {
+  const key = normalizeTwiBoostKey(value);
+  await chrome.storage.local.set({ [TWIBOOST_KEY_STORAGE]: key });
+  return twiBoostSettings();
+}
+
+async function twiBoostRequest(action, parameters = {}) {
+  const key = await loadTwiBoostKey();
+  const body = new URLSearchParams({ key, action });
+  for (const [name, value] of Object.entries(parameters)) {
+    if (value !== undefined && value !== null && value !== "") {
+      body.set(name, String(value));
+    }
+  }
+
+  const response = await fetch(TWIBOOST_API, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body,
+  });
+  if (!response.ok) {
+    throw new Error(`TwiBoost HTTP ${response.status}`);
+  }
+  const data = await response.json();
+  if (data?.error) {
+    throw new Error(String(data.error).slice(0, 500));
+  }
+  return data;
+}
+
+async function getTwiBoostServices() {
+  const services = await twiBoostRequest("services");
+  if (!Array.isArray(services)) {
+    throw new Error("TwiBoost вернул некорректный список услуг.");
+  }
+  return { services };
+}
+
+async function getTwiBoostBalance() {
+  const data = await twiBoostRequest("balance");
+  return {
+    balance: Number(data?.balance) || 0,
+    currency: String(data?.currency || "RUB").slice(0, 12),
+  };
+}
+
+async function createTwiBoostOrder({ service, link, quantity }) {
+  const serviceId = String(service || "").trim();
+  const amount = Number(quantity);
+  if (!/^\d+$/.test(serviceId)) {
+    throw new Error("Выберите услугу TwiBoost.");
+  }
+  if (!Number.isSafeInteger(amount) || amount <= 0 || amount > 1_000_000) {
+    throw new Error("Некорректное количество.");
+  }
+
+  let target;
+  try {
+    target = new URL(String(link || ""));
+  } catch {
+    throw new Error("Некорректная ссылка VK.");
+  }
+  const host = target.hostname.toLowerCase();
+  if (
+    target.protocol !== "https:" ||
+    !["vk.com", "vk.ru"].some(
+      (domain) => host === domain || host.endsWith(`.${domain}`),
+    )
+  ) {
+    throw new Error("Для заказа разрешены только ссылки vk.com и vk.ru.");
+  }
+
+  const data = await twiBoostRequest("add", {
+    service: serviceId,
+    link: target.toString(),
+    quantity: amount,
+  });
+  if (!data?.order) {
+    throw new Error("TwiBoost не вернул номер заказа.");
+  }
+  return { order: data.order };
+}
