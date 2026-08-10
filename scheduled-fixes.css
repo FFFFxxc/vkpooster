@@ -311,16 +311,298 @@ button:disabled {
   opacity: 0.46;
 }
 
+/* ============================================
+   УЛУЧШЕННЫЙ ДИЗАЙН КАРТОЧЕК ПОСТОВ
+   ============================================ */
+
 /* Карусель всех фотографий с объёмным переходом и наклоном от курсора. */
 .card {
   transform: translateZ(0);
-  transition: transform 220ms ease, border-color 220ms ease, box-shadow 220ms ease;
+  transition: transform 220ms cubic-bezier(0.4, 0, 0.2, 1), border-color 220ms ease, box-shadow 220ms ease, background 220ms ease;
 }
 
 .card:hover {
-  border-color: rgba(151, 129, 255, 0.32);
-  box-shadow: 0 18px 55px rgba(3, 3, 12, 0.28);
-  transform: translateY(-3px);
+  border-color: rgba(151, 129, 255, 0.38);
+  box-shadow: 0 20px 60px rgba(124, 58, 237, 0.15), 0 8px 24px rgba(0, 0, 0, 0.2);
+  transform: translateY(-4px) scale(1.005);
+  background: linear-gradient(145deg, rgba(28, 24, 56, 0.98), rgba(16, 14, 35, 0.98));
+}
+
+/* Аватарка группы в карточке */
+.card-group-avatar {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 10;
+  width: 42px;
+  height: 42px;
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  border-radius: 50%;
+  background: linear-gradient(135deg, #6f55df, #397fae);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35), inset 0 1px rgba(255, 255, 255, 0.2);
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  font-size: 16px;
+  font-weight: 800;
+  color: #fff;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  transition: transform 220ms ease, border-color 220ms ease, box-shadow 220ms ease;
+}
+
+.card:hover .card-group-avatar {
+  transform: scale(1.08);
+  border-color: rgba(255, 255, 255, 0.25);
+  box-shadow: 0 6px 20px rgba(124, 58, 237, 0.35), inset 0 1px rgba(255, 255, 255, 0.3);
+}
+
+.card-group-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Улучшенная шапка карточки */
+.card-head {
+  gap: 10px;
+  align-items: center;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+/* Улучшенный заголовок карточки */
+.card-title {
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: #faf8ff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+/* Улучшенные статусы с иконками */
+.status {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.12);
+  white-space: nowrap;
+  letter-spacing: 0.02em;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  transition: all 180ms ease;
+  border: 1px solid transparent;
+}
+
+.status::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+  box-shadow: 0 0 8px currentColor;
+}
+
+.status.waiting {
+  color: #a5b4fc;
+  background: rgba(99, 102, 241, 0.12);
+  border-color: rgba(99, 102, 241, 0.2);
+}
+
+.status.completed,
+.status.done {
+  color: #34d399;
+  background: rgba(52, 211, 153, 0.12);
+  border-color: rgba(52, 211, 153, 0.18);
+}
+
+.status.completed::before,
+.status.done::before {
+  box-shadow: 0 0 10px rgba(52, 211, 153, 0.5);
+}
+
+.status.failed,
+.status.paused,
+.status.cancelled {
+  color: #fb7185;
+  background: rgba(251, 113, 133, 0.12);
+  border-color: rgba(251, 113, 133, 0.18);
+}
+
+.status.failed::before,
+.status.paused::before,
+.status.cancelled::before {
+  animation: status-pulse-error 2s ease-in-out infinite;
+}
+
+.status.processing,
+.status.uploading,
+.status.transferring,
+.status.opening_tab {
+  color: #38bdf8;
+  background: rgba(56, 189, 248, 0.12);
+  border-color: rgba(56, 189, 248, 0.18);
+}
+
+.status.processing::before,
+.status.uploading::before,
+.status.transferring::before,
+.status.opening_tab::before {
+  animation: status-pulse-active 1.5s ease-in-out infinite;
+}
+
+.status.partial {
+  color: #fbbf24;
+  background: rgba(251, 191, 36, 0.12);
+  border-color: rgba(251, 191, 36, 0.18);
+}
+
+@keyframes status-pulse-error {
+  0%, 100% { opacity: 1; box-shadow: 0 0 8px rgba(251, 113, 133, 0.4); }
+  50% { opacity: 0.6; box-shadow: 0 0 12px rgba(251, 113, 133, 0.6); }
+}
+
+@keyframes status-pulse-active {
+  0%, 100% { opacity: 1; box-shadow: 0 0 8px rgba(56, 189, 248, 0.4); }
+  50% { opacity: 0.7; box-shadow: 0 0 14px rgba(56, 189, 248, 0.7); }
+}
+
+/* Улучшенный текст поста */
+.card-text {
+  color: #d9d5e6;
+  margin: 11px 0;
+  line-height: 1.55;
+  font-size: 13px;
+}
+
+/* Улучшенная мета информация */
+.meta {
+  color: #7f7995;
+  font-size: 11px;
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.meta::before {
+  content: '🕐';
+  font-size: 10px;
+  opacity: 0.7;
+}
+
+/* Улучшенная ошибка */
+.error {
+  color: #fda4af;
+  font-size: 11px;
+  margin-top: 9px;
+  padding: 7px 9px;
+  border-radius: 8px;
+  background: rgba(251, 113, 133, 0.08);
+  border-left: 3px solid rgba(251, 113, 133, 0.4);
+  line-height: 1.4;
+}
+
+/* Улучшенные кнопки действий */
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 13px;
+  padding-top: 11px;
+  border-top: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.actions button {
+  padding: 7px 11px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 9px;
+  transition: all 180ms cubic-bezier(0.4, 0, 0.2, 1);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  letter-spacing: 0.01em;
+}
+
+.actions button:hover {
+  transform: translateY(-1px);
+}
+
+.actions button:active {
+  transform: translateY(0);
+}
+
+.actions .primary,
+.primary {
+  border: 0;
+  background: linear-gradient(135deg, #8b6eff 0%, #3d9fd6 100%);
+  color: #fff;
+  font-weight: 700;
+  box-shadow: 0 4px 14px rgba(139, 110, 255, 0.3);
+}
+
+.actions .primary:hover,
+.primary:hover {
+  box-shadow: 0 6px 20px rgba(139, 110, 255, 0.45);
+  filter: brightness(1.08);
+}
+
+.actions .danger {
+  color: #fecdd3;
+  border-color: rgba(251, 113, 133, 0.35);
+  background: rgba(251, 113, 133, 0.06);
+}
+
+.actions .danger:hover {
+  background: rgba(251, 113, 133, 0.14);
+  border-color: rgba(251, 113, 133, 0.5);
+  box-shadow: 0 4px 14px rgba(251, 113, 133, 0.2);
+}
+
+/* Улучшенный прогресс бар */
+.progress {
+  height: 6px;
+  background: rgba(41, 37, 64, 0.6);
+  border-radius: 999px;
+  overflow: hidden;
+  margin-top: 12px;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.3);
+  position: relative;
+}
+
+.progress::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+  animation: progress-shimmer 2s ease-in-out infinite;
+}
+
+.progress span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #8b6eff 0%, #38bdf8 50%, #8b6eff 100%);
+  background-size: 200% 100%;
+  animation: progress-gradient 3s ease-in-out infinite;
+  border-radius: inherit;
+  box-shadow: 0 0 12px rgba(139, 110, 255, 0.5);
+  transition: width 300ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes progress-shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+@keyframes progress-gradient {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
 }
 
 .card-gallery {
@@ -553,6 +835,268 @@ button:disabled {
   }
 }
 
+/* ============================================
+   УЛУЧШЕНИЯ ВЕРХНЕЙ ПАНЕЛИ И НАВИГАЦИИ
+   ============================================ */
+
+/* Улучшенная верхняя панель */
+.topbar {
+  position: relative;
+  background: linear-gradient(180deg, rgba(25, 22, 52, 0.4) 0%, transparent 100%);
+  backdrop-filter: blur(10px);
+}
+
+.topbar::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(151, 129, 255, 0.3), transparent);
+}
+
+/* Улучшенный заголовок */
+.topbar h1 {
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  background: linear-gradient(135deg, #f7f5ff 0%, #c4b5fd 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  text-shadow: none;
+}
+
+/* Улучшенные кнопки в шапке */
+.head-actions button {
+  font-weight: 600;
+  font-size: 12px;
+  padding: 10px 15px;
+  border-radius: 11px;
+  transition: all 200ms cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  overflow: hidden;
+}
+
+.head-actions button::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.1), transparent);
+  opacity: 0;
+  transition: opacity 200ms ease;
+}
+
+.head-actions button:hover::before {
+  opacity: 1;
+}
+
+.head-actions button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(131, 106, 255, 0.2);
+}
+
+.head-actions button:active {
+  transform: translateY(0);
+}
+
+/* Улучшенные вкладки */
+.tabs {
+  margin-top: 24px;
+  padding: 6px;
+  gap: 4px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.tabs button {
+  padding: 10px 16px;
+  border-radius: 10px;
+  font-weight: 600;
+  font-size: 12px;
+  transition: all 200ms cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+}
+
+.tabs button.active {
+  background: linear-gradient(135deg, #7c64f5 0%, #4294cf 100%);
+  color: #fff;
+  box-shadow: 0 4px 16px rgba(124, 100, 245, 0.35), inset 0 1px rgba(255, 255, 255, 0.2);
+  transform: translateY(-1px);
+}
+
+.tabs button:not(.active):hover {
+  background: rgba(131, 106, 255, 0.1);
+  color: #d9d5e6;
+  transform: translateY(-1px);
+}
+
+/* Бейджи во вкладках */
+.tabs span {
+  padding: 2px 7px;
+  font-size: 10px;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 999px;
+  min-width: 18px;
+  text-align: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tabs button.active span {
+  background: rgba(255, 255, 255, 0.25);
+  color: #fff;
+}
+
+/* Улучшенная панель инструментов */
+.toolbar {
+  padding: 26px 3px 16px;
+}
+
+.toolbar h2 {
+  font-size: 21px;
+  font-weight: 700;
+  color: #f7f5ff;
+  letter-spacing: -0.01em;
+}
+
+.toolbar p {
+  color: #8f89a5;
+  font-size: 13px;
+  margin-top: 4px;
+}
+
+#clear-finished {
+  font-weight: 600;
+  padding: 9px 16px;
+  border-radius: 10px;
+  transition: all 200ms ease;
+}
+
+#clear-finished:hover {
+  background: rgba(251, 113, 133, 0.12);
+  border-color: rgba(251, 113, 133, 0.4);
+  transform: translateY(-1px);
+}
+
+/* ============================================
+   УЛУЧШЕНИЯ SUMMARY КАРТОЧЕК
+   ============================================ */
+
+.summary {
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.summary article {
+  padding: 16px 18px;
+  border: 1px solid rgba(151, 129, 255, 0.18);
+  border-radius: 16px;
+  background: linear-gradient(145deg, rgba(30, 26, 58, 0.95), rgba(18, 16, 38, 0.96));
+  transition: all 220ms cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  overflow: hidden;
+}
+
+.summary article::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, #8b6eff, #38bdf8);
+  opacity: 0;
+  transition: opacity 220ms ease;
+}
+
+.summary article:hover {
+  transform: translateY(-3px);
+  border-color: rgba(151, 129, 255, 0.3);
+  box-shadow: 0 12px 35px rgba(124, 58, 237, 0.15);
+}
+
+.summary article:hover::before {
+  opacity: 1;
+}
+
+.summary span {
+  font-size: 11px;
+  color: #948fb0;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+.summary b {
+  font-size: 28px;
+  font-weight: 800;
+  margin-top: 6px;
+  background: linear-gradient(135deg, #fff 0%, #c4b5fd 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ============================================
+   УЛУЧШЕНИЯ ПАУЗЫ И ALERT
+   ============================================ */
+
+.pause-alert {
+  padding: 18px 20px;
+  border-radius: 16px;
+  margin-bottom: 18px;
+  border: 1px solid rgba(251, 113, 133, 0.45);
+  background:
+    radial-gradient(circle at 0 0, rgba(251, 113, 133, 0.15), transparent 45%),
+    linear-gradient(135deg, rgba(68, 24, 52, 0.92), rgba(32, 22, 48, 0.94));
+  box-shadow: 0 20px 60px rgba(159, 18, 57, 0.18), inset 0 1px rgba(255, 255, 255, 0.05);
+}
+
+.pause-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 11px;
+  font-size: 18px;
+  background: linear-gradient(135deg, rgba(251, 113, 133, 0.2), rgba(159, 18, 57, 0.25));
+  border: 1px solid rgba(251, 113, 133, 0.4);
+  box-shadow: 0 8px 28px rgba(251, 113, 133, 0.2);
+}
+
+.pause-heading b {
+  font-size: 15px;
+  font-weight: 700;
+  color: #fecdd3;
+}
+
+.pause-help {
+  color: #c4bcd5;
+  font-size: 12px;
+}
+
+.pause-resume {
+  background: linear-gradient(135deg, rgba(124, 100, 245, 0.4), rgba(66, 148, 207, 0.35));
+  border-color: rgba(131, 106, 255, 0.5);
+  font-weight: 700;
+  padding: 10px 18px;
+  border-radius: 11px;
+  transition: all 200ms ease;
+}
+
+.pause-resume:hover {
+  background: linear-gradient(135deg, rgba(124, 100, 245, 0.55), rgba(66, 148, 207, 0.5));
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(124, 100, 245, 0.3);
+}
+
+/* ============================================
+   ПОДГОТОВКА МЕДИА
+   ============================================ */
+
 /* Подготовка собственных копий фотографий перед wall.post. */
 .media-preparation {
   margin-top: 11px;
@@ -589,6 +1133,207 @@ button:disabled {
   clear: both;
   margin-top: 7px;
 }
+
+/* ============================================
+   УЛУЧШЕНИЯ ДИАЛОГОВ И МОДАЛЬНЫХ ОКОН
+   ============================================ */
+
+dialog {
+  border: 1px solid rgba(151, 129, 255, 0.25);
+  border-radius: 22px;
+  background: linear-gradient(145deg, rgba(22, 19, 45, 0.98), rgba(14, 12, 32, 0.99));
+  box-shadow: 0 40px 120px rgba(0, 0, 0, 0.75), 0 0 0 1px rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(20px);
+}
+
+dialog::backdrop {
+  background: rgba(2, 2, 8, 0.82);
+  backdrop-filter: blur(8px) saturate(1.1);
+}
+
+.dialog-body {
+  padding: 24px;
+  gap: 16px;
+}
+
+.dialog-head {
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  margin-bottom: 4px;
+}
+
+.dialog-head h2 {
+  font-size: 20px;
+  font-weight: 700;
+  color: #f7f5ff;
+  letter-spacing: -0.01em;
+}
+
+.dialog-head button {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  font-size: 20px;
+  display: grid;
+  place-items: center;
+  transition: all 180ms ease;
+}
+
+.dialog-head button:hover {
+  background: rgba(251, 113, 133, 0.12);
+  color: #fb7185;
+  transform: rotate(90deg);
+}
+
+.dialog-preview {
+  padding: 13px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 13px;
+  background: rgba(4, 4, 14, 0.35);
+  max-height: 110px;
+  overflow-y: auto;
+  line-height: 1.5;
+  font-size: 12px;
+}
+
+.dialog-preview::-webkit-scrollbar {
+  width: 6px;
+}
+
+.dialog-preview::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 999px;
+}
+
+.dialog-preview::-webkit-scrollbar-thumb {
+  background: rgba(151, 129, 255, 0.3);
+  border-radius: 999px;
+}
+
+fieldset {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 14px;
+  padding: 14px;
+}
+
+legend {
+  color: #a59fb8;
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 0 6px;
+}
+
+.groups {
+  gap: 8px;
+  max-height: 180px;
+}
+
+.groups label {
+  padding: 9px 11px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  transition: all 180ms ease;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.groups label:hover {
+  background: rgba(131, 106, 255, 0.08);
+  border-color: rgba(131, 106, 255, 0.2);
+  transform: translateX(2px);
+}
+
+.groups label input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: #8b6eff;
+  cursor: pointer;
+}
+
+.form-grid {
+  gap: 12px;
+}
+
+textarea,
+input,
+select {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(10, 9, 24, 0.6);
+  border-radius: 12px;
+  padding: 11px 13px;
+  font-size: 13px;
+  transition: all 180ms ease;
+}
+
+textarea:focus,
+input:focus,
+select:focus {
+  border-color: rgba(139, 110, 255, 0.6);
+  box-shadow: 0 0 0 3px rgba(139, 110, 255, 0.12), 0 4px 16px rgba(139, 110, 255, 0.1);
+  outline: none;
+  background: rgba(10, 9, 24, 0.8);
+}
+
+textarea {
+  resize: vertical;
+  min-height: 80px;
+  line-height: 1.5;
+}
+
+#publish-submit {
+  padding: 13px 24px;
+  font-size: 13px;
+  font-weight: 700;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #8b6eff 0%, #3d9fd6 100%);
+  box-shadow: 0 6px 20px rgba(139, 110, 255, 0.35);
+  transition: all 200ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+#publish-submit:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 30px rgba(139, 110, 255, 0.5);
+  filter: brightness(1.05);
+}
+
+#publish-submit:active {
+  transform: translateY(0);
+}
+
+/* Toast уведомления */
+.toast {
+  padding: 14px 18px;
+  border-radius: 14px;
+  font-weight: 500;
+  font-size: 13px;
+  box-shadow: 0 25px 70px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  animation: toast-slide-in 300ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes toast-slide-in {
+  from {
+    transform: translateX(100%) translateY(10px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0) translateY(0);
+    opacity: 1;
+  }
+}
+
+.toast.error {
+  background: linear-gradient(135deg, rgba(159, 18, 57, 0.15), rgba(91, 33, 50, 0.2));
+  border-color: rgba(251, 113, 133, 0.5);
+}
+
+/* ============================================
+   УЛУЧШЕНИЯ АНАЛИТИКИ
+   ============================================ */
 
 /* Аналитика настроенных сообществ. */
 .analytics-panel {
@@ -1219,5 +1964,124 @@ button:disabled {
   .tabs button::after {
     left: 8px;
     right: 8px;
+  }
+
+  .analytics-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .card-gallery {
+    height: 160px;
+  }
+
+  .card-gallery.portrait {
+    height: 220px;
+  }
+
+  .head-actions {
+    width: 100%;
+    overflow-x: auto;
+    padding-bottom: 4px;
+  }
+
+  .head-actions button {
+    flex-shrink: 0;
+    font-size: 11px;
+    padding: 8px 12px;
+  }
+}
+
+/* ============================================
+   АДАПТИВНОСТЬ И ДОСТУПНОСТЬ
+   ============================================ */
+
+/* Плавная прокрутка для всей страницы */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Улучшенная прокрутка в Webkit браузерах */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(151, 129, 255, 0.3);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(151, 129, 255, 0.5);
+  background-clip: content-box;
+}
+
+/* Фокус для доступности */
+:focus-visible {
+  outline: 2px solid #8b6eff;
+  outline-offset: 2px;
+}
+
+button:focus-visible,
+a:focus-visible {
+  outline: 2px solid #8b6eff;
+  outline-offset: 3px;
+  box-shadow: 0 0 0 4px rgba(139, 110, 255, 0.2);
+}
+
+/* Снижение движения для пользователей с prefers-reduced-motion */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  .card:hover {
+    transform: none;
+  }
+
+  .summary article:hover {
+    transform: none;
+  }
+
+  .gallery-slide.is-active {
+    transform: none;
+  }
+
+  .card.pause-focus {
+    animation: none;
+  }
+}
+
+/* Печать - скрыть ненужные элементы */
+@media print {
+  .topbar,
+  .tabs,
+  .toolbar,
+  .actions,
+  .head-actions,
+  dialog,
+  toast {
+    display: none !important;
+  }
+
+  .cards {
+    display: block;
+  }
+
+  .card {
+    break-inside: avoid;
+    page-break-inside: avoid;
+    margin-bottom: 20px;
+    border: 1px solid #ccc;
   }
 }
