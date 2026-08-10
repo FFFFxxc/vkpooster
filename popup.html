@@ -39,7 +39,7 @@
         <div class="logo">
           <div id="logo-lottie" class="logo__lottie"></div>
         </div>
-        <div class="version">v4.3.3</div>
+        <div class="version">v4.4.0</div>
       </div>
     </header>
 
@@ -82,7 +82,24 @@
         <div class="section__header">
           <h2 class="section__title">
             <i class="ti ti-building-community section__icon-img"></i>
-            Токены сообществ
+            Мои сообщества
+          </h2>
+          <span class="section__badge" id="managed-group-count">0</span>
+        </div>
+        <div id="managed-group-list"></div>
+        <button class="btn btn--secondary btn--full" id="refresh-managed-groups">
+          Обновить список из VK
+        </button>
+        <div class="status-line">
+          Публикации, загрузка фото, аналитика и локальные комментарии выполняются одним пользовательским токеном. Он остаётся только в браузере.
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="section__header">
+          <h2 class="section__title">
+            <i class="ti ti-building-community section__icon-img"></i>
+            Токены сообществ 24/7 (необязательно)
           </h2>
           <span class="section__badge" id="group-token-count">0</span>
         </div>
@@ -99,9 +116,8 @@
         </div>
         <div id="group-token-list"></div>
         <div class="status-line">
-          Посты с фотографиями загружаются и публикуются локальным user token —
-          этого требует текущий VK API. Текстовые посты используют токен
-          выбранного сообщества. Токен одной группы не применяется к другой.
+          Для обычного постинга эти токены не нужны. Они используются только
+          для серверных комментариев 24/7 и серверных историй, когда браузер закрыт.
         </div>
       </section>
 
@@ -109,7 +125,7 @@
         <div class="section__header">
           <h2 class="section__title">
             <i class="ti ti-server section__icon-img"></i>
-            Сервер комментариев
+            Сервер и комментарии
           </h2>
           <span class="server-status" id="server-status">Не настроен</span>
         </div>
@@ -126,6 +142,13 @@
             Задержка комментария, секунд (минимум 15)
           </label>
           <input type="number" id="comment-delay" class="input" min="15" max="86400" value="60">
+          <label class="status-line" for="comment-mode">Где выполнять комментарии</label>
+          <select id="comment-mode" class="input">
+            <option value="local_user">В браузере — пользовательский токен</option>
+            <option value="community_24_7">На сервере 24/7 — токен сообщества</option>
+          </select>
+          <label class="status-line" for="comment-group-interval">Интервал между пабликами, секунд</label>
+          <input type="number" id="comment-group-interval" class="input" min="15" max="3600" value="30">
         </div>
       </section>
 

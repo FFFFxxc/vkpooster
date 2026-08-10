@@ -1,0 +1,24 @@
+VK Reposter Pro 4.4.0 user-first modification manifest
+
+BRANCH: safe-v4
+FIELD: authorization_mode=user_first; comment_execution_mode=local_user
+BASELINE_COMMIT: 6a26065b71b996546accbeccbd116fef05053a28
+
+ORIGINAL_SHA256:
+safety-core.js D7C6B233F4A5312C1EA54317FE545475D6CD59F808ACDC0FF48E9A400FFF0D22
+background.js F3BA42484BAB068446ADEF2233523A4CDF24041D7D0C19ADB08F7EECE6F3AA3B
+popup.html 52289A5B3B992317F955D08C581C16AFBD576B3E5B0DF33FF39CE3A27B94733B
+popup-auth.js 6DF8ED3C1AF04EA0CE8CCBB9A611DAE19D44338420ECD7FBEDEEFD16D1FFAE2E
+
+MODIFIED_SHA256:
+safety-core.js 57151109D47A613EFDF787418D7272DCD480449FCE47930EA9E484F9C4CD7F73
+background.js AECE8DB1DB9A8D8B2872FD75FAEF5F36B8755D6FFD14297C1E4C49BCBC20CF33
+popup.html 3CEE942FBF97D31867CEA57284F3B7DD4CB871463383CC9FB5FF91E744977358
+popup-auth.js FE9D251F23077EFE36F705BD9D2A0E324D6119B26EA3E0CB51067D32571D157F
+
+RESULT:
+- wall.post/copy/repost/upload/analytics use the browser-local user token.
+- managed communities are discovered with groups.get and cached in vkr_user_groups.
+- browser comments default to the user token and are staggered per community.
+- community tokens remain optional for server comments 24/7 and server stories.
+- user token is not included in Render scheduled-comment requests.

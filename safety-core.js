@@ -144,9 +144,22 @@
 
     const localUserToken =
       typeof userToken === "string" ? userToken.trim() : "";
-    if (["repost", "upload", "analytics"].includes(operation)) {
+    // Current VK API methods used by the local publisher (wall.post,
+    // wall.repost, photo upload/save and wall.get) are user-authorized.
+    // Comments also prefer the same local user session so a community token
+    // is never required for normal browser-side posting.
+    if (["copy", "repost", "upload", "analytics", "comment"].includes(operation) && localUserToken) {
+      return {
+        kind: "user",
+        token: localUserToken,
+        groupId: normalizedGroupId,
+      };
+    }
+
+    if (["copy", "repost", "upload", "analytics"].includes(operation)) {
       if (!localUserToken) {
         const messages = {
+          copy: "Для публикации нужен локальный пользовательский токен.",
           upload: "VK не разрешает загружать фотографии токеном сообщества. Добавьте локальный пользовательский токен.",
           repost: "Для репоста нужен локальный пользовательский токен.",
           analytics: "Для аналитики нужен локальный пользовательский токен: VK не разрешает читать стену методом wall.get с токеном сообщества.",

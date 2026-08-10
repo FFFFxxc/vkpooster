@@ -12,6 +12,7 @@ const css = fs.readFileSync(path.join(root, "scheduled-fixes.css"), "utf8");
 
 test("scheduled comments use saved community labels", () => {
   assert.match(scheduled, /vkr_group_tokens/);
+  assert.match(scheduled, /vkr_user_groups/);
   assert.match(scheduled, /groupName\(groupId\)/);
   assert.match(scheduled, /entry\.label/);
 });

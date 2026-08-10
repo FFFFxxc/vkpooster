@@ -107,10 +107,70 @@ async function readSettings() {
     "vk_token",
     "vkr_user_profile",
     "vkr_group_tokens",
+    "vkr_user_groups",
     "vkr_server_url",
     "vkr_server_api_secret",
     "vkr_comment_delay_seconds",
+    "vkr_comment_execution_mode",
+    "vkr_comment_group_interval_seconds",
   ]);
+}
+
+function renderManagedGroups(groups) {
+  const list = $("managed-group-list");
+  const normalized = Array.isArray(groups) ? groups : [];
+  $("managed-group-count").textContent = String(normalized.length);
+  list.replaceChildren();
+  if (!normalized.length) {
+    const empty = document.createElement("div");
+    empty.className = "status-line";
+    empty.textContent = currentUserToken
+      ? "Нажмите «Обновить список из VK»."
+      : "Сначала подключите пользовательский токен.";
+    list.appendChild(empty);
+    return;
+  }
+  for (const group of normalized) {
+    const row = document.createElement("div");
+    row.className = "token-row";
+    const avatar = document.createElement(group.photoUrl ? "img" : "strong");
+    if (group.photoUrl) {
+      avatar.className = "account-avatar";
+      avatar.src = group.photoUrl;
+      avatar.alt = "";
+    } else {
+      avatar.textContent = String(group.name || "VK").slice(0, 1).toUpperCase();
+    }
+    const name = document.createElement("div");
+    name.className = "token-row__name";
+    const title = document.createElement("strong");
+    title.textContent = group.name || `Сообщество ${group.id}`;
+    const id = document.createElement("span");
+    id.textContent = `club${group.id}`;
+    name.append(title, id);
+    const ready = document.createElement("span");
+    ready.className = "server-status server-status--connected";
+    ready.textContent = "Готово";
+    row.append(avatar, name, ready);
+    list.appendChild(row);
+  }
+}
+
+async function refreshManagedGroups({ quiet = false } = {}) {
+  if (!currentUserToken) {
+    renderManagedGroups([]);
+    if (!quiet) notify("Сначала подключите пользовательский токен.", "warning");
+    return [];
+  }
+  try {
+    const response = await runtimeMessage({ type: "list_managed_communities", refresh: true });
+    renderManagedGroups(response.groups || []);
+    if (!quiet) notify(`Найдено сообществ: ${(response.groups || []).length}.`, "success");
+    return response.groups || [];
+  } catch (error) {
+    if (!quiet) notify(`Список сообществ не обновлён: ${error.message}`, "error");
+    throw error;
+  }
 }
 
 async function renderGroupTokens(tokens) {
@@ -158,35 +218,9 @@ async function renderGroupTokens(tokens) {
       notify(`Токен club${groupId} удалён.`, "success");
     });
 
-    const mode = document.createElement("button");
-    mode.className = "btn btn--secondary btn--compact";
-    mode.textContent =
-      entry.publishAs === "user" ? "Все посты: user" : "Текст: группа";
-    mode.title =
-      "Посты с фото всегда выполняются локальным user token. Переключатель определяет, чем публиковать посты без фотографий.";
-    mode.addEventListener("click", async () => {
-      const data = await chrome.storage.local.get("vkr_group_tokens");
-      const updated = { ...(data.vkr_group_tokens || {}) };
-      const current =
-        typeof updated[groupId] === "string"
-          ? { token: updated[groupId] }
-          : { ...updated[groupId] };
-      current.publishAs =
-        current.publishAs === "user" ? "group" : "user";
-      updated[groupId] = current;
-      await chrome.storage.local.set({ vkr_group_tokens: updated });
-      await renderGroupTokens(updated);
-      notify(
-        current.publishAs === "user"
-          ? `club${groupId}: все посты публикуются локальным user token.`
-          : `club${groupId}: текстовые посты публикуются токеном сообщества; посты с фото — user token.`,
-        "info",
-      );
-    });
-
     const actions = document.createElement("div");
     actions.style.cssText = "display:flex;gap:6px;justify-content:flex-end";
-    actions.append(mode, remove);
+    actions.append(remove);
     row.append(id, name, actions);
     list.appendChild(row);
   }
@@ -254,6 +288,7 @@ async function saveUserToken() {
       "vk_publisher_account_id",
     ]);
     renderUserAccount(profile, token);
+    await refreshManagedGroups({ quiet: true });
     notify(`Аккаунт ${profile.name} подключён.`, "success");
   } catch (error) {
     notify(`Токен не сохранён: ${error.message}`, "error");
@@ -269,8 +304,10 @@ async function clearUserToken() {
     "vk_publisher_account_id",
     "vkr_user_profile",
     "vkr_token_health",
+    "vkr_user_groups",
   ]);
   renderUserAccount(null, "");
+  renderManagedGroups([]);
   notify("Аккаунт отключён от расширения.", "success");
 }
 
@@ -292,7 +329,6 @@ async function saveGroupToken() {
   tokens[String(groupId)] = {
     token,
     label: label || `Сообщество ${groupId}`,
-    publishAs: "group",
     savedAt: Date.now(),
   };
   await chrome.storage.local.set({ vkr_group_tokens: tokens });
@@ -310,10 +346,28 @@ function randomSecret() {
   );
 }
 
+async function persistCommentSettings() {
+  await chrome.storage.local.set({
+    vkr_comment_delay_seconds: Math.max(15, Number($("comment-delay").value) || 60),
+    vkr_comment_execution_mode:
+      $("comment-mode").value === "community_24_7"
+        ? "community_24_7"
+        : "local_user",
+    vkr_comment_group_interval_seconds: Math.max(
+      15,
+      Number($("comment-group-interval").value) || 30,
+    ),
+  });
+}
+
 async function saveServer() {
   const url = $("server-url").value.trim().replace(/\/+$/, "");
   const secret = $("server-secret").value.trim();
   const delaySeconds = Math.max(15, Number($("comment-delay").value) || 60);
+  const commentMode = $("comment-mode").value === "community_24_7"
+    ? "community_24_7"
+    : "local_user";
+  const groupIntervalSeconds = Math.max(15, Number($("comment-group-interval").value) || 30);
 
   if (!/^https:\/\/[a-z0-9.-]+(?::\d+)?$/i.test(url)) {
     notify("Укажите корректный HTTPS URL сервера.", "warning");
@@ -328,6 +382,8 @@ async function saveServer() {
     vkr_server_url: url,
     vkr_server_api_secret: secret,
     vkr_comment_delay_seconds: delaySeconds,
+    vkr_comment_execution_mode: commentMode,
+    vkr_comment_group_interval_seconds: groupIntervalSeconds,
   });
   try {
     await runtimeMessage({ type: "check_server" });
@@ -364,11 +420,14 @@ async function init() {
     }
   }
   renderUserAccount(profile, token);
+  renderManagedGroups(settings.vkr_user_groups || []);
 
   $("server-url").value = settings.vkr_server_url || "";
   $("server-secret").value = settings.vkr_server_api_secret || "";
   $("comment-delay").value =
     settings.vkr_comment_delay_seconds || 60;
+  $("comment-mode").value = settings.vkr_comment_execution_mode || "local_user";
+  $("comment-group-interval").value = settings.vkr_comment_group_interval_seconds || 30;
   await renderGroupTokens(settings.vkr_group_tokens || {});
   await refreshQueue();
 
@@ -411,6 +470,10 @@ document.addEventListener("DOMContentLoaded", () => {
     if (Number.isSafeInteger(userId) && userId > 0) chrome.tabs.create({ url: `https://vk.ru/id${userId}` });
   });
   $("save-group-token").addEventListener("click", saveGroupToken);
+  $("refresh-managed-groups").addEventListener("click", () => void refreshManagedGroups());
+  $("comment-mode").addEventListener("change", () => void persistCommentSettings());
+  $("comment-delay").addEventListener("change", () => void persistCommentSettings());
+  $("comment-group-interval").addEventListener("change", () => void persistCommentSettings());
   $("save-server").addEventListener("click", saveServer);
   $("generate-secret").addEventListener("click", () => {
     $("server-secret").value = randomSecret();

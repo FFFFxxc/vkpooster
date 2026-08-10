@@ -12,6 +12,9 @@ const PUBLISH_QUEUE_KEY = "vkr_publish_queue";
 const POST_HISTORY_KEY = "vkr_posts_history";
 const LOCAL_COMMENTS_KEY = "vkr_scheduled_comments";
 const GROUP_TOKENS_KEY = "vkr_group_tokens";
+const USER_GROUPS_KEY = "vkr_user_groups";
+const COMMENT_MODE_KEY = "vkr_comment_execution_mode";
+const COMMENT_GROUP_INTERVAL_KEY = "vkr_comment_group_interval_seconds";
 const QUEUE_PAUSE_KEY = "vkr_queue_pause";
 const DEFAULT_COMMENT_DELAY_SECONDS = 60;
 const API_INTERVAL_MS = 1200;
@@ -241,6 +244,67 @@ async function getLocalCredentials() {
     userToken:
       (typeof data.vk_token === "string" && data.vk_token.trim()) || "",
   };
+}
+
+function normalizeManagedCommunity(group) {
+  const id = Math.abs(Number(group?.id));
+  if (!Number.isSafeInteger(id) || id <= 0) return null;
+  return {
+    id,
+    name: String(group?.name || `Сообщество ${id}`).slice(0, 160),
+    screenName: String((group && group.screen_name) || group?.screenName || `club${id}`).slice(0, 100),
+    photoUrl: String(group?.photo_100 || group?.photo_50 || group?.photoUrl || ""),
+    refreshedAt: Date.now(),
+  };
+}
+
+async function listManagedCommunities({ refresh = true } = {}) {
+  const stored = await chrome.storage.local.get([USER_GROUPS_KEY, "vk_token"]);
+  const cached = Array.isArray(stored[USER_GROUPS_KEY])
+    ? stored[USER_GROUPS_KEY].map(normalizeManagedCommunity).filter(Boolean)
+    : [];
+  const userToken = String(stored.vk_token || "").trim();
+  if (!refresh || !userToken) return cached;
+
+  const response = await vkApi(
+    "groups.get",
+    {
+      extended: 1,
+      filter: "admin,editor",
+      count: 1000,
+      fields: "photo_50,photo_100,screen_name",
+    },
+    userToken,
+  );
+  const groups = (response?.items || [])
+    .map(normalizeManagedCommunity)
+    .filter(Boolean)
+    .sort((first, second) => first.name.localeCompare(second.name, "ru"));
+  await chrome.storage.local.set({ [USER_GROUPS_KEY]: groups });
+  return groups;
+}
+
+async function mergedCommunityDirectory({ refresh = false } = {}) {
+  const [managed, data] = await Promise.all([
+    listManagedCommunities({ refresh }),
+    chrome.storage.local.get(GROUP_TOKENS_KEY),
+  ]);
+  const known = new Map(managed.map((group) => [group.id, group]));
+  for (const [rawId, rawEntry] of Object.entries(data[GROUP_TOKENS_KEY] || {})) {
+    const id = Math.abs(Number(rawId));
+    if (!Number.isSafeInteger(id) || id <= 0) continue;
+    const entry = typeof rawEntry === "object" && rawEntry ? rawEntry : {};
+    if (!known.has(id)) {
+      known.set(id, {
+        id,
+        name: String(entry.label || `Сообщество ${id}`).slice(0, 160),
+        screenName: `club${id}`,
+        photoUrl: String(entry.photoUrl || entry.photo || ""),
+        refreshedAt: Number(entry.savedAt) || 0,
+      });
+    }
+  }
+  return [...known.values()].sort((first, second) => first.name.localeCompare(second.name, "ru"));
 }
 
 async function getServerConfig() {
@@ -500,10 +564,11 @@ async function scheduleDelayedComment({
   commentAt,
   idempotencyKey,
   groupToken,
+  executionMode = "local_user",
 }) {
   if (!commentText || !postId) return { scheduled: false };
 
-  if (groupToken) {
+  if (executionMode === "community_24_7" && groupToken) {
     try {
       const result = await serverRequest("/api/scheduled-comments", {
         method: "POST",
@@ -543,9 +608,11 @@ async function completePostSideEffects(
   const warnings = [];
   if (job.autoCommentText && postId) {
     try {
-      const storage = await chrome.storage.local.get(
+      const storage = await chrome.storage.local.get([
         "vkr_comment_delay_seconds",
-      );
+        COMMENT_MODE_KEY,
+        COMMENT_GROUP_INTERVAL_KEY,
+      ]);
       const delaySeconds = Math.max(
         15,
         Number(storage.vkr_comment_delay_seconds) ||
@@ -554,7 +621,15 @@ async function completePostSideEffects(
       const publicationBase = job.deferMediaUntilPublish
         ? publishedAt
         : job.pubDate || publishedAt;
-      const commentAt = publicationBase + delaySeconds * 1000;
+      const groupPosition = Math.max(0, job.groups.indexOf(groupId));
+      const groupIntervalSeconds = Math.max(
+        15,
+        Number(storage[COMMENT_GROUP_INTERVAL_KEY]) || 30,
+      );
+      const commentAt =
+        publicationBase +
+        delaySeconds * 1000 +
+        groupPosition * groupIntervalSeconds * 1000;
       const groupTokenEntry =
         credentials.groupTokens[String(groupId)] ||
         credentials.groupTokens[groupId];
@@ -569,6 +644,7 @@ async function completePostSideEffects(
         commentAt,
         idempotencyKey: `${job.id}:${groupId}:${postId}:comment`,
         groupToken,
+        executionMode: storage[COMMENT_MODE_KEY] || "local_user",
       });
       if (scheduled.location === "browser") {
         warnings.push("Комментарий выполнится только пока браузер запущен.");
@@ -877,29 +953,11 @@ async function publishToGroup(job, groupId, credentials, onPublished) {
   }
 
   const sourcePhotos = job.mode === "copy" ? copyPhotoObjects(job.post) : [];
-  const photoPostUsesUser = job.mode === "copy" && sourcePhotos.length > 0;
-  const configuredEntry =
-    credentials.groupTokens[String(groupId)] ||
-    credentials.groupTokens[groupId];
-  const publishWithUser =
-    configuredEntry &&
-    typeof configuredEntry === "object" &&
-    configuredEntry.publishAs === "user";
-  const postWithUser = publishWithUser || photoPostUsesUser;
-  const postingGroupTokens = postWithUser
-    ? Object.fromEntries(
-        Object.entries(credentials.groupTokens).filter(
-          ([configuredGroupId]) =>
-            String(configuredGroupId) !== String(groupId),
-        ),
-      )
-    : credentials.groupTokens;
   const credential = selectCredential({
     groupId,
     operation: job.mode,
-    groupTokens: postingGroupTokens,
+    groupTokens: credentials.groupTokens,
     userToken: credentials.userToken,
-    allowUserFallback: postWithUser,
   });
 
   let postId;
@@ -1923,62 +1981,8 @@ function getClipSource(sourceId) {
 }
 
 async function listClipGroups() {
-  const { groupTokens, userToken } = await getLocalCredentials();
-  const known = new Map(Object.entries(groupTokens)
-    .map(([id, entry]) => ({
-      id: Math.abs(Number(id)),
-      name: typeof entry === "object" && entry?.label ? String(entry.label) : `Сообщество ${id}`,
-      screenName: "",
-      photoUrl: typeof entry === "object" ? String(entry?.photoUrl || entry?.photo || "") : "",
-    }))
-    .filter((group) => Number.isSafeInteger(group.id) && group.id > 0)
-    .map((group) => [group.id, group]));
-  if (userToken) {
-    try {
-      const response = await vkApi(
-        "groups.get",
-        { extended: 1, filter: "admin,editor", count: 100 },
-        userToken,
-      );
-      for (const group of response?.items || []) {
-        const id = Math.abs(Number(group?.id));
-        if (Number.isSafeInteger(id) && id > 0) {
-          known.set(id, {
-            id,
-            name: String(group.name || `Сообщество ${id}`).slice(0, 160),
-            screenName: String(group.screen_name || `club${id}`).slice(0, 100),
-            photoUrl: String(group.photo_100 || group.photo_50 || ""),
-          });
-        }
-      }
-    } catch {
-      // A stale optional user token must not hide communities that have their
-      // own locally configured group token.
-    }
-  }
-  for (const group of known.values()) {
-    if (group.screenName) continue;
-    const entry = groupTokens[String(group.id)] || groupTokens[group.id];
-    const token = typeof entry === "string" ? entry : entry?.token;
-    if (!token) {
-      group.screenName = `club${group.id}`;
-      continue;
-    }
-    try {
-      const response = await vkApi(
-        "groups.getById",
-        { group_ids: group.id, fields: "photo_50,photo_100,screen_name" },
-        token,
-      );
-      const info = response?.groups?.[0] || response?.items?.[0] || response?.[0];
-      group.name = String(info?.name || group.name).slice(0, 160);
-      group.screenName = String(info?.screen_name || `club${group.id}`).slice(0, 100);
-      group.photoUrl = String(info?.photo_100 || info?.photo_50 || group.photoUrl || "");
-    } catch {
-      group.screenName = `club${group.id}`;
-    }
-  }
-  return [...known.values()].sort((first, second) => first.name.localeCompare(second.name, "ru"));
+  const { userToken } = await getLocalCredentials();
+  return mergedCommunityDirectory({ refresh: Boolean(userToken) });
 }
 
 function compactAnalyticsPost(post) {
@@ -2015,10 +2019,9 @@ function blocksRemainingAnalytics(error) {
 
 async function getConfiguredGroupAnalytics({ force = false } = {}) {
   const { groupTokens, userToken } = await getLocalCredentials();
-  const configured = Object.entries(groupTokens)
-    .map(([rawId]) => ({
-      groupId: Math.abs(Number(rawId)),
-    }))
+  const directory = await mergedCommunityDirectory({ refresh: false });
+  const configured = directory
+    .map((group) => ({ groupId: group.id }))
     .filter(
       (group) =>
         Number.isSafeInteger(group.groupId) && group.groupId > 0,
@@ -2390,6 +2393,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const user = await validateUserToken(message.token);
       return { user };
     });
+  }
+  if (type === "list_managed_communities") {
+    return respond(async () => ({
+      groups: await listManagedCommunities({ refresh: message.refresh !== false }),
+    }));
   }
   if (type === "check_server") {
     return respond(async () => {

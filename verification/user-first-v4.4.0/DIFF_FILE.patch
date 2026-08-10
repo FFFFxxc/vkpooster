@@ -1,0 +1,46 @@
+DIFF MANIFEST — VK Reposter Pro 4.4.0 user-first
+BASELINE 6a26065b71b996546accbeccbd116fef05053a28
+BRANCH safe-v4
+
+M README.md
+M background.js
+M manifest.json
+M package.json
+M popup-auth.js
+M popup.html
+M safety-core.js
+M scheduled.js
+M tests/manifest-security.test.js
+M tests/photo-copy-contract.test.js
+M tests/popup-account.test.js
+M tests/safety-core.test.js
+M tests/scheduled-results-ui.test.js
+A tests/user-first-contract.test.js
+
+@@ authorization_mode
+- copy posting preferred a per-community token and needed an explicit user fallback.
++ copy, repost, photo upload, analytics and browser comments select the browser-local user token first.
++ a community token remains a fallback for comments only when no local user token exists.
+
+@@ community_directory
+- scheduled publication and analytics were populated only from vkr_group_tokens.
++ groups.get(filter=admin,editor,count=1000) populates vkr_user_groups.
++ scheduled publication, clips and analytics merge vkr_user_groups with optional vkr_group_tokens.
+
+@@ delayed_comments
+- a configured community token automatically sent the comment job to Render.
++ local_user is the default execution mode and keeps the job in Chrome.
++ community_24_7 is explicit and sends only the matching community token to Render.
++ target communities receive a configurable 30-second default stagger.
+
+@@ popup
++ added a managed-community list with VK names/avatars and refresh action.
++ renamed community tokens to optional 24/7 credentials.
++ added local/server comment mode and per-community interval controls.
+
+@@ version
+- 4.3.3
++ 4.4.0
+
+Full machine-readable source delta is available from the preserved Git baseline:
+git --git-dir="C:/Users/USER/Desktop/NEW/.git" --work-tree="C:/Users/USER/Desktop/Новая папка (5)" diff 6a26065b71b996546accbeccbd116fef05053a28 -- README.md background.js manifest.json package.json popup-auth.js popup.html safety-core.js scheduled.js tests

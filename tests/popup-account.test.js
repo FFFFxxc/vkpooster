@@ -23,3 +23,12 @@ test("popup omits temporary safe-mode warnings and labels", () => {
   assert.doesNotMatch(html, /Cookie-вход|Kate Mobile|Первый тест сделайте|safe queue/);
   assert.doesNotMatch(html, /logo__badge">SAFE/);
 });
+
+test("popup exposes user-first communities and optional 24/7 group tokens", () => {
+  assert.match(html, /id="managed-group-list"/);
+  assert.match(html, /Мои сообщества/);
+  assert.match(html, /Токены сообществ 24\/7 \(необязательно\)/);
+  assert.match(html, /value="local_user"/);
+  assert.match(auth, /list_managed_communities/);
+  assert.match(auth, /vkr_comment_execution_mode/);
+});

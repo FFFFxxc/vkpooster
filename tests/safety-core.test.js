@@ -37,7 +37,7 @@ test("classifyVkError retries only transient transport and VK server errors", ()
   assert.equal(classifyVkError({ error_code: 100 }).action, "fail");
 });
 
-test("selectCredential prefers a group token for copy posting", () => {
+test("selectCredential always uses the local user token for copy posting", () => {
   const selected = selectCredential({
     groupId: 42,
     operation: "copy",
@@ -46,8 +46,8 @@ test("selectCredential prefers a group token for copy posting", () => {
   });
 
   assert.deepEqual(selected, {
-    kind: "group",
-    token: "group-secret",
+    kind: "user",
+    token: "user-secret",
     groupId: 42,
   });
 });
@@ -116,31 +116,40 @@ test("selectCredential never falls back to another community token", () => {
         groupTokens: { "43": "wrong-group-secret" },
         userToken: "",
       }),
-    /сообщества 42/i,
+    /пользовательский токен/i,
   );
 });
 
-test("selectCredential uses a user fallback only when explicitly allowed", () => {
-  assert.throws(
-    () =>
-      selectCredential({
-        groupId: 42,
-        operation: "copy",
-        groupTokens: {},
-        userToken: "user-secret",
-      }),
-    /сообщества 42/i,
-  );
-
+test("selectCredential uses one user token without a community token", () => {
   assert.deepEqual(
     selectCredential({
       groupId: 42,
       operation: "copy",
       groupTokens: {},
       userToken: "user-secret",
-      allowUserFallback: true,
     }),
     { kind: "user", token: "user-secret", groupId: 42 },
+  );
+});
+
+test("selectCredential prefers the user token for comments and keeps group fallback", () => {
+  assert.deepEqual(
+    selectCredential({
+      groupId: 42,
+      operation: "comment",
+      groupTokens: { "42": "group-secret" },
+      userToken: "user-secret",
+    }),
+    { kind: "user", token: "user-secret", groupId: 42 },
+  );
+  assert.deepEqual(
+    selectCredential({
+      groupId: 42,
+      operation: "comment",
+      groupTokens: { "42": "group-secret" },
+      userToken: "",
+    }),
+    { kind: "group", token: "group-secret", groupId: 42 },
   );
 });
 

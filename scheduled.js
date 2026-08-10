@@ -307,7 +307,7 @@ function renderAnalytics() {
   const freshest=Math.max(0,...rows.map((row)=>Number(row.fetchedAt)||0));
   $("analytics-updated").textContent=freshest?`Обновлено ${formatDate(freshest)}`:"";
 
-  if(!rows.length){root.appendChild(make("div","analytics-empty","Нет настроенных токенов сообществ. Добавьте их в настройках расширения."));return;}
+  if(!rows.length){root.appendChild(make("div","analytics-empty","Нет доступных сообществ. Обновите список в настройках расширения."));return;}
   rows.sort((first,second)=>second.perPost-first.perPost||second.interactions-first.interactions||second.views-first.views||groupName(first.groupId).localeCompare(groupName(second.groupId),"ru"));
   const best=Math.max(1,...rows.map((row)=>row.perPost));
   rows.forEach((row,index)=>{
@@ -347,17 +347,18 @@ async function loadAnalytics(force=false) {
 }
 
 async function loadAll() {
-  const local = await chrome.storage.local.get(["vkr_waiting_posts","vkr_posts_history","vkr_scheduled_comments","vkr_group_tokens"]);
+  const local = await chrome.storage.local.get(["vkr_waiting_posts","vkr_posts_history","vkr_scheduled_comments","vkr_group_tokens","vkr_user_groups"]);
   state.waiting=Array.isArray(local.vkr_waiting_posts)?local.vkr_waiting_posts:[];
   state.history=(Array.isArray(local.vkr_posts_history)?local.vkr_posts_history:[]).sort((first,second)=>(Number(second.timestamp)||0)-(Number(first.timestamp)||0));
-  state.configuredGroupIds=Object.keys(local.vkr_group_tokens||{}).map((groupId)=>Math.abs(Number(groupId))).filter((groupId)=>Number.isSafeInteger(groupId)&&groupId>0).sort((first,second)=>first-second);
+  const managed=Array.isArray(local.vkr_user_groups)?local.vkr_user_groups:[];
+  state.configuredGroupIds=[...new Set([...managed.map((group)=>Math.abs(Number(group.id))),...Object.keys(local.vkr_group_tokens||{}).map((groupId)=>Math.abs(Number(groupId)))])].filter((groupId)=>Number.isSafeInteger(groupId)&&groupId>0).sort((first,second)=>first-second);
   const nextDirectorySignature=state.configuredGroupIds.join(",");
   if(nextDirectorySignature!==groupDirectorySignature){groupDirectorySignature=nextDirectorySignature;groupDirectoryLoaded=false;state.groupPhotos={};state.groupScreenNames={};state.analytics.loaded=false;}
-  state.groupLabels=Object.fromEntries(Object.entries(local.vkr_group_tokens||{}).map(([groupId,raw])=>{
+  state.groupLabels=Object.fromEntries([...managed.map((group)=>[String(group.id),group.name||`club${group.id}`]),...Object.entries(local.vkr_group_tokens||{}).map(([groupId,raw])=>{
     const entry=raw&&typeof raw==="object"?raw:{};
     const id=String(Math.abs(Number(groupId)));
     return [id,String(entry.label||"").trim()||`club${id}`];
-  }));
+  })]);
   if(!groupDirectoryLoaded){
     try{
       const directory=await runtimeMessage({type:"list_clip_groups"});
@@ -480,7 +481,7 @@ async function runMaintenance(scope) {
 const tabInfo={waiting:["Ожидания","Посты, которые вы отметили во ВКонтакте"],posts:["Очередь постов","Сначала ближайшие активные задания, затем завершённые — от новых к старым"],comments:["Комментарии 24/7","Серверные и локальные отложенные комментарии"],stories:["Истории","Отложенные истории сообществ с превью"],clips:["Клипы","Одна видимая вкладка VK на публикацию"],history:["История и аналитика","Результаты публикаций и сравнение активности сообществ"]};
 function render(){const cards=$("cards");cards.replaceChildren();const [title,hint]=tabInfo[state.tab];$("section-title").textContent=title;$("section-hint").textContent=hint;$("clear-finished").hidden=state.tab!=="posts";$("analytics-panel").hidden=state.tab!=="history";if(state.tab==="history")renderAnalytics();({waiting:renderWaiting,posts:renderPosts,comments:renderComments,stories:renderStories,clips:renderClips,history:renderHistory})[state.tab]();}
 
-async function openPublish(item){selectedWaitingId=item.id;$("publish-text").value=item.post?.text||"";$("publish-comment").value="";$("publish-date").value="";$("publish-mode").value="copy";$("dialog-preview").textContent=item.post?.text||"Пост без текста";const data=await chrome.storage.local.get("vkr_group_tokens");const root=$("publish-groups");root.replaceChildren();for(const [groupId,raw] of Object.entries(data.vkr_group_tokens||{})){const entry=typeof raw==="object"?raw:{};const label=make("label");const input=make("input");input.type="checkbox";input.name="publish-group";input.value=groupId;label.append(input,document.createTextNode(` ${entry.label||`club${groupId}`}`));root.appendChild(label);}if(!root.children.length)root.appendChild(make("div","meta","Добавьте токены сообществ в настройках."));$("publish-dialog").showModal();}
+async function openPublish(item){selectedWaitingId=item.id;$("publish-text").value=item.post?.text||"";$("publish-comment").value="";$("publish-date").value="";$("publish-mode").value="copy";$("dialog-preview").textContent=item.post?.text||"Пост без текста";const data=await chrome.storage.local.get(["vkr_group_tokens","vkr_user_groups"]);const directory=new Map((Array.isArray(data.vkr_user_groups)?data.vkr_user_groups:[]).map((group)=>[String(group.id),group.name||`club${group.id}`]));for(const [groupId,raw] of Object.entries(data.vkr_group_tokens||{})){const entry=typeof raw==="object"?raw:{};if(!directory.has(String(groupId)))directory.set(String(groupId),entry.label||`club${groupId}`);}const root=$("publish-groups");root.replaceChildren();for(const [groupId,name] of directory){const label=make("label");const input=make("input");input.type="checkbox";input.name="publish-group";input.value=groupId;label.append(input,document.createTextNode(` ${name}`));root.appendChild(label);}if(!root.children.length)root.appendChild(make("div","meta","Подключите пользовательский токен и обновите список сообществ в настройках."));$("publish-dialog").showModal();}
 
 async function submitPublish(event){event.preventDefault();const groups=[...document.querySelectorAll('input[name="publish-group"]:checked')].map((input)=>Number(input.value));if(!groups.length)return toast("Выберите хотя бы одно сообщество.","error");const data=await chrome.storage.local.get(["vkr_waiting_posts","vk_token"]);const item=(data.vkr_waiting_posts||[]).find((candidate)=>candidate.id===selectedWaitingId);if(!item)return toast("Пост больше не найден.","error");const mode=$("publish-mode").value;if(mode==="repost"&&!data.vk_token)return toast("Для репоста нужен локальный пользовательский токен.","error");const pubDate=$("publish-date").value?new Date($("publish-date").value).getTime():null;if(pubDate&&pubDate<=Date.now())return toast("Дата должна быть в будущем.","error");const button=$("publish-submit");button.disabled=true;try{await runtimeMessage({type:"enqueue_publish",post:item.post,groups,mode,text:mode==="copy"?$("publish-text").value:"",pubDate,processedPhotos:[],autoCommentText:$("publish-comment").value.trim(),label:`Пост из ожиданий #${item.post?.id||"?"}`});state.waiting=(data.vkr_waiting_posts||[]).filter((candidate)=>candidate.id!==item.id);await chrome.storage.local.set({vkr_waiting_posts:state.waiting});$("publish-dialog").close();toast("Пост добавлен в последовательную очередь.");await loadAll();}finally{button.disabled=false;}}
 

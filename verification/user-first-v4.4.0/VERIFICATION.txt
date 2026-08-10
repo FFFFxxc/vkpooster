@@ -1,0 +1,31 @@
+BRANCH: safe-v4
+FIELD: authorization_mode=user_first; comment_execution_mode=local_user
+BASELINE_COMMIT: 6a26065b71b996546accbeccbd116fef05053a28
+
+ARTIFACTS:
+MODIFIED_FILE=C:\Users\USER\Desktop\Новая папка (5)\verification\user-first-v4.4.0\MODIFIED_FILE
+DIFF_FILE=C:\Users\USER\Desktop\Новая папка (5)\verification\user-first-v4.4.0\DIFF_FILE.patch
+VERIFICATION=C:\Users\USER\Desktop\Новая папка (5)\verification\user-first-v4.4.0\VERIFICATION.txt
+ROLLBACK=C:\Users\USER\Desktop\Новая папка (5)\verification\user-first-v4.4.0\ROLLBACK.sh
+
+BASELINE
+COMMAND: npm test
+INPUT: working directory C:\Users\USER\Desktop\Новая папка (5), baseline commit 6a26065b71b996546accbeccbd116fef05053a28
+LITERAL OUTPUT/RESULT: extension "tests 88", "pass 88", "fail 0"; server "tests 30", "pass 30", "fail 0"
+EXIT STATUS: 0
+
+MODIFIED
+COMMAND: npm run verify
+INPUT: working directory C:\Users\USER\Desktop\Новая папка (5), version 4.4.0 user-first working copy
+LITERAL OUTPUT/RESULT: extension "tests 93", "pass 93", "fail 0"; server "tests 30", "pass 30", "fail 0"; JavaScript syntax checks completed without an error
+EXIT STATUS: 0
+
+ROLLBACK
+COMMAND: & "C:\Program Files\Git\bin\bash.exe" "C:\Users\USER\Desktop\Новая папка (5)\verification\user-first-v4.4.0\ROLLBACK.sh" "C:\Users\USER\Desktop\Новая папка (5)\verification\user-first-v4.4.0\rollback-copy-20260810195223"
+INPUT: another repository copy with the 4.4.0 modified files copied over baseline commit 6a26065b71b996546accbeccbd116fef05053a28
+LITERAL OUTPUT/RESULT: "ROLLBACK_OK baseline=6a26065b71b996546accbeccbd116fef05053a28"; "RESTORED_VERSION=4.3.3"; "NEW_TEST_EXISTS=False"; safety-core rollback test "tests 15", "pass 15", "fail 0"; "GIT_DIFF_BASELINE_EXIT=0"
+EXIT STATUS: 0
+RESTORED BEHAVIOR/STATUS: Git content matches baseline; version returned to 4.3.3; the added user-first contract test was removed; baseline behavior test "selectCredential prefers a group token for copy posting" passed.
+
+CHANGED RESULT:
+The normal posting path no longer requires community tokens. A single browser-local user token publishes text and photo copies, reposts, reads analytics, and performs local delayed comments. Community tokens remain opt-in for server 24/7 comments and stories only. The user token is never included in a Render/MongoDB request.

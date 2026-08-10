@@ -39,9 +39,9 @@ test("local user token uploads copied photos before the final wall.post", () => 
 });
 
 test("posts with copied photos use local user auth through the final wall.post", () => {
-  assert.match(background, /const photoPostUsesUser = job\.mode === "copy" && sourcePhotos\.length > 0/);
-  assert.match(background, /const postWithUser = publishWithUser \|\| photoPostUsesUser/);
-  assert.match(background, /allowUserFallback: postWithUser/);
+  assert.match(background, /operation: job\.mode/);
+  assert.match(background, /userToken: credentials\.userToken/);
+  assert.doesNotMatch(background, /publishAs === "user"/);
 });
 
 test("VK group-auth photo error is explained as a local user-token problem", () => {
