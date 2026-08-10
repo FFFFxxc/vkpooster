@@ -30,7 +30,7 @@ function runtimeMessage(message) {
 
 function toast(text, type = "info") { clearTimeout(toastTimer); const box=$("toast"); box.textContent=text; box.className=`toast ${type}`; box.hidden=false; toastTimer=setTimeout(()=>{box.hidden=true;},4500); }
 function formatDate(value) { if (!value) return "—"; const date=new Date(value); return Number.isFinite(date.getTime()) ? date.toLocaleString("ru-RU",{dateStyle:"short",timeStyle:"short"}) : "—"; }
-function statusLabel(status) { return ({queued:"В очереди",processing:"Публикуется",paused:"Пауза",done:"Готово",completed:"Готово",partial:"Частично",failed:"Ошибка",cancelled:"Отменено",uploading:"Файл загружается",opening_tab:"Открываю VK",transferring:"Передаю файл"})[status]||status; }
+function statusLabel(status) { return ({queued:"В очереди",processing:"Публикуется",scheduled:"Запланировано в VK",paused:"Пауза",done:"Готово",completed:"Готово",partial:"Частично",failed:"Ошибка",cancelled:"Отменено",uploading:"Файл загружается",opening_tab:"Открываю VK",transferring:"Передаю файл"})[status]||status; }
 function groupName(groupId) { const id=Math.abs(Number(groupId)); return state.groupLabels[String(id)]||`club${id}`; }
 function groupPhoto(groupId) { const id=String(Math.abs(Number(groupId))); return state.groupPhotos[id]||""; }
 function groupUrl(groupId) { const id=String(Math.abs(Number(groupId))); return `https://vk.ru/${state.groupScreenNames[id]||`club${id}`}`; }
@@ -80,6 +80,52 @@ function sortPostJobs(items) {
     if(difference!==0)return firstFinal?-difference:difference;
     return String(first.id||"").localeCompare(String(second.id||""));
   });
+}
+function compactDuration(milliseconds) {
+  const seconds=Math.max(0,Math.ceil(Number(milliseconds||0)/1000));
+  if(seconds<60)return `${seconds} сек`;
+  const minutes=Math.ceil(seconds/60);
+  if(minutes<60)return `${minutes} мин`;
+  const hours=Math.floor(minutes/60);const rest=minutes%60;
+  return rest?`${hours} ч ${rest} мин`:`${hours} ч`;
+}
+function publishProgressSnapshot(job) {
+  const total=Math.max(1,Number(job.progress?.total)||job.groups?.length||1);
+  const completed=Math.min(total,Number(job.progress?.current)||((Number(job.progress?.ok)||0)+(Number(job.progress?.fail)||0)));
+  const media=job.mediaProgress||null;
+  const mediaFraction=media?.total?Math.min(1,Math.max(0,(Number(media.current)||0)/Math.max(1,Number(media.total)||1))):0;
+  const isProcessing=job.status==="processing";
+  const activeFraction=isProcessing?(media?.total?0.12+mediaFraction*0.76:0.45):0;
+  const percent=["completed","done","failed"].includes(job.status)?100:Math.min(99,Math.max(0,Math.round(((completed+activeFraction)/total)*100)));
+  let stage="Ожидает своей очереди";
+  let detail=`Обработано пабликов: ${completed} из ${total}`;
+  if(job.cancelRequested){
+    stage="Останавливаю публикацию";
+    detail="Текущий запрос завершится, новые паблики обрабатываться не будут";
+  }else if(job.status==="queued"&&job.deferMediaUntilPublish&&Number(job.pubDate)>Date.now()){
+    stage=`Ожидание публикации · ещё ${compactDuration(Number(job.pubDate)-Date.now())}`;
+    detail=`Загрузка начнётся ${formatDate(job.pubDate)}`;
+  }else if(isProcessing&&media?.total){
+    stage=`Загружаю фото в ${groupName(media.groupId)}`;
+    detail=`Фото ${Number(media.current)||0} из ${Number(media.total)||0} · паблик ${Math.min(total,(Number(job.activeGroupIndex)||0)+1)} из ${total}`;
+  }else if(isProcessing){
+    stage=job.activeGroupId?`Публикую в ${groupName(job.activeGroupId)}`:"Подготавливаю публикацию";
+  }else if(job.status==="paused"){
+    stage="Публикация приостановлена";
+  }
+  return {percent,stage,detail};
+}
+function appendPostProgress(body,job) {
+  if(!["queued","processing","paused"].includes(job.status))return;
+  const snapshot=publishProgressSnapshot(job);
+  const root=make("div","publish-progress");
+  const header=make("div","publish-progress-head");
+  header.append(make("strong","",snapshot.stage),make("b","",`${snapshot.percent}%`));
+  const detail=make("span","publish-progress-detail",snapshot.detail);
+  const bar=make("div","progress publish-progress-bar");
+  bar.setAttribute("role","progressbar");bar.setAttribute("aria-valuemin","0");bar.setAttribute("aria-valuemax","100");bar.setAttribute("aria-valuenow",String(snapshot.percent));
+  const fill=make("span");fill.style.width=`${snapshot.percent}%`;bar.appendChild(fill);
+  root.append(header,detail,bar);body.appendChild(root);
 }
 function make(tag,className,text) { const node=document.createElement(tag); if(className)node.className=className; if(text!==undefined)node.textContent=text; return node; }
 function addButton(root,text,handler,kind="") { const button=make("button",kind,text); button.type="button"; button.onclick=()=>void Promise.resolve(handler()).catch((error)=>toast(error.message,"error")); root.appendChild(button); return button; }
@@ -399,13 +445,14 @@ function renderWaiting() {
 function renderPosts() {
   if(!state.posts.length)return empty("Локальная очередь постинга пуста.");
   for(const job of sortPostJobs(state.posts)){
-    const progress=job.progress||{};const displayStatus=(progress.ok||0)>0&&(progress.fail||0)>0?"partial":job.status;const {card,body}=baseCard({title:job.label||`Пост #${job.post?.id||"?"}`,status:displayStatus,text:job.post?.text||job.text||"",meta:`${formatDate(postJobTime(job))} · групп ${job.groups?.length||0} · успешно ${progress.ok||0}, ошибок ${progress.fail||0}`,error:job.error,images:postPhotos(job.post,job.previewImages)});
+    const progress=job.progress||{};const nativePending=job.scheduleMode==="native_vk"&&Number(job.pubDate)>Date.now()&&job.status==="completed";const displayStatus=nativePending?"scheduled":(progress.ok||0)>0&&(progress.fail||0)>0?"partial":job.status;const {card,body}=baseCard({title:job.label||`Пост #${job.post?.id||"?"}`,status:displayStatus,text:job.post?.text||job.text||"",meta:`${formatDate(postJobTime(job))} · групп ${job.groups?.length||0} · успешно ${progress.ok||0}, ошибок ${progress.fail||0}`,error:job.error,images:postPhotos(job.post,job.previewImages)});
     card.dataset.jobId=job.id;
     if(state.pause?.jobId===job.id)card.classList.add("paused-target");
     appendPublishResults(body,job.results);
     if(job.deferMediaUntilPublish&&job.status==="queued"){body.appendChild(make("div","media-schedule-note",`Фото будут загружены ${formatDate(job.pubDate)}, затем запись сразу выйдет. Chrome должен быть запущен.`));}
-    if(job.mediaProgress?.total){const media=job.mediaProgress;const status=make("div","media-preparation");status.append(make("span","",`Копирую фото в ${groupName(media.groupId)}`),make("b","",`${media.current||0} / ${media.total}`));const bar=make("div","progress media-progress");const fill=make("span");fill.style.width=`${Math.round((Number(media.current)||0)/Math.max(1,Number(media.total)||1)*100)}%`;bar.appendChild(fill);status.appendChild(bar);body.appendChild(status);}
-    if(["queued","processing"].includes(job.status)){const bar=make("div","progress");const fill=make("span");fill.style.width=`${Math.round(((progress.ok||0)+(progress.fail||0))/Math.max(1,progress.total||job.groups?.length||1)*100)}%`;bar.appendChild(fill);body.appendChild(bar);}
+    if(nativePending){body.appendChild(make("div","media-schedule-note native-schedule-note",`Запись передана в отложку VK и выйдет ${formatDate(job.pubDate)}. Chrome можно закрыть.`));}
+    appendPostProgress(body,job);
+    if(((["queued","processing","paused"].includes(job.status)&&job.pauseReason!=="ambiguous_repost")||nativePending)&&!job.cancelRequested){const root=actions(body);addButton(root,job.status==="processing"?"Остановить":"Отменить",async()=>{if(confirm(nativePending?"Снять эту запись с отложки VK?":"Отменить эту публикацию?")){const result=await runtimeMessage({type:"cancel_publish_job",jobId:job.id});toast(result.requested?"Остановка запрошена. Текущий запрос завершится, затем очередь остановится.":"Публикация отменена.","info");await loadAll();}},"danger");}
     if(job.status==="paused"&&job.pauseReason==="ambiguous_repost"){
       const root=actions(body);addButton(root,"Уже есть — пропустить",async()=>{await runtimeMessage({type:"resolve_ambiguous_repost",jobId:job.id,action:"skip"});await loadAll();},"primary");addButton(root,"Нет — повторить",async()=>{if(confirm("Вы проверили стену и репоста точно нет?")){await runtimeMessage({type:"resolve_ambiguous_repost",jobId:job.id,action:"retry"});await loadAll();}});addButton(root,"Отменить",async()=>{await runtimeMessage({type:"resolve_ambiguous_repost",jobId:job.id,action:"cancel"});await loadAll();},"danger");
     }
@@ -483,7 +530,7 @@ function render(){const cards=$("cards");cards.replaceChildren();const [title,hi
 
 async function openPublish(item){selectedWaitingId=item.id;$("publish-text").value=item.post?.text||"";$("publish-comment").value="";$("publish-date").value="";$("publish-mode").value="copy";$("dialog-preview").textContent=item.post?.text||"Пост без текста";const data=await chrome.storage.local.get(["vkr_group_tokens","vkr_user_groups"]);const directory=new Map((Array.isArray(data.vkr_user_groups)?data.vkr_user_groups:[]).map((group)=>[String(group.id),group.name||`club${group.id}`]));for(const [groupId,raw] of Object.entries(data.vkr_group_tokens||{})){const entry=typeof raw==="object"?raw:{};if(!directory.has(String(groupId)))directory.set(String(groupId),entry.label||`club${groupId}`);}const root=$("publish-groups");root.replaceChildren();for(const [groupId,name] of directory){const label=make("label");const input=make("input");input.type="checkbox";input.name="publish-group";input.value=groupId;label.append(input,document.createTextNode(` ${name}`));root.appendChild(label);}if(!root.children.length)root.appendChild(make("div","meta","Подключите пользовательский токен и обновите список сообществ в настройках."));$("publish-dialog").showModal();}
 
-async function submitPublish(event){event.preventDefault();const groups=[...document.querySelectorAll('input[name="publish-group"]:checked')].map((input)=>Number(input.value));if(!groups.length)return toast("Выберите хотя бы одно сообщество.","error");const data=await chrome.storage.local.get(["vkr_waiting_posts","vk_token"]);const item=(data.vkr_waiting_posts||[]).find((candidate)=>candidate.id===selectedWaitingId);if(!item)return toast("Пост больше не найден.","error");const mode=$("publish-mode").value;if(mode==="repost"&&!data.vk_token)return toast("Для репоста нужен локальный пользовательский токен.","error");const pubDate=$("publish-date").value?new Date($("publish-date").value).getTime():null;if(pubDate&&pubDate<=Date.now())return toast("Дата должна быть в будущем.","error");const button=$("publish-submit");button.disabled=true;try{await runtimeMessage({type:"enqueue_publish",post:item.post,groups,mode,text:mode==="copy"?$("publish-text").value:"",pubDate,processedPhotos:[],autoCommentText:$("publish-comment").value.trim(),label:`Пост из ожиданий #${item.post?.id||"?"}`});state.waiting=(data.vkr_waiting_posts||[]).filter((candidate)=>candidate.id!==item.id);await chrome.storage.local.set({vkr_waiting_posts:state.waiting});$("publish-dialog").close();toast("Пост добавлен в последовательную очередь.");await loadAll();}finally{button.disabled=false;}}
+async function submitPublish(event){event.preventDefault();const groups=[...document.querySelectorAll('input[name="publish-group"]:checked')].map((input)=>Number(input.value));if(!groups.length)return toast("Выберите хотя бы одно сообщество.","error");const data=await chrome.storage.local.get(["vkr_waiting_posts","vk_token"]);const item=(data.vkr_waiting_posts||[]).find((candidate)=>candidate.id===selectedWaitingId);if(!item)return toast("Пост больше не найден.","error");const mode=$("publish-mode").value;if(mode==="repost"&&!data.vk_token)return toast("Для репоста нужен локальный пользовательский токен.","error");const pubDate=$("publish-date").value?new Date($("publish-date").value).getTime():null;if(pubDate&&pubDate<=Date.now())return toast("Дата должна быть в будущем.","error");const button=$("publish-submit");button.disabled=true;try{await runtimeMessage({type:"enqueue_publish",post:item.post,groups,mode,text:mode==="copy"?$("publish-text").value:"",pubDate,scheduleMode:pubDate?"native_vk":"immediate",processedPhotos:[],autoCommentText:$("publish-comment").value.trim(),label:`Пост из ожиданий #${item.post?.id||"?"}`});state.waiting=(data.vkr_waiting_posts||[]).filter((candidate)=>candidate.id!==item.id);await chrome.storage.local.set({vkr_waiting_posts:state.waiting});$("publish-dialog").close();toast("Пост добавлен в последовательную очередь.");await loadAll();}finally{button.disabled=false;}}
 
 async function resumePublishQueue() {
   const result=await runtimeMessage({type:"resume_publish_queue"});
@@ -511,8 +558,9 @@ async function init(){
   $("resume").onclick=resumePublishQueue;
   $("clear-finished").onclick=async()=>{await runtimeMessage({type:"clear_finished_queue"});await loadAll();};
   chrome.storage.onChanged.addListener((changes,areaName)=>{
-    if(areaName!=="local"||!("vkr_queue_pause" in changes))return;
-    state.pause=changes.vkr_queue_pause.newValue||null;updatePauseAlert();
+    if(areaName!=="local")return;
+    if("vkr_queue_pause" in changes){state.pause=changes.vkr_queue_pause.newValue||null;updatePauseAlert();}
+    if("vkr_publish_queue" in changes){state.posts=sortPostJobs(Array.isArray(changes.vkr_publish_queue.newValue)?changes.vkr_publish_queue.newValue:[]);updateCounts();if(state.tab==="posts")render();}
   });
   await loadAll();
   setInterval(loadAll,15_000);

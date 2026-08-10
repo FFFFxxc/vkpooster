@@ -1,0 +1,39 @@
+VK Reposter Pro 4.4.1 queue progress, native scheduling and cancellation manifest
+
+BRANCH: safe-v4
+FIELD: post_queue.progress=live; upload_stage=visible; schedule=native_vk; cancel=enabled
+BASELINE_COMMIT: 278d6e4
+
+ORIGINAL_GIT_BLOB:
+README.md 97bca6ce9a7d5c33c207b19cda0b6dee266c1c2f
+background.js 4d236bd82c8479e49089a726a7d48a93fbd6d38b
+content-shadow-dom.js 121a3fd97d08f0a97cce491d41719c37804325ef
+content.js 20393209488fe437ce868b76d87d667164d0b0cf
+manifest.json 319efcb7ad4ee92a3ef6b1b0222e41e906e7fb86
+package.json a20d204c22aaab867e1d1f8279e7bdc0c914efe8
+popup.html d09edf015f632b392d566369104a1bb7b31cce48
+scheduled-fixes.css d6f020725fbd68bc283094fcc3b7c741dfd6f462
+scheduled.js 44563cd493d5559593a12d1f30e1adede33412d6
+tests/manifest-security.test.js 03f245f22a0afced5b0e0c4ea9202c7fabb8f7e8
+tests/scheduled-results-ui.test.js d4a8f7f43ffa92fb0bd789ca762ecc3b3dbcaf94
+
+MODIFIED_SHA256:
+README.md 8CD7B5C67756B1E6294B63B4C54C950B598BC784791B6E098D14936300C5B05A
+background.js A4CF90A2BEAC1BE2184EB73A44BF78D83DC9D4A9BC941376C15A0D3127A05B2B
+content-shadow-dom.js 4E47E45D31B821D04364E5365C6D4DC3CC3BFB5F48D05099F5771F2786711F86
+content.js 2D27FD464E0DA96BE60676286593D98972DFAE744FDDA3CC06819438E2EE33F0
+manifest.json 690889619364253F97E51EE23EF9287827AAD03AFF869BDE77DA0EC1E93A2B18
+package.json 108149B8782E1978A4A29D67A6725E7067BC950D2A515960CC497569C1FF3B28
+popup.html 9BB7B7511F638F650E9EDB382195DE672C37CC45DF7E24C916D09E34325B0509
+scheduled-fixes.css 5617AFE42F2739464906709F6D373BE6E14E8CEF4113F9A185AF940A87EAECFB
+scheduled.js 0B0796C8C55F7146E1358B5AACA5A877B925448FAD443FFCD435956862E23050
+tests/manifest-security.test.js 0088EE5AA6C527C3D4AA58AD2F6D96F25F926DE718B283DE736839C9E8108318
+tests/scheduled-results-ui.test.js 0D4881C0FE10A486F5311663FEB872E56944185373A76BC55BD23D61904A63C9
+
+RESULT:
+- live queue progress persists the active community, photo count and percentage.
+- copy posts use VK publish_date by default, so Chrome may close after preparation completes.
+- exact photo-time mode remains available and clearly states that Chrome must stay running.
+- old queued copy jobs migrate to the native VK schedule on worker recovery.
+- queued, active, paused and future native-scheduled posts expose a cancellation action.
+- active cancellation stops before the next photo/community; native scheduled records are removed with wall.delete.

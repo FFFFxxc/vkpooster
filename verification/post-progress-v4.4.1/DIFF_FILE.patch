@@ -1,0 +1,719 @@
+diff --git a/README.md b/README.md
+index 97bca6c..2438f42 100644
+--- a/README.md
++++ b/README.md
+@@ -1,4 +1,4 @@
+-# VK Reposter Pro 4.4.0
++# VK Reposter Pro 4.4.1
+
+ Версия объединяет последовательный постинг, отложенные комментарии и Истории,
+ безопасную очистку сообществ и загрузку Клипов через одну видимую вкладку VK.
+diff --git a/background.js b/background.js
+index 4d236bd..6c34a75 100644
+--- a/background.js
++++ b/background.js
+@@ -408,11 +408,17 @@ function sanitizeJob(message) {
+   }
+
+   const mode = message.mode === "repost" ? "repost" : "copy";
+-  const deferMediaUntilPublish = shouldDeferPhotoPublish({
+-    post: message.post,
+-    mode,
+-    pubDate,
+-  });
++  const requestedScheduleMode = String(message.scheduleMode || "native_vk");
++  const scheduleMode = pubDate
++    ? mode === "copy" && requestedScheduleMode !== "exact_photo_time"
++      ? "native_vk"
++      : "exact_photo_time"
++    : "immediate";
++  const deferMediaUntilPublish =
++    Boolean(pubDate) &&
++    (mode === "repost" ||
++      (scheduleMode === "exact_photo_time" &&
++        shouldDeferPhotoPublish({ post: message.post, mode, pubDate })));
+
+   return {
+     id: `pub_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`,
+@@ -421,6 +427,7 @@ function sanitizeJob(message) {
+     mode,
+     text: String(message.text || ""),
+     pubDate,
++    scheduleMode,
+     deferMediaUntilPublish,
+     processedPhotos: Array.isArray(message.processedPhotos)
+       ? message.processedPhotos.length
+@@ -494,11 +501,133 @@ async function persistJob(job) {
+       ? data[PUBLISH_QUEUE_KEY]
+       : [];
+     const index = queue.findIndex((item) => item.id === job.id);
+-    if (index >= 0) queue[index] = job;
++    if (index >= 0) {
++      if (queue[index]?.cancelRequested && !job.cancelRequested) {
++        job.cancelRequested = true;
++        job.cancelRequestedAt = queue[index].cancelRequestedAt || Date.now();
++      }
++      queue[index] = job;
++    }
+     await chrome.storage.local.set({ [PUBLISH_QUEUE_KEY]: queue });
+   });
+ }
+
++async function publishCancellationRequested(job) {
++  if (job.cancelRequested || job.status === "cancelled") return true;
++  const data = await chrome.storage.local.get(PUBLISH_QUEUE_KEY);
++  const stored = (data[PUBLISH_QUEUE_KEY] || []).find((item) => item.id === job.id);
++  if (!stored?.cancelRequested && stored?.status !== "cancelled") return false;
++  job.cancelRequested = true;
++  job.cancelRequestedAt = stored.cancelRequestedAt || Date.now();
++  return true;
++}
++
++function publishCancelledError() {
++  const error = new Error("Публикация отменена пользователем.");
++  error.cancelled = true;
++  error.nonRetryable = true;
++  return error;
++}
++
++async function cancelPublishJob(jobId) {
++  const normalizedId = String(jobId || "").trim();
++  if (!normalizedId) throw new Error("Не указано задание публикации.");
++
++  let jobSnapshot = null;
++  let requested = false;
++  await withStorageLock(PUBLISH_QUEUE_KEY, async () => {
++    const data = await chrome.storage.local.get(PUBLISH_QUEUE_KEY);
++    const queue = Array.isArray(data[PUBLISH_QUEUE_KEY]) ? data[PUBLISH_QUEUE_KEY] : [];
++    const index = queue.findIndex((item) => item.id === normalizedId);
++    if (index < 0) throw new Error("Задание публикации больше не найдено.");
++    const job = { ...queue[index] };
++    const nativePending =
++      job.scheduleMode === "native_vk" &&
++      Number(job.pubDate) > Date.now() &&
++      Array.isArray(job.results) &&
++      job.results.some((result) => result?.ok && result?.postId);
++    if (["cancelled", "failed"].includes(job.status)) {
++      jobSnapshot = job;
++      return;
++    }
++    if (job.status === "completed" && !nativePending) {
++      throw new Error("Эта публикация уже вышла и не находится в отложке.");
++    }
++    if (job.status === "processing") {
++      queue[index] = {
++        ...job,
++        cancelRequested: true,
++        cancelRequestedAt: Date.now(),
++      };
++      requested = true;
++      jobSnapshot = queue[index];
++    } else if (nativePending) {
++      jobSnapshot = job;
++    } else {
++      queue[index] = {
++        ...job,
++        status: "cancelled",
++        error: null,
++        completedAt: Date.now(),
++      };
++      delete queue[index].processingStartedAt;
++      delete queue[index].mediaProgress;
++      delete queue[index].activeGroupId;
++      delete queue[index].activeGroupIndex;
++      jobSnapshot = queue[index];
++    }
++    await chrome.storage.local.set({ [PUBLISH_QUEUE_KEY]: queue });
++  });
++
++  const nativeResults =
++    jobSnapshot?.status === "completed" &&
++    jobSnapshot?.scheduleMode === "native_vk" &&
++    Number(jobSnapshot.pubDate) > Date.now()
++      ? (jobSnapshot.results || []).filter((result) => result?.ok && result?.postId)
++      : [];
++  if (nativeResults.length) {
++    const credentials = await getLocalCredentials();
++    const failures = [];
++    for (const result of nativeResults) {
++      try {
++        await vkApi(
++          "wall.delete",
++          { owner_id: -Math.abs(Number(result.gid)), post_id: result.postId },
++          credentials.userToken,
++        );
++      } catch (error) {
++        failures.push(`${result.gid}: ${error.message}`);
++      }
++    }
++    if (failures.length) {
++      throw new Error(`Не удалось снять часть записей с отложки VK: ${failures.join("; ")}`);
++    }
++    await withStorageLock(PUBLISH_QUEUE_KEY, async () => {
++      const data = await chrome.storage.local.get(PUBLISH_QUEUE_KEY);
++      const queue = Array.isArray(data[PUBLISH_QUEUE_KEY]) ? data[PUBLISH_QUEUE_KEY] : [];
++      const index = queue.findIndex((item) => item.id === normalizedId);
++      if (index >= 0) {
++        queue[index] = {
++          ...queue[index],
++          status: "cancelled",
++          error: null,
++          completedAt: Date.now(),
++          cancelledNativePosts: nativeResults.length,
++        };
++        await chrome.storage.local.set({ [PUBLISH_QUEUE_KEY]: queue });
++      }
++    });
++  }
++
++  const pause = (await chrome.storage.local.get(QUEUE_PAUSE_KEY))[QUEUE_PAUSE_KEY];
++  if (pause?.jobId === normalizedId && !requested) {
++    await chrome.storage.local.remove(QUEUE_PAUSE_KEY);
++  }
++  await updateBadge();
++  await scheduleNextPublishAlarm();
++  return { cancelled: !requested, requested, removedFromVk: nativeResults.length };
++}
++
+ async function writePublishHistory(job) {
+   await withStorageLock(POST_HISTORY_KEY, async () => {
+     const data = await chrome.storage.local.get(POST_HISTORY_KEY);
+@@ -917,6 +1046,7 @@ async function prepareOwnedCopyAttachments(job, groupId, token) {
+
+   const checkpoint = mediaCheckpoint(job, groupId, photos.length);
+   for (let index = checkpoint.photos.length; index < photos.length; index += 1) {
++    if (await publishCancellationRequested(job)) throw publishCancelledError();
+     job.mediaProgress = {
+       groupId,
+       current: index,
+@@ -935,6 +1065,7 @@ async function prepareOwnedCopyAttachments(job, groupId, token) {
+     job.mediaProgress.current = checkpoint.photos.length;
+     await persistJob(job);
+   }
++  if (await publishCancellationRequested(job)) throw publishCancelledError();
+   job.mediaProgress = {
+     groupId,
+     current: photos.length,
+@@ -1021,6 +1152,22 @@ async function publishToGroup(job, groupId, credentials, onPublished) {
+   return { ...checkpoint, sideEffectsPending: false, warning };
+ }
+
++function syncPublishJobProgress(job) {
++  const total = Array.isArray(job.groups) ? job.groups.length : 0;
++  const results = Array.isArray(job.results) ? job.results : [];
++  const ok = results.filter((result) => result?.ok === true).length;
++  const fail = results.filter((result) => result?.ok === false).length;
++  const current = Math.min(total, ok + fail);
++  job.progress = {
++    total,
++    current,
++    ok,
++    fail,
++    percent: total > 0 ? Math.round((current / total) * 100) : 0,
++  };
++  return job.progress;
++}
++
+ async function executePublishJob(job) {
+   const credentials = await getLocalCredentials();
+   job.results = Array.isArray(job.results) ? job.results : [];
+@@ -1030,6 +1177,10 @@ async function executePublishJob(job) {
+   }
+
+   for (const groupId of job.groups) {
++    if (await publishCancellationRequested(job)) {
++      job.status = "cancelled";
++      break;
++    }
+     const existingIndex = job.results.findIndex(
+       (result) => Number(result.gid) === Number(groupId),
+     );
+@@ -1055,6 +1206,11 @@ async function executePublishJob(job) {
+       continue;
+     }
+
++    job.activeGroupId = groupId;
++    job.activeGroupIndex = job.groups.indexOf(groupId);
++    syncPublishJobProgress(job);
++    await persistJob(job);
++
+     let attempt = 0;
+     while (attempt < 2) {
+       try {
+@@ -1064,6 +1220,7 @@ async function executePublishJob(job) {
+           credentials,
+           async (checkpoint) => {
+             job.results.push(checkpoint);
++            syncPublishJobProgress(job);
+             await persistJob(job);
+           },
+         );
+@@ -1071,9 +1228,15 @@ async function executePublishJob(job) {
+           (item) => Number(item.gid) === Number(groupId),
+         );
+         job.results[checkpointIndex] = result;
++        syncPublishJobProgress(job);
+         await persistJob(job);
+         break;
+       } catch (error) {
++        if (error.cancelled) {
++          job.status = "cancelled";
++          job.error = null;
++          break;
++        }
+         attempt += 1;
+         const decision = error.nonRetryable
+           ? { action: "fail", code: error.code || null, reason: "media" }
+@@ -1105,19 +1268,44 @@ async function executePublishJob(job) {
+             error: error.message,
+             code: error.code || null,
+           });
++          syncPublishJobProgress(job);
+           await persistJob(job);
+         }
+         break;
+       }
+     }
+-    if (job.status === "paused") break;
++    if (["paused", "cancelled"].includes(job.status)) break;
+   }
+
+-  const ok = job.results.filter((result) => result.ok).length;
+-  const fail = job.results.filter((result) => !result.ok).length;
+-  job.progress = { total: job.groups.length, ok, fail };
++  const { ok, fail } = syncPublishJobProgress(job);
+
+-  if (job.status !== "paused") {
++  if (job.status === "cancelled") {
++    const cancellationFailures = [];
++    if (job.scheduleMode === "native_vk" && Number(job.pubDate) > Date.now()) {
++      for (const result of job.results.filter((item) => item?.ok && item?.postId)) {
++        try {
++          await vkApi(
++            "wall.delete",
++            { owner_id: -Math.abs(Number(result.gid)), post_id: result.postId },
++            credentials.userToken,
++          );
++        } catch (error) {
++          cancellationFailures.push(`${result.gid}: ${error.message}`);
++        }
++      }
++    }
++    job.error = cancellationFailures.length
++      ? `Остановка выполнена, но часть записей не снята с отложки VK: ${cancellationFailures.join("; ")}`
++      : null;
++    job.completedAt = Date.now();
++    delete job.cancelRequested;
++    delete job.cancelRequestedAt;
++    delete job.pausedGroupId;
++    delete job.mediaProgress;
++    delete job.preparedMedia;
++    delete job.activeGroupId;
++    delete job.activeGroupIndex;
++  } else if (job.status !== "paused") {
+     job.status = ok > 0 ? "completed" : "failed";
+     job.error =
+       ok > 0 ? null : job.results.find((result) => !result.ok)?.error;
+@@ -1125,6 +1313,8 @@ async function executePublishJob(job) {
+     delete job.pausedGroupId;
+     delete job.mediaProgress;
+     delete job.preparedMedia;
++    delete job.activeGroupId;
++    delete job.activeGroupIndex;
+   }
+   delete job.processingStartedAt;
+   return job;
+@@ -1134,15 +1324,20 @@ async function notifyJob(job) {
+   const ok = job.results.filter((result) => result.ok).length;
+   const fail = job.results.filter((result) => !result.ok).length;
+   const paused = job.status === "paused";
++  const cancelled = job.status === "cancelled";
+   await chrome.notifications.create(`vkr-job-${job.id}`, {
+     type: "basic",
+     iconUrl: "icons/icon128.png",
+-    title: paused
++    title: cancelled
++      ? "Публикация отменена"
++      : paused
+       ? "Публикация приостановлена"
+       : ok
+         ? "Публикация завершена"
+         : "Ошибка публикации",
+-    message: paused
++    message: cancelled
++      ? job.error || `${job.label}: дальнейшая публикация остановлена.`
++      : paused
+       ? job.error || "VK запросил проверку."
+       : `${job.label}: успешно ${ok}, ошибок ${fail}.`,
+     priority: paused ? 2 : 1,
+@@ -1223,6 +1418,20 @@ async function recoverQueue() {
+           pubDate: preparedJob.pubDate,
+         });
+       }
++      if (
++        preparedJob.status === "queued" &&
++        preparedJob.mode === "copy" &&
++        preparedJob.deferMediaUntilPublish === true &&
++        preparedJob.scheduleMode !== "exact_photo_time"
++      ) {
++        preparedJob.deferMediaUntilPublish = false;
++        preparedJob.scheduleMode = "native_vk";
++        preparedJob.migratedToNativeScheduleAt = Date.now();
++      } else if (preparedJob.pubDate && !preparedJob.scheduleMode) {
++        preparedJob.scheduleMode = preparedJob.deferMediaUntilPublish
++          ? "exact_photo_time"
++          : "native_vk";
++      }
+       const startedAt = Date.parse(preparedJob.processingStartedAt || "");
+       const stale =
+         preparedJob.status === "processing" &&
+@@ -2378,6 +2587,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+       return { queued: true, jobId: job.id, results: [] };
+     });
+   }
++  if (type === "cancel_publish_job") {
++    return respond(() => cancelPublishJob(message.jobId));
++  }
+   if (type === "load_post") {
+     return respond(() => loadPost(message));
+   }
+diff --git a/content-shadow-dom.js b/content-shadow-dom.js
+index 121a3fd..827a548 100644
+--- a/content-shadow-dom.js
++++ b/content-shadow-dom.js
+@@ -228,6 +228,16 @@ function getModalHTML() {
+                 <span style="font-size: 13px; color: var(--vkr-text-secondary);">Интервал между группами (мин):</span>
+                 <input type="number" id="vkr-interval" value="0" min="0" max="1440">
+               </div>
++              <label style="display: grid; gap: 6px; width: 100%;">
++                <span style="font-size: 13px; color: var(--vkr-text-secondary);">Как подготовить отложенный пост:</span>
++                <select id="vkr-schedule-mode" style="width: 100%; padding: 10px; color: var(--vkr-text-primary); background: var(--vkr-bg-tertiary); border: 1px solid var(--vkr-border); border-radius: var(--vkr-radius-md);">
++                  <option value="native_vk">Надёжно: передать в отложку VK сейчас</option>
++                  <option value="exact_photo_time">Точная дата фото: загрузить в момент выхода</option>
++                </select>
++              </label>
++              <div id="vkr-schedule-mode-note" style="padding: 10px 12px; border: 1px solid rgba(56, 189, 248, .28); border-radius: var(--vkr-radius-md); background: rgba(56, 189, 248, .08); color: var(--vkr-text-secondary); font-size: 12px; line-height: 1.45;">
++                Фото загрузятся сейчас, запись попадёт в отложку VK. После завершения подготовки Chrome можно закрыть.
++              </div>
+             </div>
+
+             <!-- Analytics -->
+diff --git a/content.js b/content.js
+index 2039320..62250e9 100644
+--- a/content.js
++++ b/content.js
+@@ -2041,6 +2041,15 @@ function bindModalEvents() {
+       btn.classList.add("active");
+       $("vkr-text-section").style.display =
+         mode === "repost" ? "none" : "block";
++      if (mode === "repost") {
++        $("vkr-schedule-mode").value = "exact_photo_time";
++        $("vkr-schedule-mode").disabled = true;
++        $("vkr-schedule-mode-note").textContent =
++          "Отложенный репост запускается в указанное время. В этот момент Chrome и расширение должны быть запущены.";
++      } else {
++        $("vkr-schedule-mode").disabled = false;
++        $("vkr-schedule-mode").dispatchEvent(new Event("change"));
++      }
+       // Re-uploading edited media is intentionally disabled in safe mode.
+       $("vkr-watermark-section").style.display = "none";
+     };
+@@ -2433,6 +2442,13 @@ function bindModalEvents() {
+     }
+   };
+
++  $("vkr-schedule-mode").onchange = (event) => {
++    const exact = event.target.value === "exact_photo_time";
++    $("vkr-schedule-mode-note").textContent = exact
++      ? "Фото загрузятся в указанное время. В этот момент Chrome и расширение должны быть запущены."
++      : "Фото загрузятся сейчас, запись попадёт в отложку VK. После завершения подготовки Chrome можно закрыть.";
++  };
++
+   function populateAnalyticsGroupSelect() {
+     const select = $("vkr-analytics-group");
+     select.innerHTML = "";
+@@ -3083,6 +3099,7 @@ async function sendToGroups() {
+     // Schedule
+     let pubDate = null;
+     let intervalMinutes = 0;
++    let scheduleMode = "immediate";
+     if ($("vkr-schedule").checked) {
+       const d = $("vkr-date").value;
+       const t = $("vkr-time").value;
+@@ -3098,6 +3115,7 @@ async function sendToGroups() {
+         return;
+       }
+       intervalMinutes = parseInt($("vkr-interval")?.value || "0") || 0;
++      scheduleMode = $("vkr-schedule-mode")?.value || "native_vk";
+     }
+
+     // Autodelete
+@@ -3142,6 +3160,7 @@ async function sendToGroups() {
+       mode: mode,
+       text: txt || "",
+       pubDate: pubDate,
++      scheduleMode: scheduleMode,
+       processedPhotos: processedPhotos,
+       token: tok,
+       label: label,
+diff --git a/manifest.json b/manifest.json
+index 319efcb..28a7a3c 100644
+--- a/manifest.json
++++ b/manifest.json
+@@ -1,7 +1,7 @@
+ {
+   "manifest_version": 3,
+   "name": "VK Reposter Pro",
+-  "version": "4.4.0",
++  "version": "4.4.1",
+   "description": "Безопасная очередь постинга и отложенных комментариев для сообществ ВКонтакте",
+   "permissions": [
+     "storage",
+diff --git a/package.json b/package.json
+index a20d204..8555067 100644
+--- a/package.json
++++ b/package.json
+@@ -1,6 +1,6 @@
+ {
+   "name": "vk-reposter-pro",
+-  "version": "4.4.0",
++  "version": "4.4.1",
+   "description": "VK Reposter Pro — расширение для репоста в ВКонтакте",
+   "private": true,
+   "scripts": {
+diff --git a/popup.html b/popup.html
+index d09edf0..33e6cf2 100644
+--- a/popup.html
++++ b/popup.html
+@@ -39,7 +39,7 @@
+         <div class="logo">
+           <div id="logo-lottie" class="logo__lottie"></div>
+         </div>
+-        <div class="version">v4.4.0</div>
++        <div class="version">v4.4.1</div>
+       </div>
+     </header>
+
+diff --git a/scheduled-fixes.css b/scheduled-fixes.css
+index d6f0207..4dc0133 100644
+--- a/scheduled-fixes.css
++++ b/scheduled-fixes.css
+@@ -1147,6 +1147,58 @@ button:disabled {
+   margin-top: 7px;
+ }
+
++.status.scheduled {
++  color: #7dd3fc;
++  background: rgba(56, 189, 248, 0.12);
++}
++
++.native-schedule-note {
++  border-color: rgba(56, 189, 248, 0.28);
++  background: rgba(14, 116, 144, 0.12);
++  color: #bae6fd;
++}
++
++.publish-progress {
++  margin-top: 12px;
++  padding: 11px 12px;
++  border: 1px solid rgba(125, 211, 252, .22);
++  border-radius: 12px;
++  background: linear-gradient(135deg, rgba(56, 189, 248, .08), rgba(139, 110, 255, .08));
++}
++
++.publish-progress-head {
++  display: flex;
++  align-items: flex-start;
++  justify-content: space-between;
++  gap: 10px;
++  color: #dbeafe;
++  font-size: 11px;
++}
++
++.publish-progress-head strong {
++  min-width: 0;
++  line-height: 1.35;
++}
++
++.publish-progress-head b {
++  flex: 0 0 auto;
++  color: #7dd3fc;
++  font-variant-numeric: tabular-nums;
++  font-size: 12px;
++}
++
++.publish-progress-detail {
++  display: block;
++  margin-top: 4px;
++  color: #9e99b6;
++  font-size: 10px;
++}
++
++.publish-progress-bar {
++  margin-top: 8px;
++  height: 8px;
++}
++
+ /* ============================================
+    УЛУЧШЕНИЯ ДИАЛОГОВ И МОДАЛЬНЫХ ОКОН
+    ============================================ */
+diff --git a/scheduled.js b/scheduled.js
+index 44563cd..08bef3b 100644
+--- a/scheduled.js
++++ b/scheduled.js
+@@ -30,7 +30,7 @@ function runtimeMessage(message) {
+
+ function toast(text, type = "info") { clearTimeout(toastTimer); const box=$("toast"); box.textContent=text; box.className=`toast ${type}`; box.hidden=false; toastTimer=setTimeout(()=>{box.hidden=true;},4500); }
+ function formatDate(value) { if (!value) return "—"; const date=new Date(value); return Number.isFinite(date.getTime()) ? date.toLocaleString("ru-RU",{dateStyle:"short",timeStyle:"short"}) : "—"; }
+-function statusLabel(status) { return ({queued:"В очереди",processing:"Публикуется",paused:"Пауза",done:"Готово",completed:"Готово",partial:"Частично",failed:"Ошибка",cancelled:"Отменено",uploading:"Файл загружается",opening_tab:"Открываю VK",transferring:"Передаю файл"})[status]||status; }
++function statusLabel(status) { return ({queued:"В очереди",processing:"Публикуется",scheduled:"Запланировано в VK",paused:"Пауза",done:"Готово",completed:"Готово",partial:"Частично",failed:"Ошибка",cancelled:"Отменено",uploading:"Файл загружается",opening_tab:"Открываю VK",transferring:"Передаю файл"})[status]||status; }
+ function groupName(groupId) { const id=Math.abs(Number(groupId)); return state.groupLabels[String(id)]||`club${id}`; }
+ function groupPhoto(groupId) { const id=String(Math.abs(Number(groupId))); return state.groupPhotos[id]||""; }
+ function groupUrl(groupId) { const id=String(Math.abs(Number(groupId))); return `https://vk.ru/${state.groupScreenNames[id]||`club${id}`}`; }
+@@ -81,6 +81,52 @@ function sortPostJobs(items) {
+     return String(first.id||"").localeCompare(String(second.id||""));
+   });
+ }
++function compactDuration(milliseconds) {
++  const seconds=Math.max(0,Math.ceil(Number(milliseconds||0)/1000));
++  if(seconds<60)return `${seconds} сек`;
++  const minutes=Math.ceil(seconds/60);
++  if(minutes<60)return `${minutes} мин`;
++  const hours=Math.floor(minutes/60);const rest=minutes%60;
++  return rest?`${hours} ч ${rest} мин`:`${hours} ч`;
++}
++function publishProgressSnapshot(job) {
++  const total=Math.max(1,Number(job.progress?.total)||job.groups?.length||1);
++  const completed=Math.min(total,Number(job.progress?.current)||((Number(job.progress?.ok)||0)+(Number(job.progress?.fail)||0)));
++  const media=job.mediaProgress||null;
++  const mediaFraction=media?.total?Math.min(1,Math.max(0,(Number(media.current)||0)/Math.max(1,Number(media.total)||1))):0;
++  const isProcessing=job.status==="processing";
++  const activeFraction=isProcessing?(media?.total?0.12+mediaFraction*0.76:0.45):0;
++  const percent=["completed","done","failed"].includes(job.status)?100:Math.min(99,Math.max(0,Math.round(((completed+activeFraction)/total)*100)));
++  let stage="Ожидает своей очереди";
++  let detail=`Обработано пабликов: ${completed} из ${total}`;
++  if(job.cancelRequested){
++    stage="Останавливаю публикацию";
++    detail="Текущий запрос завершится, новые паблики обрабатываться не будут";
++  }else if(job.status==="queued"&&job.deferMediaUntilPublish&&Number(job.pubDate)>Date.now()){
++    stage=`Ожидание публикации · ещё ${compactDuration(Number(job.pubDate)-Date.now())}`;
++    detail=`Загрузка начнётся ${formatDate(job.pubDate)}`;
++  }else if(isProcessing&&media?.total){
++    stage=`Загружаю фото в ${groupName(media.groupId)}`;
++    detail=`Фото ${Number(media.current)||0} из ${Number(media.total)||0} · паблик ${Math.min(total,(Number(job.activeGroupIndex)||0)+1)} из ${total}`;
++  }else if(isProcessing){
++    stage=job.activeGroupId?`Публикую в ${groupName(job.activeGroupId)}`:"Подготавливаю публикацию";
++  }else if(job.status==="paused"){
++    stage="Публикация приостановлена";
++  }
++  return {percent,stage,detail};
++}
++function appendPostProgress(body,job) {
++  if(!["queued","processing","paused"].includes(job.status))return;
++  const snapshot=publishProgressSnapshot(job);
++  const root=make("div","publish-progress");
++  const header=make("div","publish-progress-head");
++  header.append(make("strong","",snapshot.stage),make("b","",`${snapshot.percent}%`));
++  const detail=make("span","publish-progress-detail",snapshot.detail);
++  const bar=make("div","progress publish-progress-bar");
++  bar.setAttribute("role","progressbar");bar.setAttribute("aria-valuemin","0");bar.setAttribute("aria-valuemax","100");bar.setAttribute("aria-valuenow",String(snapshot.percent));
++  const fill=make("span");fill.style.width=`${snapshot.percent}%`;bar.appendChild(fill);
++  root.append(header,detail,bar);body.appendChild(root);
++}
+ function make(tag,className,text) { const node=document.createElement(tag); if(className)node.className=className; if(text!==undefined)node.textContent=text; return node; }
+ function addButton(root,text,handler,kind="") { const button=make("button",kind,text); button.type="button"; button.onclick=()=>void Promise.resolve(handler()).catch((error)=>toast(error.message,"error")); root.appendChild(button); return button; }
+
+@@ -399,13 +445,14 @@ function renderWaiting() {
+ function renderPosts() {
+   if(!state.posts.length)return empty("Локальная очередь постинга пуста.");
+   for(const job of sortPostJobs(state.posts)){
+-    const progress=job.progress||{};const displayStatus=(progress.ok||0)>0&&(progress.fail||0)>0?"partial":job.status;const {card,body}=baseCard({title:job.label||`Пост #${job.post?.id||"?"}`,status:displayStatus,text:job.post?.text||job.text||"",meta:`${formatDate(postJobTime(job))} · групп ${job.groups?.length||0} · успешно ${progress.ok||0}, ошибок ${progress.fail||0}`,error:job.error,images:postPhotos(job.post,job.previewImages)});
++    const progress=job.progress||{};const nativePending=job.scheduleMode==="native_vk"&&Number(job.pubDate)>Date.now()&&job.status==="completed";const displayStatus=nativePending?"scheduled":(progress.ok||0)>0&&(progress.fail||0)>0?"partial":job.status;const {card,body}=baseCard({title:job.label||`Пост #${job.post?.id||"?"}`,status:displayStatus,text:job.post?.text||job.text||"",meta:`${formatDate(postJobTime(job))} · групп ${job.groups?.length||0} · успешно ${progress.ok||0}, ошибок ${progress.fail||0}`,error:job.error,images:postPhotos(job.post,job.previewImages)});
+     card.dataset.jobId=job.id;
+     if(state.pause?.jobId===job.id)card.classList.add("paused-target");
+     appendPublishResults(body,job.results);
+     if(job.deferMediaUntilPublish&&job.status==="queued"){body.appendChild(make("div","media-schedule-note",`Фото будут загружены ${formatDate(job.pubDate)}, затем запись сразу выйдет. Chrome должен быть запущен.`));}
+-    if(job.mediaProgress?.total){const media=job.mediaProgress;const status=make("div","media-preparation");status.append(make("span","",`Копирую фото в ${groupName(media.groupId)}`),make("b","",`${media.current||0} / ${media.total}`));const bar=make("div","progress media-progress");const fill=make("span");fill.style.width=`${Math.round((Number(media.current)||0)/Math.max(1,Number(media.total)||1)*100)}%`;bar.appendChild(fill);status.appendChild(bar);body.appendChild(status);}
+-    if(["queued","processing"].includes(job.status)){const bar=make("div","progress");const fill=make("span");fill.style.width=`${Math.round(((progress.ok||0)+(progress.fail||0))/Math.max(1,progress.total||job.groups?.length||1)*100)}%`;bar.appendChild(fill);body.appendChild(bar);}
++    if(nativePending){body.appendChild(make("div","media-schedule-note native-schedule-note",`Запись передана в отложку VK и выйдет ${formatDate(job.pubDate)}. Chrome можно закрыть.`));}
++    appendPostProgress(body,job);
++    if(((["queued","processing","paused"].includes(job.status)&&job.pauseReason!=="ambiguous_repost")||nativePending)&&!job.cancelRequested){const root=actions(body);addButton(root,job.status==="processing"?"Остановить":"Отменить",async()=>{if(confirm(nativePending?"Снять эту запись с отложки VK?":"Отменить эту публикацию?")){const result=await runtimeMessage({type:"cancel_publish_job",jobId:job.id});toast(result.requested?"Остановка запрошена. Текущий запрос завершится, затем очередь остановится.":"Публикация отменена.","info");await loadAll();}},"danger");}
+     if(job.status==="paused"&&job.pauseReason==="ambiguous_repost"){
+       const root=actions(body);addButton(root,"Уже есть — пропустить",async()=>{await runtimeMessage({type:"resolve_ambiguous_repost",jobId:job.id,action:"skip"});await loadAll();},"primary");addButton(root,"Нет — повторить",async()=>{if(confirm("Вы проверили стену и репоста точно нет?")){await runtimeMessage({type:"resolve_ambiguous_repost",jobId:job.id,action:"retry"});await loadAll();}});addButton(root,"Отменить",async()=>{await runtimeMessage({type:"resolve_ambiguous_repost",jobId:job.id,action:"cancel"});await loadAll();},"danger");
+     }
+@@ -483,7 +530,7 @@ function render(){const cards=$("cards");cards.replaceChildren();const [title,hi
+
+ async function openPublish(item){selectedWaitingId=item.id;$("publish-text").value=item.post?.text||"";$("publish-comment").value="";$("publish-date").value="";$("publish-mode").value="copy";$("dialog-preview").textContent=item.post?.text||"Пост без текста";const data=await chrome.storage.local.get(["vkr_group_tokens","vkr_user_groups"]);const directory=new Map((Array.isArray(data.vkr_user_groups)?data.vkr_user_groups:[]).map((group)=>[String(group.id),group.name||`club${group.id}`]));for(const [groupId,raw] of Object.entries(data.vkr_group_tokens||{})){const entry=typeof raw==="object"?raw:{};if(!directory.has(String(groupId)))directory.set(String(groupId),entry.label||`club${groupId}`);}const root=$("publish-groups");root.replaceChildren();for(const [groupId,name] of directory){const label=make("label");const input=make("input");input.type="checkbox";input.name="publish-group";input.value=groupId;label.append(input,document.createTextNode(` ${name}`));root.appendChild(label);}if(!root.children.length)root.appendChild(make("div","meta","Подключите пользовательский токен и обновите список сообществ в настройках."));$("publish-dialog").showModal();}
+
+-async function submitPublish(event){event.preventDefault();const groups=[...document.querySelectorAll('input[name="publish-group"]:checked')].map((input)=>Number(input.value));if(!groups.length)return toast("Выберите хотя бы одно сообщество.","error");const data=await chrome.storage.local.get(["vkr_waiting_posts","vk_token"]);const item=(data.vkr_waiting_posts||[]).find((candidate)=>candidate.id===selectedWaitingId);if(!item)return toast("Пост больше не найден.","error");const mode=$("publish-mode").value;if(mode==="repost"&&!data.vk_token)return toast("Для репоста нужен локальный пользовательский токен.","error");const pubDate=$("publish-date").value?new Date($("publish-date").value).getTime():null;if(pubDate&&pubDate<=Date.now())return toast("Дата должна быть в будущем.","error");const button=$("publish-submit");button.disabled=true;try{await runtimeMessage({type:"enqueue_publish",post:item.post,groups,mode,text:mode==="copy"?$("publish-text").value:"",pubDate,processedPhotos:[],autoCommentText:$("publish-comment").value.trim(),label:`Пост из ожиданий #${item.post?.id||"?"}`});state.waiting=(data.vkr_waiting_posts||[]).filter((candidate)=>candidate.id!==item.id);await chrome.storage.local.set({vkr_waiting_posts:state.waiting});$("publish-dialog").close();toast("Пост добавлен в последовательную очередь.");await loadAll();}finally{button.disabled=false;}}
++async function submitPublish(event){event.preventDefault();const groups=[...document.querySelectorAll('input[name="publish-group"]:checked')].map((input)=>Number(input.value));if(!groups.length)return toast("Выберите хотя бы одно сообщество.","error");const data=await chrome.storage.local.get(["vkr_waiting_posts","vk_token"]);const item=(data.vkr_waiting_posts||[]).find((candidate)=>candidate.id===selectedWaitingId);if(!item)return toast("Пост больше не найден.","error");const mode=$("publish-mode").value;if(mode==="repost"&&!data.vk_token)return toast("Для репоста нужен локальный пользовательский токен.","error");const pubDate=$("publish-date").value?new Date($("publish-date").value).getTime():null;if(pubDate&&pubDate<=Date.now())return toast("Дата должна быть в будущем.","error");const button=$("publish-submit");button.disabled=true;try{await runtimeMessage({type:"enqueue_publish",post:item.post,groups,mode,text:mode==="copy"?$("publish-text").value:"",pubDate,scheduleMode:pubDate?"native_vk":"immediate",processedPhotos:[],autoCommentText:$("publish-comment").value.trim(),label:`Пост из ожиданий #${item.post?.id||"?"}`});state.waiting=(data.vkr_waiting_posts||[]).filter((candidate)=>candidate.id!==item.id);await chrome.storage.local.set({vkr_waiting_posts:state.waiting});$("publish-dialog").close();toast("Пост добавлен в последовательную очередь.");await loadAll();}finally{button.disabled=false;}}
+
+ async function resumePublishQueue() {
+   const result=await runtimeMessage({type:"resume_publish_queue"});
+@@ -511,8 +558,9 @@ async function init(){
+   $("resume").onclick=resumePublishQueue;
+   $("clear-finished").onclick=async()=>{await runtimeMessage({type:"clear_finished_queue"});await loadAll();};
+   chrome.storage.onChanged.addListener((changes,areaName)=>{
+-    if(areaName!=="local"||!("vkr_queue_pause" in changes))return;
+-    state.pause=changes.vkr_queue_pause.newValue||null;updatePauseAlert();
++    if(areaName!=="local")return;
++    if("vkr_queue_pause" in changes){state.pause=changes.vkr_queue_pause.newValue||null;updatePauseAlert();}
++    if("vkr_publish_queue" in changes){state.posts=sortPostJobs(Array.isArray(changes.vkr_publish_queue.newValue)?changes.vkr_publish_queue.newValue:[]);updateCounts();if(state.tab==="posts")render();}
+   });
+   await loadAll();
+   setInterval(loadAll,15_000);
+diff --git a/tests/manifest-security.test.js b/tests/manifest-security.test.js
+index 03f245f..85e496f 100644
+--- a/tests/manifest-security.test.js
++++ b/tests/manifest-security.test.js
+@@ -20,7 +20,7 @@ const scheduled = fs.readFileSync(
+ const content = fs.readFileSync(path.join(root, "content.js"), "utf8");
+
+ test("manifest has no cookie interception, OAuth impersonation, or global hosts", () => {
+-  assert.equal(manifest.version, "4.4.0");
++  assert.equal(manifest.version, "4.4.1");
+   for (const permission of [
+     "cookies",
+     "declarativeNetRequest",
+diff --git a/tests/scheduled-results-ui.test.js b/tests/scheduled-results-ui.test.js
+index d4a8f7f..b2f97d6 100644
+--- a/tests/scheduled-results-ui.test.js
++++ b/tests/scheduled-results-ui.test.js
+@@ -9,6 +9,8 @@ const root = path.resolve(__dirname, "..");
+ const scheduled = fs.readFileSync(path.join(root, "scheduled.js"), "utf8");
+ const background = fs.readFileSync(path.join(root, "background.js"), "utf8");
+ const css = fs.readFileSync(path.join(root, "scheduled-fixes.css"), "utf8");
++const content = fs.readFileSync(path.join(root, "content.js"), "utf8");
++const shadow = fs.readFileSync(path.join(root, "content-shadow-dom.js"), "utf8");
+
+ test("scheduled comments use saved community labels", () => {
+   assert.match(scheduled, /vkr_group_tokens/);
+@@ -30,3 +32,28 @@ test("extension action menu exposes schedules, clips and stories", () => {
+   assert.match(background, /vkr-open-clips/);
+   assert.match(background, /vkr-open-stories/);
+ });
++
++test("post queue exposes live publication and photo-upload progress", () => {
++  assert.match(background, /function syncPublishJobProgress/);
++  assert.match(background, /activeGroupId/);
++  assert.match(background, /activeGroupIndex/);
++  assert.match(scheduled, /function publishProgressSnapshot/);
++  assert.match(scheduled, /appendPostProgress\(body,job\)/);
++  assert.match(scheduled, /role","progressbar/);
++  assert.match(scheduled, /vkr_publish_queue/);
++  assert.match(css, /\.publish-progress/);
++  assert.match(css, /\.publish-progress-head/);
++});
++
++test("scheduled posts can run in VK without Chrome and can be cancelled", () => {
++  assert.match(background, /scheduleMode = pubDate/);
++  assert.match(background, /params\.publish_date/);
++  assert.match(background, /async function cancelPublishJob/);
++  assert.match(background, /cancel_publish_job/);
++  assert.match(background, /publishCancellationRequested/);
++  assert.match(scheduled, /Запланировано в VK/);
++  assert.match(scheduled, /cancel_publish_job/);
++  assert.match(content, /scheduleMode: scheduleMode/);
++  assert.match(shadow, /id="vkr-schedule-mode"/);
++  assert.match(css, /\.status\.scheduled/);
++});

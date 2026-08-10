@@ -1,0 +1,31 @@
+BRANCH: safe-v4
+FIELD: post_queue.progress=live; upload_stage=visible; schedule=native_vk; cancel=enabled
+BASELINE_COMMIT: 278d6e4
+
+ARTIFACTS:
+MODIFIED_FILE=C:\Users\USER\Desktop\Новая папка (5)\verification\post-progress-v4.4.1\MODIFIED_FILE
+DIFF_FILE=C:\Users\USER\Desktop\Новая папка (5)\verification\post-progress-v4.4.1\DIFF_FILE.patch
+VERIFICATION=C:\Users\USER\Desktop\Новая папка (5)\verification\post-progress-v4.4.1\VERIFICATION.txt
+ROLLBACK=C:\Users\USER\Desktop\Новая папка (5)\verification\post-progress-v4.4.1\ROLLBACK.sh
+
+BASELINE
+COMMAND: npm test
+INPUT: working directory C:\Users\USER\Desktop\Новая папка (5), baseline commit 278d6e4, version 4.4.0
+LITERAL OUTPUT/RESULT: extension "tests 93", "pass 93", "fail 0"; server "tests 30", "pass 30", "fail 0"
+EXIT STATUS: 0
+
+MODIFIED
+COMMAND: npm run verify
+INPUT: working directory C:\Users\USER\Desktop\Новая папка (5), version 4.4.1 working copy with live progress, native VK scheduling and cancellation
+LITERAL OUTPUT/RESULT: extension "tests 95", "pass 95", "fail 0"; server "tests 30", "pass 30", "fail 0"; JavaScript syntax checks completed without an error
+EXIT STATUS: 0
+
+ROLLBACK
+COMMAND: & "C:\Program Files\Git\bin\bash.exe" "C:\Users\USER\Desktop\Новая папка (5)\verification\post-progress-v4.4.1\ROLLBACK.sh" "C:\Users\USER\Desktop\Новая папка (5)\verification\post-progress-v4.4.1\rollback-copy-20260810203508"
+INPUT: another repository copy with the version 4.4.1 changed files copied over baseline 278d6e4
+LITERAL OUTPUT/RESULT: "ROLLBACK_OK baseline=278d6e4 target=C:\Users\USER\Desktop\Новая папка (5)\verification\post-progress-v4.4.1\rollback-copy-20260810203508"; "RESTORED_VERSION=4.4.0"; "GIT_DIFF_BASELINE_EXIT=0"; scheduled-results-ui "tests 3", "pass 3", "fail 0"; "ROLLBACK_TEST_EXIT=0"; "ROLLBACK_SCRIPT_EXIT=0"
+EXIT STATUS: 0
+RESTORED BEHAVIOR/STATUS: version 4.4.0 restored; live progress, native VK scheduling selection and generic post cancellation are absent; the restored baseline test passes and the changed-file diff against 278d6e4 is empty.
+
+CHANGED RESULT:
+The Posts tab repaints from queue checkpoints and shows a named progress stage, exact percentage, community count and photo count. New scheduled copy posts upload immediately and are registered in VK with publish_date; after the card says "Запланировано в VK", Chrome may close. Exact photo-time mode remains explicit. The cancel action handles queued, active, paused and native future posts, stopping further work and removing registered future VK posts.

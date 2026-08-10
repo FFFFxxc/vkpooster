@@ -1147,6 +1147,58 @@ button:disabled {
   margin-top: 7px;
 }
 
+.status.scheduled {
+  color: #7dd3fc;
+  background: rgba(56, 189, 248, 0.12);
+}
+
+.native-schedule-note {
+  border-color: rgba(56, 189, 248, 0.28);
+  background: rgba(14, 116, 144, 0.12);
+  color: #bae6fd;
+}
+
+.publish-progress {
+  margin-top: 12px;
+  padding: 11px 12px;
+  border: 1px solid rgba(125, 211, 252, .22);
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(56, 189, 248, .08), rgba(139, 110, 255, .08));
+}
+
+.publish-progress-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  color: #dbeafe;
+  font-size: 11px;
+}
+
+.publish-progress-head strong {
+  min-width: 0;
+  line-height: 1.35;
+}
+
+.publish-progress-head b {
+  flex: 0 0 auto;
+  color: #7dd3fc;
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+}
+
+.publish-progress-detail {
+  display: block;
+  margin-top: 4px;
+  color: #9e99b6;
+  font-size: 10px;
+}
+
+.publish-progress-bar {
+  margin-top: 8px;
+  height: 8px;
+}
+
 /* ============================================
    УЛУЧШЕНИЯ ДИАЛОГОВ И МОДАЛЬНЫХ ОКОН
    ============================================ */

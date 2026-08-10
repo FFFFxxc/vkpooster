@@ -2041,6 +2041,15 @@ function bindModalEvents() {
       btn.classList.add("active");
       $("vkr-text-section").style.display =
         mode === "repost" ? "none" : "block";
+      if (mode === "repost") {
+        $("vkr-schedule-mode").value = "exact_photo_time";
+        $("vkr-schedule-mode").disabled = true;
+        $("vkr-schedule-mode-note").textContent =
+          "Отложенный репост запускается в указанное время. В этот момент Chrome и расширение должны быть запущены.";
+      } else {
+        $("vkr-schedule-mode").disabled = false;
+        $("vkr-schedule-mode").dispatchEvent(new Event("change"));
+      }
       // Re-uploading edited media is intentionally disabled in safe mode.
       $("vkr-watermark-section").style.display = "none";
     };
@@ -2431,6 +2440,13 @@ function bindModalEvents() {
     if (e.target.checked) {
       populateAnalyticsGroupSelect();
     }
+  };
+
+  $("vkr-schedule-mode").onchange = (event) => {
+    const exact = event.target.value === "exact_photo_time";
+    $("vkr-schedule-mode-note").textContent = exact
+      ? "Фото загрузятся в указанное время. В этот момент Chrome и расширение должны быть запущены."
+      : "Фото загрузятся сейчас, запись попадёт в отложку VK. После завершения подготовки Chrome можно закрыть.";
   };
 
   function populateAnalyticsGroupSelect() {
@@ -3083,6 +3099,7 @@ async function sendToGroups() {
     // Schedule
     let pubDate = null;
     let intervalMinutes = 0;
+    let scheduleMode = "immediate";
     if ($("vkr-schedule").checked) {
       const d = $("vkr-date").value;
       const t = $("vkr-time").value;
@@ -3098,6 +3115,7 @@ async function sendToGroups() {
         return;
       }
       intervalMinutes = parseInt($("vkr-interval")?.value || "0") || 0;
+      scheduleMode = $("vkr-schedule-mode")?.value || "native_vk";
     }
 
     // Autodelete
@@ -3142,6 +3160,7 @@ async function sendToGroups() {
       mode: mode,
       text: txt || "",
       pubDate: pubDate,
+      scheduleMode: scheduleMode,
       processedPhotos: processedPhotos,
       token: tok,
       label: label,

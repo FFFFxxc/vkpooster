@@ -408,11 +408,17 @@ function sanitizeJob(message) {
   }
 
   const mode = message.mode === "repost" ? "repost" : "copy";
-  const deferMediaUntilPublish = shouldDeferPhotoPublish({
-    post: message.post,
-    mode,
-    pubDate,
-  });
+  const requestedScheduleMode = String(message.scheduleMode || "native_vk");
+  const scheduleMode = pubDate
+    ? mode === "copy" && requestedScheduleMode !== "exact_photo_time"
+      ? "native_vk"
+      : "exact_photo_time"
+    : "immediate";
+  const deferMediaUntilPublish =
+    Boolean(pubDate) &&
+    (mode === "repost" ||
+      (scheduleMode === "exact_photo_time" &&
+        shouldDeferPhotoPublish({ post: message.post, mode, pubDate })));
 
   return {
     id: `pub_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`,
@@ -421,6 +427,7 @@ function sanitizeJob(message) {
     mode,
     text: String(message.text || ""),
     pubDate,
+    scheduleMode,
     deferMediaUntilPublish,
     processedPhotos: Array.isArray(message.processedPhotos)
       ? message.processedPhotos.length
@@ -494,9 +501,131 @@ async function persistJob(job) {
       ? data[PUBLISH_QUEUE_KEY]
       : [];
     const index = queue.findIndex((item) => item.id === job.id);
-    if (index >= 0) queue[index] = job;
+    if (index >= 0) {
+      if (queue[index]?.cancelRequested && !job.cancelRequested) {
+        job.cancelRequested = true;
+        job.cancelRequestedAt = queue[index].cancelRequestedAt || Date.now();
+      }
+      queue[index] = job;
+    }
     await chrome.storage.local.set({ [PUBLISH_QUEUE_KEY]: queue });
   });
+}
+
+async function publishCancellationRequested(job) {
+  if (job.cancelRequested || job.status === "cancelled") return true;
+  const data = await chrome.storage.local.get(PUBLISH_QUEUE_KEY);
+  const stored = (data[PUBLISH_QUEUE_KEY] || []).find((item) => item.id === job.id);
+  if (!stored?.cancelRequested && stored?.status !== "cancelled") return false;
+  job.cancelRequested = true;
+  job.cancelRequestedAt = stored.cancelRequestedAt || Date.now();
+  return true;
+}
+
+function publishCancelledError() {
+  const error = new Error("Публикация отменена пользователем.");
+  error.cancelled = true;
+  error.nonRetryable = true;
+  return error;
+}
+
+async function cancelPublishJob(jobId) {
+  const normalizedId = String(jobId || "").trim();
+  if (!normalizedId) throw new Error("Не указано задание публикации.");
+
+  let jobSnapshot = null;
+  let requested = false;
+  await withStorageLock(PUBLISH_QUEUE_KEY, async () => {
+    const data = await chrome.storage.local.get(PUBLISH_QUEUE_KEY);
+    const queue = Array.isArray(data[PUBLISH_QUEUE_KEY]) ? data[PUBLISH_QUEUE_KEY] : [];
+    const index = queue.findIndex((item) => item.id === normalizedId);
+    if (index < 0) throw new Error("Задание публикации больше не найдено.");
+    const job = { ...queue[index] };
+    const nativePending =
+      job.scheduleMode === "native_vk" &&
+      Number(job.pubDate) > Date.now() &&
+      Array.isArray(job.results) &&
+      job.results.some((result) => result?.ok && result?.postId);
+    if (["cancelled", "failed"].includes(job.status)) {
+      jobSnapshot = job;
+      return;
+    }
+    if (job.status === "completed" && !nativePending) {
+      throw new Error("Эта публикация уже вышла и не находится в отложке.");
+    }
+    if (job.status === "processing") {
+      queue[index] = {
+        ...job,
+        cancelRequested: true,
+        cancelRequestedAt: Date.now(),
+      };
+      requested = true;
+      jobSnapshot = queue[index];
+    } else if (nativePending) {
+      jobSnapshot = job;
+    } else {
+      queue[index] = {
+        ...job,
+        status: "cancelled",
+        error: null,
+        completedAt: Date.now(),
+      };
+      delete queue[index].processingStartedAt;
+      delete queue[index].mediaProgress;
+      delete queue[index].activeGroupId;
+      delete queue[index].activeGroupIndex;
+      jobSnapshot = queue[index];
+    }
+    await chrome.storage.local.set({ [PUBLISH_QUEUE_KEY]: queue });
+  });
+
+  const nativeResults =
+    jobSnapshot?.status === "completed" &&
+    jobSnapshot?.scheduleMode === "native_vk" &&
+    Number(jobSnapshot.pubDate) > Date.now()
+      ? (jobSnapshot.results || []).filter((result) => result?.ok && result?.postId)
+      : [];
+  if (nativeResults.length) {
+    const credentials = await getLocalCredentials();
+    const failures = [];
+    for (const result of nativeResults) {
+      try {
+        await vkApi(
+          "wall.delete",
+          { owner_id: -Math.abs(Number(result.gid)), post_id: result.postId },
+          credentials.userToken,
+        );
+      } catch (error) {
+        failures.push(`${result.gid}: ${error.message}`);
+      }
+    }
+    if (failures.length) {
+      throw new Error(`Не удалось снять часть записей с отложки VK: ${failures.join("; ")}`);
+    }
+    await withStorageLock(PUBLISH_QUEUE_KEY, async () => {
+      const data = await chrome.storage.local.get(PUBLISH_QUEUE_KEY);
+      const queue = Array.isArray(data[PUBLISH_QUEUE_KEY]) ? data[PUBLISH_QUEUE_KEY] : [];
+      const index = queue.findIndex((item) => item.id === normalizedId);
+      if (index >= 0) {
+        queue[index] = {
+          ...queue[index],
+          status: "cancelled",
+          error: null,
+          completedAt: Date.now(),
+          cancelledNativePosts: nativeResults.length,
+        };
+        await chrome.storage.local.set({ [PUBLISH_QUEUE_KEY]: queue });
+      }
+    });
+  }
+
+  const pause = (await chrome.storage.local.get(QUEUE_PAUSE_KEY))[QUEUE_PAUSE_KEY];
+  if (pause?.jobId === normalizedId && !requested) {
+    await chrome.storage.local.remove(QUEUE_PAUSE_KEY);
+  }
+  await updateBadge();
+  await scheduleNextPublishAlarm();
+  return { cancelled: !requested, requested, removedFromVk: nativeResults.length };
 }
 
 async function writePublishHistory(job) {
@@ -917,6 +1046,7 @@ async function prepareOwnedCopyAttachments(job, groupId, token) {
 
   const checkpoint = mediaCheckpoint(job, groupId, photos.length);
   for (let index = checkpoint.photos.length; index < photos.length; index += 1) {
+    if (await publishCancellationRequested(job)) throw publishCancelledError();
     job.mediaProgress = {
       groupId,
       current: index,
@@ -935,6 +1065,7 @@ async function prepareOwnedCopyAttachments(job, groupId, token) {
     job.mediaProgress.current = checkpoint.photos.length;
     await persistJob(job);
   }
+  if (await publishCancellationRequested(job)) throw publishCancelledError();
   job.mediaProgress = {
     groupId,
     current: photos.length,
@@ -1021,6 +1152,22 @@ async function publishToGroup(job, groupId, credentials, onPublished) {
   return { ...checkpoint, sideEffectsPending: false, warning };
 }
 
+function syncPublishJobProgress(job) {
+  const total = Array.isArray(job.groups) ? job.groups.length : 0;
+  const results = Array.isArray(job.results) ? job.results : [];
+  const ok = results.filter((result) => result?.ok === true).length;
+  const fail = results.filter((result) => result?.ok === false).length;
+  const current = Math.min(total, ok + fail);
+  job.progress = {
+    total,
+    current,
+    ok,
+    fail,
+    percent: total > 0 ? Math.round((current / total) * 100) : 0,
+  };
+  return job.progress;
+}
+
 async function executePublishJob(job) {
   const credentials = await getLocalCredentials();
   job.results = Array.isArray(job.results) ? job.results : [];
@@ -1030,6 +1177,10 @@ async function executePublishJob(job) {
   }
 
   for (const groupId of job.groups) {
+    if (await publishCancellationRequested(job)) {
+      job.status = "cancelled";
+      break;
+    }
     const existingIndex = job.results.findIndex(
       (result) => Number(result.gid) === Number(groupId),
     );
@@ -1055,6 +1206,11 @@ async function executePublishJob(job) {
       continue;
     }
 
+    job.activeGroupId = groupId;
+    job.activeGroupIndex = job.groups.indexOf(groupId);
+    syncPublishJobProgress(job);
+    await persistJob(job);
+
     let attempt = 0;
     while (attempt < 2) {
       try {
@@ -1064,6 +1220,7 @@ async function executePublishJob(job) {
           credentials,
           async (checkpoint) => {
             job.results.push(checkpoint);
+            syncPublishJobProgress(job);
             await persistJob(job);
           },
         );
@@ -1071,9 +1228,15 @@ async function executePublishJob(job) {
           (item) => Number(item.gid) === Number(groupId),
         );
         job.results[checkpointIndex] = result;
+        syncPublishJobProgress(job);
         await persistJob(job);
         break;
       } catch (error) {
+        if (error.cancelled) {
+          job.status = "cancelled";
+          job.error = null;
+          break;
+        }
         attempt += 1;
         const decision = error.nonRetryable
           ? { action: "fail", code: error.code || null, reason: "media" }
@@ -1105,19 +1268,44 @@ async function executePublishJob(job) {
             error: error.message,
             code: error.code || null,
           });
+          syncPublishJobProgress(job);
           await persistJob(job);
         }
         break;
       }
     }
-    if (job.status === "paused") break;
+    if (["paused", "cancelled"].includes(job.status)) break;
   }
 
-  const ok = job.results.filter((result) => result.ok).length;
-  const fail = job.results.filter((result) => !result.ok).length;
-  job.progress = { total: job.groups.length, ok, fail };
+  const { ok, fail } = syncPublishJobProgress(job);
 
-  if (job.status !== "paused") {
+  if (job.status === "cancelled") {
+    const cancellationFailures = [];
+    if (job.scheduleMode === "native_vk" && Number(job.pubDate) > Date.now()) {
+      for (const result of job.results.filter((item) => item?.ok && item?.postId)) {
+        try {
+          await vkApi(
+            "wall.delete",
+            { owner_id: -Math.abs(Number(result.gid)), post_id: result.postId },
+            credentials.userToken,
+          );
+        } catch (error) {
+          cancellationFailures.push(`${result.gid}: ${error.message}`);
+        }
+      }
+    }
+    job.error = cancellationFailures.length
+      ? `Остановка выполнена, но часть записей не снята с отложки VK: ${cancellationFailures.join("; ")}`
+      : null;
+    job.completedAt = Date.now();
+    delete job.cancelRequested;
+    delete job.cancelRequestedAt;
+    delete job.pausedGroupId;
+    delete job.mediaProgress;
+    delete job.preparedMedia;
+    delete job.activeGroupId;
+    delete job.activeGroupIndex;
+  } else if (job.status !== "paused") {
     job.status = ok > 0 ? "completed" : "failed";
     job.error =
       ok > 0 ? null : job.results.find((result) => !result.ok)?.error;
@@ -1125,6 +1313,8 @@ async function executePublishJob(job) {
     delete job.pausedGroupId;
     delete job.mediaProgress;
     delete job.preparedMedia;
+    delete job.activeGroupId;
+    delete job.activeGroupIndex;
   }
   delete job.processingStartedAt;
   return job;
@@ -1134,15 +1324,20 @@ async function notifyJob(job) {
   const ok = job.results.filter((result) => result.ok).length;
   const fail = job.results.filter((result) => !result.ok).length;
   const paused = job.status === "paused";
+  const cancelled = job.status === "cancelled";
   await chrome.notifications.create(`vkr-job-${job.id}`, {
     type: "basic",
     iconUrl: "icons/icon128.png",
-    title: paused
+    title: cancelled
+      ? "Публикация отменена"
+      : paused
       ? "Публикация приостановлена"
       : ok
         ? "Публикация завершена"
         : "Ошибка публикации",
-    message: paused
+    message: cancelled
+      ? job.error || `${job.label}: дальнейшая публикация остановлена.`
+      : paused
       ? job.error || "VK запросил проверку."
       : `${job.label}: успешно ${ok}, ошибок ${fail}.`,
     priority: paused ? 2 : 1,
@@ -1222,6 +1417,20 @@ async function recoverQueue() {
           mode: preparedJob.mode,
           pubDate: preparedJob.pubDate,
         });
+      }
+      if (
+        preparedJob.status === "queued" &&
+        preparedJob.mode === "copy" &&
+        preparedJob.deferMediaUntilPublish === true &&
+        preparedJob.scheduleMode !== "exact_photo_time"
+      ) {
+        preparedJob.deferMediaUntilPublish = false;
+        preparedJob.scheduleMode = "native_vk";
+        preparedJob.migratedToNativeScheduleAt = Date.now();
+      } else if (preparedJob.pubDate && !preparedJob.scheduleMode) {
+        preparedJob.scheduleMode = preparedJob.deferMediaUntilPublish
+          ? "exact_photo_time"
+          : "native_vk";
       }
       const startedAt = Date.parse(preparedJob.processingStartedAt || "");
       const stale =
@@ -2377,6 +2586,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const job = await enqueuePublishJob(message);
       return { queued: true, jobId: job.id, results: [] };
     });
+  }
+  if (type === "cancel_publish_job") {
+    return respond(() => cancelPublishJob(message.jobId));
   }
   if (type === "load_post") {
     return respond(() => loadPost(message));
