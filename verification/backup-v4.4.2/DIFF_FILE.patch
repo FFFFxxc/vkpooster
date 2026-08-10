@@ -1,0 +1,441 @@
+diff --git a/README.md b/README.md
+index 2438f42..e5ba8cb 100644
+--- a/README.md
++++ b/README.md
+@@ -1,4 +1,4 @@
+-# VK Reposter Pro 4.4.1
++# VK Reposter Pro 4.4.2
+
+ Версия объединяет последовательный постинг, отложенные комментарии и Истории,
+ безопасную очистку сообществ и загрузку Клипов через одну видимую вкладку VK.
+diff --git a/backup-core.js b/backup-core.js
+new file mode 100644
+index 0000000..13956c6
+--- /dev/null
++++ b/backup-core.js
+@@ -0,0 +1,125 @@
++(function initBackupCore(root, factory) {
++  const api = factory();
++  if (typeof module === "object" && module.exports) module.exports = api;
++  if (root) root.VkrBackupCore = api;
++})(typeof globalThis !== "undefined" ? globalThis : this, function backupFactory() {
++  "use strict";
++
++  const FORMAT = "vk-reposter-backup";
++  const FORMAT_VERSION = 1;
++  const SECRET_KEYS = new Set([
++    "vk_token",
++    "vkr_group_tokens",
++    "vkr_server_api_secret",
++    "vkr_twiboost_api_key",
++  ]);
++  const ACTIVITY_KEYS = new Set([
++    "vkr_account_errors",
++    "vkr_active_upload_id",
++    "vkr_autolike_log",
++    "vkr_automation_tab",
++    "vkr_cleanup_photo_ledger_v1",
++    "vkr_clips_history",
++    "vkr_clips_queue",
++    "vkr_clip_job",
++    "vkr_clips_source",
++    "vkr_group_analytics_cache",
++    "vkr_last_sync_ts",
++    "vkr_posts_history",
++    "vkr_publish_due",
++    "vkr_publish_queue",
++    "vkr_queue_pause",
++    "vkr_safe_jobs",
++    "vkr_scheduled_comments",
++    "vkr_scheduled_deletions",
++    "vkr_token_health",
++    "vkr_waiting_posts",
++  ]);
++
++  function isPlainObject(value) {
++    if (!value || typeof value !== "object" || Array.isArray(value)) return false;
++    const prototype = Object.getPrototypeOf(value);
++    return prototype === Object.prototype || prototype === null;
++  }
++
++  function isExtensionStorageKey(key) {
++    return key === "vk_token" || /^vkr_[a-z0-9_]+$/i.test(key);
++  }
++
++  function copyJsonValue(value) {
++    return JSON.parse(JSON.stringify(value));
++  }
++
++  function selectBackupData(storage, { scope = "settings", includeSecrets = true } = {}) {
++    if (!isPlainObject(storage)) throw new TypeError("Storage must be an object.");
++    const full = scope === "full";
++    const data = Object.create(null);
++    for (const [key, value] of Object.entries(storage)) {
++      if (!isExtensionStorageKey(key)) continue;
++      if (!full && ACTIVITY_KEYS.has(key)) continue;
++      if (!includeSecrets && SECRET_KEYS.has(key)) continue;
++      if (value === undefined) continue;
++      data[key] = copyJsonValue(value);
++    }
++    return data;
++  }
++
++  function createBackup(storage, options = {}) {
++    const scope = options.scope === "full" ? "full" : "settings";
++    const includeSecrets = options.includeSecrets !== false;
++    const createdAt = new Date(options.now || Date.now()).toISOString();
++    return {
++      format: FORMAT,
++      formatVersion: FORMAT_VERSION,
++      extensionVersion: String(options.extensionVersion || "unknown"),
++      createdAt,
++      scope,
++      includesSecrets: includeSecrets,
++      data: selectBackupData(storage, { scope, includeSecrets }),
++    };
++  }
++
++  function validateBackup(backup) {
++    if (!isPlainObject(backup)) throw new Error("Файл резервной копии повреждён.");
++    if (backup.format !== FORMAT || backup.formatVersion !== FORMAT_VERSION) {
++      throw new Error("Это не резервная копия VK Reposter Pro или её формат не поддерживается.");
++    }
++    if (!isPlainObject(backup.data)) throw new Error("В резервной копии отсутствуют данные.");
++    const data = Object.create(null);
++    for (const [key, value] of Object.entries(backup.data)) {
++      if (!isExtensionStorageKey(key)) continue;
++      if (value === undefined) continue;
++      data[key] = copyJsonValue(value);
++    }
++    if (!Object.keys(data).length) throw new Error("В резервной копии нет подходящих данных.");
++    return {
++      ...backup,
++      scope: backup.scope === "full" ? "full" : "settings",
++      includesSecrets: Boolean(backup.includesSecrets),
++      data,
++    };
++  }
++
++  function prepareImport(backup, { importSecrets = true } = {}) {
++    const checked = validateBackup(backup);
++    const data = Object.create(null);
++    for (const [key, value] of Object.entries(checked.data)) {
++      if (!importSecrets && SECRET_KEYS.has(key)) continue;
++      data[key] = copyJsonValue(value);
++    }
++    if (!Object.keys(data).length) throw new Error("После выбранных исключений нечего импортировать.");
++    return data;
++  }
++
++  return Object.freeze({
++    ACTIVITY_KEYS,
++    FORMAT,
++    FORMAT_VERSION,
++    SECRET_KEYS,
++    createBackup,
++    isExtensionStorageKey,
++    prepareImport,
++    selectBackupData,
++    validateBackup,
++  });
++});
+diff --git a/manifest.json b/manifest.json
+index 28a7a3c..81a5bec 100644
+--- a/manifest.json
++++ b/manifest.json
+@@ -1,7 +1,7 @@
+ {
+   "manifest_version": 3,
+   "name": "VK Reposter Pro",
+-  "version": "4.4.1",
++  "version": "4.4.2",
+   "description": "Безопасная очередь постинга и отложенных комментариев для сообществ ВКонтакте",
+   "permissions": [
+     "storage",
+diff --git a/package.json b/package.json
+index 8555067..708c5b4 100644
+--- a/package.json
++++ b/package.json
+@@ -1,11 +1,11 @@
+ {
+   "name": "vk-reposter-pro",
+-  "version": "4.4.1",
++  "version": "4.4.2",
+   "description": "VK Reposter Pro — расширение для репоста в ВКонтакте",
+   "private": true,
+   "scripts": {
+     "test": "node --test tests/*.test.js && npm --prefix server test",
+-    "check:js": "node --check safety-core.js && node --check cleanup-core.js && node --check cleanup-runner.js && node --check clip-queue-core.js && node --check maintenance-core.js && node --check group-sets-core.js && node --check background.js && node --check popup-auth.js && node --check content.js && node --check clips.js && node --check mesh-text.js && node --check clip-upload-content.js && node --check extension-server-client.js && node --check stories.js && node --check scheduled.js && npm --prefix server run check",
++    "check:js": "node --check safety-core.js && node --check cleanup-core.js && node --check cleanup-runner.js && node --check clip-queue-core.js && node --check maintenance-core.js && node --check group-sets-core.js && node --check backup-core.js && node --check background.js && node --check popup-auth.js && node --check content.js && node --check clips.js && node --check mesh-text.js && node --check clip-upload-content.js && node --check extension-server-client.js && node --check stories.js && node --check scheduled.js && npm --prefix server run check",
+     "verify": "npm test && npm run check:js"
+   }
+ }
+diff --git a/popup-auth.js b/popup-auth.js
+index 0034fb8..437ba39 100644
+--- a/popup-auth.js
++++ b/popup-auth.js
+@@ -116,6 +116,90 @@ async function readSettings() {
+   ]);
+ }
+
++function backupFileName(createdAt = new Date()) {
++  const stamp = createdAt.toISOString().replace(/[:.]/g, "-");
++  return `vk-reposter-backup-${stamp}.json`;
++}
++
++function downloadJson(data, fileName) {
++  const blob = new Blob([JSON.stringify(data, null, 2)], {
++    type: "application/json;charset=utf-8",
++  });
++  const url = URL.createObjectURL(blob);
++  const link = document.createElement("a");
++  link.href = url;
++  link.download = fileName;
++  link.style.display = "none";
++  document.body.appendChild(link);
++  link.click();
++  link.remove();
++  setTimeout(() => URL.revokeObjectURL(url), 1_000);
++}
++
++function setBackupStatus(text, kind = "") {
++  const status = $("backup-status");
++  status.textContent = text;
++  status.className = `server-status${kind ? ` server-status--${kind}` : ""}`;
++}
++
++async function exportBackup() {
++  const button = $("export-backup");
++  button.disabled = true;
++  setBackupStatus("Создаю…");
++  try {
++    const storage = await chrome.storage.local.get(null);
++    const backup = VkrBackupCore.createBackup(storage, {
++      scope: $("backup-scope").value,
++      includeSecrets: $("backup-include-secrets").checked,
++      extensionVersion: chrome.runtime.getManifest().version,
++    });
++    downloadJson(backup, backupFileName(new Date(backup.createdAt)));
++    const count = Object.keys(backup.data).length;
++    setBackupStatus("Сохранено", "connected");
++    $("backup-note").textContent = `Файл создан: ${count} разделов данных. На другом компьютере выберите его кнопкой «Импорт».`;
++    notify("Резервная копия сохранена в загрузки.", "success");
++  } catch (error) {
++    setBackupStatus("Ошибка", "error");
++    notify(`Экспорт не выполнен: ${error.message}`, "error");
++  } finally {
++    button.disabled = false;
++  }
++}
++
++async function importBackupFile(file) {
++  if (!file) return;
++  if (file.size > 50 * 1024 * 1024) {
++    throw new Error("Файл больше 50 МБ. Выберите корректную резервную копию.");
++  }
++  const parsed = JSON.parse(await file.text());
++  const data = VkrBackupCore.prepareImport(parsed, {
++    importSecrets: $("backup-include-secrets").checked,
++  });
++  const count = Object.keys(data).length;
++  if (!confirm(`Восстановить ${count} разделов данных из резервной копии? Совпадающие настройки будут заменены.`)) {
++    return;
++  }
++  await chrome.storage.local.set(data);
++  setBackupStatus("Восстановлено", "connected");
++  $("backup-note").textContent = `Импорт завершён: восстановлено ${count} разделов. Расширение перезапускается.`;
++  notify("Данные восстановлены. Расширение перезапускается.", "success");
++  setTimeout(() => chrome.runtime.reload(), 900);
++}
++
++async function handleBackupFileChange(event) {
++  const input = event.currentTarget;
++  const file = input.files?.[0];
++  input.value = "";
++  if (!file) return;
++  setBackupStatus("Проверяю…");
++  try {
++    await importBackupFile(file);
++  } catch (error) {
++    setBackupStatus("Ошибка", "error");
++    notify(`Импорт не выполнен: ${error.message}`, "error");
++  }
++}
++
+ function renderManagedGroups(groups) {
+   const list = $("managed-group-list");
+   const normalized = Array.isArray(groups) ? groups : [];
+@@ -475,6 +559,9 @@ document.addEventListener("DOMContentLoaded", () => {
+   $("comment-delay").addEventListener("change", () => void persistCommentSettings());
+   $("comment-group-interval").addEventListener("change", () => void persistCommentSettings());
+   $("save-server").addEventListener("click", saveServer);
++  $("export-backup").addEventListener("click", () => void exportBackup());
++  $("import-backup").addEventListener("click", () => $("backup-file").click());
++  $("backup-file").addEventListener("change", (event) => void handleBackupFileChange(event));
+   $("generate-secret").addEventListener("click", () => {
+     $("server-secret").value = randomSecret();
+     $("server-secret").type = "text";
+diff --git a/popup.html b/popup.html
+index 33e6cf2..59f5980 100644
+--- a/popup.html
++++ b/popup.html
+@@ -29,6 +29,10 @@
+     .user-profile-link:hover { color: var(--color-accent); }
+     .user-profile-actions { display: flex; flex-direction: column; gap: 6px; }
+     .user-profile-actions .btn { padding: 7px 9px; font-size: 11px; }
++    .backup-options { display: grid; gap: 10px; }
++    .backup-check { display: flex; gap: 9px; align-items: flex-start; color: var(--color-text-secondary); font-size: 12px; line-height: 1.45; }
++    .backup-check input { margin-top: 2px; accent-color: var(--color-accent); }
++    .backup-note { padding: 10px 12px; border: 1px solid rgba(56, 189, 248, .2); border-radius: 10px; background: rgba(56, 189, 248, .06); color: var(--color-text-secondary); font-size: 11px; line-height: 1.5; }
+   </style>
+ </head>
+ <body>
+@@ -39,7 +43,7 @@
+         <div class="logo">
+           <div id="logo-lottie" class="logo__lottie"></div>
+         </div>
+-        <div class="version">v4.4.1</div>
++        <div class="version">v4.4.2</div>
+       </div>
+     </header>
+
+@@ -78,6 +82,39 @@
+         </div>
+       </section>
+
++      <section class="section">
++        <div class="section__header">
++          <h2 class="section__title">
++            <i class="ti ti-database-export section__icon-img"></i>
++            Перенос на другой компьютер
++          </h2>
++          <span class="server-status" id="backup-status">Готово</span>
++        </div>
++        <div class="field-stack backup-options">
++          <label class="status-line" for="backup-scope">Что сохранить</label>
++          <select id="backup-scope" class="input">
++            <option value="settings">Настройки, аккаунт, сообщества и наборы групп</option>
++            <option value="full">Полная локальная копия — также очереди и история</option>
++          </select>
++          <label class="backup-check">
++            <input type="checkbox" id="backup-include-secrets" checked>
++            <span>Включить пользовательский токен, токены сообществ, API_SECRET Render и ключ TwiBoost</span>
++          </label>
++          <div class="action-grid">
++            <button class="btn btn--primary" id="export-backup">
++              <i class="ti ti-download"></i> Экспорт
++            </button>
++            <button class="btn btn--secondary" id="import-backup">
++              <i class="ti ti-upload"></i> Импорт
++            </button>
++          </div>
++          <input type="file" id="backup-file" accept="application/json,.json" hidden>
++          <div class="backup-note" id="backup-note">
++            Для переноса с токенами оставьте галочку включённой. На другом компьютере установите расширение, откройте этот раздел и нажмите «Импорт».
++          </div>
++        </div>
++      </section>
++
+       <section class="section">
+         <div class="section__header">
+           <h2 class="section__title">
+@@ -187,6 +224,7 @@
+   </div>
+
+   <script src="lottie-player.js"></script>
++  <script src="backup-core.js"></script>
+   <script src="popup-auth.js"></script>
+ </body>
+ </html>
+diff --git a/tests/backup-core.test.js b/tests/backup-core.test.js
+new file mode 100644
+index 0000000..a018c0f
+--- /dev/null
++++ b/tests/backup-core.test.js
+@@ -0,0 +1,73 @@
++"use strict";
++
++const test = require("node:test");
++const assert = require("node:assert/strict");
++const fs = require("node:fs");
++const path = require("node:path");
++const Backup = require("../backup-core.js");
++
++const root = path.resolve(__dirname, "..");
++const popupHtml = fs.readFileSync(path.join(root, "popup.html"), "utf8");
++const popupJs = fs.readFileSync(path.join(root, "popup-auth.js"), "utf8");
++
++const sample = {
++  vk_token: "user-token",
++  vkr_group_tokens: { 123: { token: "group-token" } },
++  vkr_server_api_secret: "server-secret",
++  vkr_server_url: "https://example.onrender.com",
++  vkr_group_sets_v1: [{ id: "set-1", name: "Группа 1", groupIds: [123] }],
++  vkr_publish_queue: [{ id: "job-1", status: "queued" }],
++  unrelated_key: "skip-me",
++};
++
++test("settings export keeps configuration and optional secrets but skips activity", () => {
++  const backup = Backup.createBackup(sample, {
++    scope: "settings",
++    includeSecrets: true,
++    extensionVersion: "4.4.2",
++    now: Date.UTC(2026, 7, 11, 8, 0, 0),
++  });
++  assert.equal(backup.format, "vk-reposter-backup");
++  assert.equal(backup.extensionVersion, "4.4.2");
++  assert.equal(backup.data.vk_token, "user-token");
++  assert.deepEqual(backup.data.vkr_group_sets_v1[0].groupIds, [123]);
++  assert.equal(backup.data.vkr_publish_queue, undefined);
++  assert.equal(backup.data.unrelated_key, undefined);
++});
++
++test("export can omit every token and secret", () => {
++  const backup = Backup.createBackup(sample, { includeSecrets: false });
++  assert.equal(backup.data.vk_token, undefined);
++  assert.equal(backup.data.vkr_group_tokens, undefined);
++  assert.equal(backup.data.vkr_server_api_secret, undefined);
++  assert.equal(backup.data.vkr_server_url, "https://example.onrender.com");
++});
++
++test("full export carries queues and import can independently exclude secrets", () => {
++  const backup = Backup.createBackup(sample, { scope: "full", includeSecrets: true });
++  assert.deepEqual(backup.data.vkr_publish_queue, sample.vkr_publish_queue);
++  const imported = Backup.prepareImport(backup, { importSecrets: false });
++  assert.equal(imported.vk_token, undefined);
++  assert.equal(imported.vkr_group_tokens, undefined);
++  assert.deepEqual(imported.vkr_publish_queue, sample.vkr_publish_queue);
++});
++
++test("import rejects unrelated JSON and ignores non-extension keys", () => {
++  assert.throws(() => Backup.validateBackup({ data: {} }), /не резервная копия/i);
++  const backup = Backup.createBackup(sample, { scope: "full" });
++  backup.data.__proto_pollution = "ignored";
++  backup.data.other = "ignored";
++  const imported = Backup.prepareImport(backup);
++  assert.equal(imported.__proto_pollution, undefined);
++  assert.equal(imported.other, undefined);
++});
++
++test("popup exposes export and import without an extra browser permission", () => {
++  assert.match(popupHtml, /id="export-backup"/);
++  assert.match(popupHtml, /id="import-backup"/);
++  assert.match(popupHtml, /id="backup-include-secrets" checked/);
++  assert.match(popupHtml, /backup-core\.js/);
++  assert.match(popupJs, /chrome\.storage\.local\.get\(null\)/);
++  assert.match(popupJs, /chrome\.storage\.local\.set\(data\)/);
++  assert.match(popupJs, /chrome\.runtime\.reload\(\)/);
++});
+diff --git a/tests/manifest-security.test.js b/tests/manifest-security.test.js
+index 85e496f..4cb9224 100644
+--- a/tests/manifest-security.test.js
++++ b/tests/manifest-security.test.js
+@@ -20,7 +20,7 @@ const scheduled = fs.readFileSync(
+ const content = fs.readFileSync(path.join(root, "content.js"), "utf8");
+
+ test("manifest has no cookie interception, OAuth impersonation, or global hosts", () => {
+-  assert.equal(manifest.version, "4.4.1");
++  assert.equal(manifest.version, "4.4.2");
+   for (const permission of [
+     "cookies",
+     "declarativeNetRequest",

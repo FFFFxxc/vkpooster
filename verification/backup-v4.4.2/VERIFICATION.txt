@@ -1,0 +1,31 @@
+BRANCH: safe-v4
+FIELD: local_backup.export=enabled; local_backup.import=enabled; secrets=optional; scope=settings_or_full
+BASELINE_COMMIT: 7748ba3
+
+ARTIFACTS:
+MODIFIED_FILE=C:\Users\USER\Desktop\Новая папка (5)\verification\backup-v4.4.2\MODIFIED_FILE
+DIFF_FILE=C:\Users\USER\Desktop\Новая папка (5)\verification\backup-v4.4.2\DIFF_FILE.patch
+VERIFICATION=C:\Users\USER\Desktop\Новая папка (5)\verification\backup-v4.4.2\VERIFICATION.txt
+ROLLBACK=C:\Users\USER\Desktop\Новая папка (5)\verification\backup-v4.4.2\ROLLBACK.sh
+
+BASELINE
+COMMAND: npm test
+INPUT: working directory C:\Users\USER\Desktop\Новая папка (5), baseline commit 7748ba3, version 4.4.1
+LITERAL OUTPUT/RESULT: extension "tests 95", "pass 95", "fail 0"; server "tests 30", "pass 30", "fail 0"
+EXIT STATUS: 0
+
+MODIFIED
+COMMAND: npm run verify
+INPUT: working directory C:\Users\USER\Desktop\Новая папка (5), version 4.4.2 export/import working copy
+LITERAL OUTPUT/RESULT: extension "tests 100", "pass 100", "fail 0"; server "tests 30", "pass 30", "fail 0"; JavaScript syntax checks completed without an error
+EXIT STATUS: 0
+
+ROLLBACK
+COMMAND: & "C:\Program Files\Git\bin\bash.exe" "C:\Users\USER\Desktop\Новая папка (5)\verification\backup-v4.4.2\ROLLBACK.sh" "C:\Users\USER\Desktop\Новая папка (5)\verification\post-progress-v4.4.1\rollback-copy-20260810203508"
+INPUT: another repository copy with the version 4.4.2 changed files copied over baseline 7748ba3
+LITERAL OUTPUT/RESULT: "Removing backup-core.js"; "Removing tests/backup-core.test.js"; "ROLLBACK_OK baseline=7748ba3 target=C:\Users\USER\Desktop\Новая папка (5)\verification\post-progress-v4.4.1\rollback-copy-20260810203508"; "RESTORED_VERSION=4.4.1"; "GIT_DIFF_BASELINE_EXIT=0"; "NEW_FILES_ABSENT=True"; extension "tests 95", "pass 95", "fail 0"; "ROLLBACK_TEST_EXIT=0"; "ROLLBACK_SCRIPT_EXIT=0"
+EXIT STATUS: 0
+RESTORED BEHAVIOR/STATUS: version 4.4.1 restored; export/import controls and backup core are absent; modified tracked files match baseline 7748ba3, new backup files are removed, and all 95 baseline extension tests pass.
+
+CHANGED RESULT:
+The popup creates a versioned JSON backup with either settings or full local state, optionally including credentials. A second computer can import the JSON, confirm the number of restored storage sections, and restart the extension with the restored data.

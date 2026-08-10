@@ -116,6 +116,90 @@ async function readSettings() {
   ]);
 }
 
+function backupFileName(createdAt = new Date()) {
+  const stamp = createdAt.toISOString().replace(/[:.]/g, "-");
+  return `vk-reposter-backup-${stamp}.json`;
+}
+
+function downloadJson(data, fileName) {
+  const blob = new Blob([JSON.stringify(data, null, 2)], {
+    type: "application/json;charset=utf-8",
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  link.style.display = "none";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1_000);
+}
+
+function setBackupStatus(text, kind = "") {
+  const status = $("backup-status");
+  status.textContent = text;
+  status.className = `server-status${kind ? ` server-status--${kind}` : ""}`;
+}
+
+async function exportBackup() {
+  const button = $("export-backup");
+  button.disabled = true;
+  setBackupStatus("Создаю…");
+  try {
+    const storage = await chrome.storage.local.get(null);
+    const backup = VkrBackupCore.createBackup(storage, {
+      scope: $("backup-scope").value,
+      includeSecrets: $("backup-include-secrets").checked,
+      extensionVersion: chrome.runtime.getManifest().version,
+    });
+    downloadJson(backup, backupFileName(new Date(backup.createdAt)));
+    const count = Object.keys(backup.data).length;
+    setBackupStatus("Сохранено", "connected");
+    $("backup-note").textContent = `Файл создан: ${count} разделов данных. На другом компьютере выберите его кнопкой «Импорт».`;
+    notify("Резервная копия сохранена в загрузки.", "success");
+  } catch (error) {
+    setBackupStatus("Ошибка", "error");
+    notify(`Экспорт не выполнен: ${error.message}`, "error");
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function importBackupFile(file) {
+  if (!file) return;
+  if (file.size > 50 * 1024 * 1024) {
+    throw new Error("Файл больше 50 МБ. Выберите корректную резервную копию.");
+  }
+  const parsed = JSON.parse(await file.text());
+  const data = VkrBackupCore.prepareImport(parsed, {
+    importSecrets: $("backup-include-secrets").checked,
+  });
+  const count = Object.keys(data).length;
+  if (!confirm(`Восстановить ${count} разделов данных из резервной копии? Совпадающие настройки будут заменены.`)) {
+    return;
+  }
+  await chrome.storage.local.set(data);
+  setBackupStatus("Восстановлено", "connected");
+  $("backup-note").textContent = `Импорт завершён: восстановлено ${count} разделов. Расширение перезапускается.`;
+  notify("Данные восстановлены. Расширение перезапускается.", "success");
+  setTimeout(() => chrome.runtime.reload(), 900);
+}
+
+async function handleBackupFileChange(event) {
+  const input = event.currentTarget;
+  const file = input.files?.[0];
+  input.value = "";
+  if (!file) return;
+  setBackupStatus("Проверяю…");
+  try {
+    await importBackupFile(file);
+  } catch (error) {
+    setBackupStatus("Ошибка", "error");
+    notify(`Импорт не выполнен: ${error.message}`, "error");
+  }
+}
+
 function renderManagedGroups(groups) {
   const list = $("managed-group-list");
   const normalized = Array.isArray(groups) ? groups : [];
@@ -475,6 +559,9 @@ document.addEventListener("DOMContentLoaded", () => {
   $("comment-delay").addEventListener("change", () => void persistCommentSettings());
   $("comment-group-interval").addEventListener("change", () => void persistCommentSettings());
   $("save-server").addEventListener("click", saveServer);
+  $("export-backup").addEventListener("click", () => void exportBackup());
+  $("import-backup").addEventListener("click", () => $("backup-file").click());
+  $("backup-file").addEventListener("change", (event) => void handleBackupFileChange(event));
   $("generate-secret").addEventListener("click", () => {
     $("server-secret").value = randomSecret();
     $("server-secret").type = "text";

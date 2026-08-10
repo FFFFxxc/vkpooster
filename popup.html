@@ -29,6 +29,10 @@
     .user-profile-link:hover { color: var(--color-accent); }
     .user-profile-actions { display: flex; flex-direction: column; gap: 6px; }
     .user-profile-actions .btn { padding: 7px 9px; font-size: 11px; }
+    .backup-options { display: grid; gap: 10px; }
+    .backup-check { display: flex; gap: 9px; align-items: flex-start; color: var(--color-text-secondary); font-size: 12px; line-height: 1.45; }
+    .backup-check input { margin-top: 2px; accent-color: var(--color-accent); }
+    .backup-note { padding: 10px 12px; border: 1px solid rgba(56, 189, 248, .2); border-radius: 10px; background: rgba(56, 189, 248, .06); color: var(--color-text-secondary); font-size: 11px; line-height: 1.5; }
   </style>
 </head>
 <body>
@@ -39,7 +43,7 @@
         <div class="logo">
           <div id="logo-lottie" class="logo__lottie"></div>
         </div>
-        <div class="version">v4.4.1</div>
+        <div class="version">v4.4.2</div>
       </div>
     </header>
 
@@ -74,6 +78,39 @@
           <div class="action-grid">
             <button class="btn btn--primary" id="save-user-token">Подключить аккаунт</button>
             <button class="btn btn--secondary" id="cancel-user-token" hidden>Отмена</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="section__header">
+          <h2 class="section__title">
+            <i class="ti ti-database-export section__icon-img"></i>
+            Перенос на другой компьютер
+          </h2>
+          <span class="server-status" id="backup-status">Готово</span>
+        </div>
+        <div class="field-stack backup-options">
+          <label class="status-line" for="backup-scope">Что сохранить</label>
+          <select id="backup-scope" class="input">
+            <option value="settings">Настройки, аккаунт, сообщества и наборы групп</option>
+            <option value="full">Полная локальная копия — также очереди и история</option>
+          </select>
+          <label class="backup-check">
+            <input type="checkbox" id="backup-include-secrets" checked>
+            <span>Включить пользовательский токен, токены сообществ, API_SECRET Render и ключ TwiBoost</span>
+          </label>
+          <div class="action-grid">
+            <button class="btn btn--primary" id="export-backup">
+              <i class="ti ti-download"></i> Экспорт
+            </button>
+            <button class="btn btn--secondary" id="import-backup">
+              <i class="ti ti-upload"></i> Импорт
+            </button>
+          </div>
+          <input type="file" id="backup-file" accept="application/json,.json" hidden>
+          <div class="backup-note" id="backup-note">
+            Для переноса с токенами оставьте галочку включённой. На другом компьютере установите расширение, откройте этот раздел и нажмите «Импорт».
           </div>
         </div>
       </section>
@@ -187,6 +224,7 @@
   </div>
 
   <script src="lottie-player.js"></script>
+  <script src="backup-core.js"></script>
   <script src="popup-auth.js"></script>
 </body>
 </html>

@@ -1,0 +1,32 @@
+VK Reposter Pro 4.4.2 export/import modification manifest
+
+BRANCH: safe-v4
+FIELD: local_backup.export=enabled; local_backup.import=enabled; secrets=optional; scope=settings_or_full
+BASELINE_COMMIT: 7748ba3
+
+ORIGINAL_GIT_BLOB:
+README.md 2438f4233e7e72c26e151d5ef18dd021a79d923b
+manifest.json 28a7a3ca007f767ff7347dade1bf0644f72232ee
+package.json 8555067bbce71c0ccd33363a4038ae3fe6bb75fc
+popup-auth.js 0034fb8e2b9a1d907ce62e41cb9b6b0e65cc5fe8
+popup.html 33e6cf2864f0c6187197c9633f07416b959550bc
+tests/manifest-security.test.js 85e496f1d7d109d9cea8b93952a107d8a67028fb
+backup-core.js ABSENT
+tests/backup-core.test.js ABSENT
+
+MODIFIED_SHA256:
+README.md 770DA1E9BB96D516C461542AB474D6AF490DB29742DB37D44AC0BAF0B328D4EB
+manifest.json 0A5371CC9EC01E24FA7179CD9BBD20988E017203CBA9F93D15C3D85E388F888E
+package.json AD05E903D1FD821D694C0BAE43672E2B010C36704B7E466AC24BAFA50E9BE104
+popup-auth.js 887C89120A4AB8A4A91D19E2347566529BB7D9F514C8746C1B8652468841C792
+popup.html 925BEE3E12656EC388D722985290240E6C7865B59EEEC4779B44394688DA0363
+tests/manifest-security.test.js 6BE1550AB98C6D5FA75249F0F6F68A53A4241CC30FCC34AB8E0C9C51CA081901
+backup-core.js 727299A6B40BDDFB2A1A82E6770365AF742163894BED6FB51246C1C3023F4FB4
+tests/backup-core.test.js 88C36797F51183340EB3405044109BF98A251832DBE27A1A118BFCB53CEB8800
+
+RESULT:
+- popup settings expose Export and Import actions.
+- settings scope carries account, communities, group sets and configuration.
+- full scope additionally carries local queues and history.
+- tokens, Render API_SECRET and TwiBoost key are controlled by an explicit checkbox.
+- import validates the backup format, filters storage keys, confirms replacement and reloads the extension.
