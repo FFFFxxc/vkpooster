@@ -106,12 +106,10 @@ async function readSettings() {
   return chrome.storage.local.get([
     "vk_token",
     "vkr_user_profile",
-    "vkr_group_tokens",
     "vkr_user_groups",
     "vkr_server_url",
     "vkr_server_api_secret",
     "vkr_comment_delay_seconds",
-    "vkr_comment_execution_mode",
     "vkr_comment_group_interval_seconds",
   ]);
 }
@@ -257,59 +255,6 @@ async function refreshManagedGroups({ quiet = false } = {}) {
   }
 }
 
-async function renderGroupTokens(tokens) {
-  const list = $("group-token-list");
-  const entries = Object.entries(tokens || {}).sort(
-    ([first], [second]) => Number(first) - Number(second),
-  );
-  $("group-token-count").textContent = String(entries.length);
-  list.replaceChildren();
-
-  if (!entries.length) {
-    const empty = document.createElement("div");
-    empty.className = "status-line";
-    empty.textContent = "Токены сообществ пока не добавлены.";
-    list.appendChild(empty);
-    return;
-  }
-
-  for (const [groupId, entryValue] of entries) {
-    const entry =
-      typeof entryValue === "string" ? { token: entryValue } : entryValue;
-    const row = document.createElement("div");
-    row.className = "token-row";
-
-    const id = document.createElement("strong");
-    id.textContent = `club${groupId}`;
-
-    const name = document.createElement("div");
-    name.className = "token-row__name";
-    const label = document.createElement("strong");
-    label.textContent = entry.label || `Сообщество ${groupId}`;
-    const masked = document.createElement("span");
-    masked.textContent = maskToken(entry.token);
-    name.append(label, masked);
-
-    const remove = document.createElement("button");
-    remove.className = "btn btn--secondary btn--compact";
-    remove.textContent = "Удалить";
-    remove.addEventListener("click", async () => {
-      const data = await chrome.storage.local.get("vkr_group_tokens");
-      const updated = { ...(data.vkr_group_tokens || {}) };
-      delete updated[groupId];
-      await chrome.storage.local.set({ vkr_group_tokens: updated });
-      await renderGroupTokens(updated);
-      notify(`Токен club${groupId} удалён.`, "success");
-    });
-
-    const actions = document.createElement("div");
-    actions.style.cssText = "display:flex;gap:6px;justify-content:flex-end";
-    actions.append(remove);
-    row.append(id, name, actions);
-    list.appendChild(row);
-  }
-}
-
 async function refreshQueue() {
   try {
     const response = await runtimeMessage({ type: "get_queue_status" });
@@ -395,34 +340,6 @@ async function clearUserToken() {
   notify("Аккаунт отключён от расширения.", "success");
 }
 
-async function saveGroupToken() {
-  const groupId = Math.abs(Number($("group-id").value));
-  const label = $("group-label").value.trim();
-  const token = $("group-token").value.trim();
-  if (!Number.isSafeInteger(groupId) || groupId <= 0) {
-    notify("Укажите числовой ID сообщества.", "warning");
-    return;
-  }
-  if (token.length < 20) {
-    notify("Токен сообщества выглядит слишком коротким.", "warning");
-    return;
-  }
-
-  const data = await chrome.storage.local.get("vkr_group_tokens");
-  const tokens = { ...(data.vkr_group_tokens || {}) };
-  tokens[String(groupId)] = {
-    token,
-    label: label || `Сообщество ${groupId}`,
-    savedAt: Date.now(),
-  };
-  await chrome.storage.local.set({ vkr_group_tokens: tokens });
-  $("group-id").value = "";
-  $("group-label").value = "";
-  $("group-token").value = "";
-  await renderGroupTokens(tokens);
-  notify(`Токен club${groupId} сохранён локально.`, "success");
-}
-
 function randomSecret() {
   const bytes = crypto.getRandomValues(new Uint8Array(32));
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join(
@@ -433,10 +350,6 @@ function randomSecret() {
 async function persistCommentSettings() {
   await chrome.storage.local.set({
     vkr_comment_delay_seconds: Math.max(15, Number($("comment-delay").value) || 60),
-    vkr_comment_execution_mode:
-      $("comment-mode").value === "community_24_7"
-        ? "community_24_7"
-        : "local_user",
     vkr_comment_group_interval_seconds: Math.max(
       15,
       Number($("comment-group-interval").value) || 30,
@@ -448,9 +361,6 @@ async function saveServer() {
   const url = $("server-url").value.trim().replace(/\/+$/, "");
   const secret = $("server-secret").value.trim();
   const delaySeconds = Math.max(15, Number($("comment-delay").value) || 60);
-  const commentMode = $("comment-mode").value === "community_24_7"
-    ? "community_24_7"
-    : "local_user";
   const groupIntervalSeconds = Math.max(15, Number($("comment-group-interval").value) || 30);
 
   if (!/^https:\/\/[a-z0-9.-]+(?::\d+)?$/i.test(url)) {
@@ -466,7 +376,6 @@ async function saveServer() {
     vkr_server_url: url,
     vkr_server_api_secret: secret,
     vkr_comment_delay_seconds: delaySeconds,
-    vkr_comment_execution_mode: commentMode,
     vkr_comment_group_interval_seconds: groupIntervalSeconds,
   });
   try {
@@ -510,9 +419,7 @@ async function init() {
   $("server-secret").value = settings.vkr_server_api_secret || "";
   $("comment-delay").value =
     settings.vkr_comment_delay_seconds || 60;
-  $("comment-mode").value = settings.vkr_comment_execution_mode || "local_user";
   $("comment-group-interval").value = settings.vkr_comment_group_interval_seconds || 30;
-  await renderGroupTokens(settings.vkr_group_tokens || {});
   await refreshQueue();
 
   if (settings.vkr_server_url && settings.vkr_server_api_secret) {
@@ -553,9 +460,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const userId = Number($("user-profile-link").dataset.userId);
     if (Number.isSafeInteger(userId) && userId > 0) chrome.tabs.create({ url: `https://vk.ru/id${userId}` });
   });
-  $("save-group-token").addEventListener("click", saveGroupToken);
   $("refresh-managed-groups").addEventListener("click", () => void refreshManagedGroups());
-  $("comment-mode").addEventListener("change", () => void persistCommentSettings());
   $("comment-delay").addEventListener("change", () => void persistCommentSettings());
   $("comment-group-interval").addEventListener("change", () => void persistCommentSettings());
   $("save-server").addEventListener("click", saveServer);

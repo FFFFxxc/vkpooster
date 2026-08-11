@@ -20,6 +20,8 @@ services:
         generateValue: true
       - key: WORKER_INTERVAL_MS
         value: "15000"
+      - key: POST_GROUP_INTERVAL_MS
+        value: "15000"
       - key: STALE_LOCK_MS
         value: "600000"
       - key: VK_API_VERSION

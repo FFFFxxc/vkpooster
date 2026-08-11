@@ -39,9 +39,9 @@ test("worker pauses a job on CAPTCHA instead of retrying it", async () => {
   const CommentModel = fakeModelFor(job);
   const worker = createCommentWorker({
     CommentModel,
-    tokenVault: { decrypt: () => "group-token" },
+    tokenVault: { decrypt: () => "user-token" },
     vkClient: {
-      async createGroupComment() {
+      async createUserComment() {
         const error = new Error("Captcha needed");
         error.code = 14;
         error.vkError = { error_code: 14 };
@@ -73,9 +73,9 @@ test("worker retries a transient failure with bounded backoff", async () => {
   const CommentModel = fakeModelFor(job);
   const worker = createCommentWorker({
     CommentModel,
-    tokenVault: { decrypt: () => "group-token" },
+    tokenVault: { decrypt: () => "user-token" },
     vkClient: {
-      async createGroupComment() {
+      async createUserComment() {
         const error = new Error("Internal VK error");
         error.code = 10;
         error.vkError = { error_code: 10 };
@@ -107,9 +107,9 @@ test("worker gives a transient VK error six attempts before marking it failed", 
   const CommentModel = fakeModelFor(job);
   const worker = createCommentWorker({
     CommentModel,
-    tokenVault: { decrypt: () => "group-token" },
+    tokenVault: { decrypt: () => "user-token" },
     vkClient: {
-      async createGroupComment() {
+      async createUserComment() {
         const error = new Error("Internal VK error");
         error.code = 10;
         error.vkError = { error_code: 10 };
@@ -138,9 +138,9 @@ test("worker uses VK guid and completes only its own lease", async () => {
   let sent;
   const worker = createCommentWorker({
     CommentModel,
-    tokenVault: { decrypt: () => "group-token" },
+    tokenVault: { decrypt: () => "user-token" },
     vkClient: {
-      async createGroupComment(input) {
+      async createUserComment(input) {
         sent = input;
         return { comment_id: 99 };
       },
@@ -150,6 +150,7 @@ test("worker uses VK guid and completes only its own lease", async () => {
 
   await worker.runOnce();
   assert.equal(sent.guid, "comment-job-three");
+  assert.equal(sent.userToken, "user-token");
   assert.equal(CommentModel.updates[0].filter.lockId, "lease-three");
   assert.equal(CommentModel.updates[0].update.$set.status, "completed");
   assert.equal(CommentModel.updates[0].update.$set.lockId, null);

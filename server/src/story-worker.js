@@ -31,17 +31,17 @@ function createStoryWorker({ StoryModel, tokenVault, mediaStore, vkClient, inter
       const job = await claimOne();
       if (!job) return false;
       try {
-        const groupToken = tokenVault.decrypt(job);
+        const userToken = tokenVault.decrypt(job);
         const media = await mediaStore.read(job.mediaId);
         const server = await vkClient.createStoryUploadServer({
-          kind: job.kind, groupId: job.groupId, groupToken, linkUrl: job.linkUrl, linkText: job.linkText,
+          kind: job.kind, groupId: job.groupId, userToken, linkUrl: job.linkUrl, linkText: job.linkText,
         });
         const uploadUrl = server?.upload_url || server?.uploadUrl;
         if (!uploadUrl) throw new Error("VK did not return a story upload URL");
         const uploadResult = await vkClient.uploadStoryMedia({
           uploadUrl, kind: job.kind, media, fileName: job.fileName, mimeType: job.mimeType,
         });
-        const saved = await vkClient.saveCommunityStory({ groupToken, uploadResult });
+        const saved = await vkClient.saveCommunityStory({ userToken, uploadResult });
         const storyId = String(saved?.items?.[0]?.id || saved?.[0]?.id || saved?.story_id || saved?.id || "");
         const cleanupDueAt = new Date();
         const completed = await StoryModel.updateOne(

@@ -23,7 +23,7 @@ function createCommentService({ CommentModel, tokenVault }) {
         return { created: false, job: publicCommentJob(existing) };
       }
 
-      const encryptedToken = tokenVault.encrypt(input.groupToken);
+      const encryptedToken = tokenVault.encrypt(input.userToken);
       try {
         const document = await CommentModel.create({
           idempotencyKey: input.idempotencyKey,

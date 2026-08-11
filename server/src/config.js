@@ -33,6 +33,10 @@ function loadConfig(environment = process.env) {
       60_000,
       Number(environment.STALE_LOCK_MS) || 10 * 60_000,
     ),
+    postGroupIntervalMs: Math.max(
+      15_000,
+      Number(environment.POST_GROUP_INTERVAL_MS) || 15_000,
+    ),
     vkApiVersion: String(environment.VK_API_VERSION || "5.199"),
     storyMaxBytes: Math.max(
       1024 * 1024,

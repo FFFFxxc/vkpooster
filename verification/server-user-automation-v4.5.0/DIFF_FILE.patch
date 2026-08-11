@@ -1,0 +1,3210 @@
+diff --git a/README.md b/README.md
+index e5ba8cb..a4ed986 100644
+--- a/README.md
++++ b/README.md
+@@ -1,112 +1,72 @@
+-# VK Reposter Pro 4.4.2
+-
+-Версия объединяет последовательный постинг, отложенные комментарии и Истории,
+-безопасную очистку сообществ и загрузку Клипов через одну видимую вкладку VK.
+-
+-## Что изменено
+-
+-- полностью удалены cookie-вход, `web_token`, Kate Mobile OAuth и подмена
+-  заголовков;
+-- удалены автолайки, мультиаккаунт-накрутка, TwiBoost и скрытый параллельный
+-  clips uploader;
+-- пользовательский токен хранится только в `chrome.storage.local`;
+-- при первом переходе с v3 старые Kate/VKHost-токены очищаются и не
+-  подхватываются автоматически;
+-- пользовательские аккаунты/токены больше не синхронизируются с сервером;
+-- после подключения одного пользовательского токена расширение локально получает
+-  список сообществ, где пользователь администратор или редактор;
+-- посты, репосты, загрузка фотографий, аналитика и локальные комментарии
+-  выполняются этим пользовательским токеном; отдельные токены сообществ для
+-  обычного постинга больше не требуются;
+-- выбор целевых пабликов можно сохранять в локальные наборы («Группа 1»,
+-  «Группа 2» и т. п.), применять одним нажатием, переименовывать, обновлять и
+-  удалять; наборы не занимают место в MongoDB и не отправляются на Render;
+-- в режиме копирования каждая фотография сначала загружается заново именно в
+-  целевое сообщество: просмотрщик VK больше не показывает паблик-источник;
+-- публикации идут строго последовательно с интервалом не менее 1,2 секунды;
+-- для `wall.post` используется `random_id`, поэтому безопасный retry не создаёт
+-  дубликат после потерянного ответа;
+-- CAPTCHA, validation, flood-control и suspicious-activity ставят очередь на
+-  паузу до ручного продолжения;
+-- текстовые отложенные посты создаются нативным `publish_date` VK;
+-- копии с фотографиями ждут локально до выбранной минуты, затем загружают фото
+-  в целевую группу и сразу публикуют запись: так дата фото в просмотрщике
+-  совпадает с фактическим выходом, но Chrome должен быть запущен;
+-- локальные комментарии по умолчанию выполняются пользовательским токеном и
+-  дополнительно разнесены по пабликам на настраиваемый интервал;
+-- необязательный режим 24/7 хранит токены сообществ на сервере только в
+-  AES-256-GCM шифротексте и выполняет отложенные комментарии с интервалом;
+-- временные ошибки VK при комментарии повторяются до шести раз с растущей
+-  паузой; у окончательной ошибки есть ручной повтор с прежним безопасным `guid`;
+-- Клипы передаются прямо между страницей расширения и одной обычной вкладкой
+-  VK по 128 КБ; файл, cookies и сессия не попадают на Render;
+-- Истории используют токен конкретного сообщества, временный GridFS-файл до
+-  25 МБ и официальный Stories API; файл удаляется после успеха или отмены;
+-- очистка стен и альбомов сначала показывает точный предпросмотр и затем удаляет
+-  по одному объекту с живым прогрессом, итоговыми счётчиками и кнопкой остановки;
+-- удаление фотографий ограничено защитной квотой: не более 950 успешных удалений
+-  на один паблик за скользящие 24 часа. Счётчик хранится локально отдельно для
+-  каждого сообщества; лишние фото остаются для следующего запуска, а окно
+-  предпросмотра показывает их число и время освобождения новых мест;
+-- если VK раньше вернёт flood-control или rate limit, только затронутый паблик
+-  получает дополнительную локальную паузу (15 минут для краткого ограничения,
+-  24 часа для flood/rate limit); записи стены без удаления фото можно продолжать
+-  очищать отдельно;
+-- на странице отложки появилась единая «Очистка данных»: отдельно удаляются
+-  ошибки, успешно завершённые записи или вся завершённая история. Активные
+-  задания сохраняются, а серверная очистка действительно удаляет документы
+-  комментариев/Историй из MongoDB и оставшиеся медиа Историй из GridFS;
+-- общая страница отложки показывает карточки с сохранёнными превью постов,
+-  комментариев, Историй и Клипов без массового опроса VK при открытии.
+-- активные посты в отложке сортируются от ближайших к дальним, завершённые — от
+-  новых к старым; вкладка «История» содержит кэшируемую аналитику и рейтинг
+-  настроенных групп по активности за 7/30 дней или последние 100 записей.
+-- аналитика читает `wall.get` только локальным пользовательским токеном: токены
+-  сообществ больше не вызывают ошибку VK 27, а общая ошибка авторизации или
+-  защитное ограничение останавливает оставшиеся запросы и показывается один раз.
+-
+-## Быстрый запуск расширения
+-
+-1. Откройте `chrome://extensions`.
+-2. Включите `Режим разработчика`.
+-3. Нажмите `Загрузить распакованное`.
+-4. Выберите папку, в которой находится этот README и `manifest.json`.
+-5. Откройте панель расширения:
+-   - добавьте локальный user token;
+-   - нажмите «Обновить список из VK» в разделе «Мои сообщества»;
+-   - Render URL и `API_SECRET` нужны для серверной истории и необязательного
+-     режима комментариев 24/7.
+-6. Обновите уже открытые вкладки VK клавишей F5.
+-
+-Чтобы создать набор пабликов, откройте окно публикации, отметьте нужные группы и
+-нажмите `＋ Сохранить выбор`. Основная кнопка набора мгновенно заменяет текущий
+-выбор его составом, а кнопка `✎` позволяет переименовать набор, изменить его
+-состав или удалить. Скрытые либо недоступные паблики остаются в наборе и будут
+-снова выбраны после их возвращения в список.
+-
+-Токены сообществ необязательны. Добавляйте их только для конкретного паблика,
+-если нужен серверный комментарий 24/7 или серверная История при закрытом
+-браузере. Один ключ не применяется к другой группе.
+-
+-Посты с фотографиями полностью выполняются локальным пользовательским токеном:
+-`photos.getWallUploadServer`, `photos.saveWallPhoto` и итоговый `wall.post`.
+-Это обязательно: VK возвращает ошибку 27 при попытке загрузить фото токеном
+-сообщества, а временный `owner_id`, возвращённый `photos.saveWallPhoto`, может
+-быть ID пользователя до привязки вложения к записи сообщества. Для вложения
+-используются только свежие `owner_id` и `id` из ответа VK; исходный photo ID
+-никогда не переиспользуется. Текстовые посты и комментарии также используют
+-локальный пользовательский токен. Он не отправляется на Render и не записывается
+-в MongoDB.
++# VK Reposter Pro 4.5.0
++
++Расширение для последовательной публикации в сообщества VK, отложенных постов,
++комментариев и Историй, загрузки Клипов, аналитики и управляемой очистки данных.
++
++## Главное в 4.5.0
++
++- один подключённый пользовательский токен используется для постов, фото,
++  репостов, комментариев, Историй и аналитики;
++- интерфейс и режимы токенов сообществ временно отключены;
++- отложенный пост передаётся на ваш Render и хранится в MongoDB только вместе с
++  AES-256-GCM-шифротекстом токена;
++- в назначенную минуту сервер читает исходный пост, заново загружает его фото в
++  каждое целевое сообщество и выполняет `wall.post` без `publish_date`;
++- поэтому время фотографии в просмотрщике VK совпадает с фактическим выходом, а
++  Chrome и компьютер на момент публикации не требуются;
++- комментарий к опубликованному посту создаётся сервером тем же пользовательским
++  токеном и с устойчивым ключом идемпотентности;
++- публикации по пабликам выполняются последовательно, минимум через 15 секунд;
++  заданный в окне постинга интервал между группами сохраняется сервером;
++- защитные ответы VK (CAPTCHA, validation, flood-control и suspicious activity)
++  ставят задание на паузу вместо быстрого повторения;
++- серверные посты, комментарии и Истории видны в общей отложке, их можно
++  отменить, повторить после ошибки и очистить из MongoDB;
++- карточка «Ожидания» хранит черновик: паблики, время, режим, текст и комментарий;
++  исходная запись открывается отдельной кнопкой прямо на стене VK;
++- выбор пабликов можно сохранять локальными наборами («Группа 1», «Группа 2»);
++- копирование фото использует только свежие `owner_id`/`id`, возвращённые
++  `photos.saveWallPhoto`, поэтому просмотрщик не ведёт к паблику-источнику;
++- Клипы остаются локальным процессом в одной обычной видимой вкладке VK;
++- TwiBoost, экспорт/импорт настроек, очистка стен/альбомов и аналитика сохранены.
++
++## Установка расширения
++
++1. Откройте `chrome://extensions` и включите режим разработчика.
++2. Нажмите **Загрузить распакованное** и выберите папку с `manifest.json`.
++3. Откройте VK Reposter Pro и подключите пользовательский токен.
++4. Нажмите **Обновить список из VK**.
++5. Укажите HTTPS URL Render и тот же `API_SECRET`, который настроен на сервере.
++6. Нажмите **Сохранить и проверить**, затем обновите открытые вкладки VK.
++
++Для автоматизации при выключенном компьютере Render должен оставаться активным.
++Blueprint использует план `starter`: засыпающий web service не исполняет таймеры,
++пока его не разбудит внешний запрос.
++
++## Отложенный пост
++
++1. В окне публикации включите отложку, выберите дату, время и интервал.
++2. Расширение отправит на сервер только ID исходного поста, настройки задания и
++   пользовательский токен по HTTPS; токен сразу шифруется `TOKEN_ENCRYPTION_KEY`.
++3. До нужного времени фотографии не загружаются в VK.
++4. В нужную минуту Render публикует пост по пабликам последовательно.
++5. Если указан комментарий, сервер ставит его в собственную очередь 24/7.
++
++## Ожидания
++
++У записи из списка ожиданий автоматически сохраняются выбранные сообщества,
++режим копии/репоста, текст, комментарий и локальная дата. Окно можно закрыть и
++вернуться позже. Кнопка **Открыть исходный пост в VK** открывает оригинал.
+ 
+ ## MongoDB и Render
+ 
+-Полная пошаговая инструкция: [server/README.md](server/README.md).
++Пошаговая инструкция: [server/README.md](server/README.md).
+ 
+ Blueprint: [render.yaml](render.yaml).
+ 
+-Для надёжных комментариев 24/7 указан платный Render `starter`: бесплатный web service
+-засыпает через 15 минут без входящего трафика и не подходит для точного
+-планировщика.
++Коллекции создаются автоматически. Завершённые задания имеют TTL, а кнопка
++**Очистка данных** удаляет ошибки, успешную историю либо всю завершённую историю,
++не затрагивая активные задания.
+ 
+ ## Проверка
+ 
+@@ -114,20 +74,6 @@ Blueprint: [render.yaml](render.yaml).
+ npm run verify
+ ```
+ 
+-Тесты не отправляют запросы в VK и не требуют настоящих токенов. Реальный первый
+-smoke test нужно сделать вручную: одна тестовая группа, сначала текст, затем одно
+-фото. После публикации откройте фото и убедитесь, что владельцем указана тестовая
+-группа, а не паблик-источник. Затем проверьте отложенный комментарий.
+-
+-## Ограничения safe-версии
+-
+-- водяные знаки пока отключены: обработанные локальные файлы не сохраняются в
+-  восстанавливаемой очереди расширения;
+-- Клипы зависят от текущей разметки формы VK. При её изменении вкладка остаётся
+-  открытой, а очередь ставится на паузу для ручной проверки;
+-- Истории доступны только сообществам, которым VK разрешает их публикацию;
+-- файлы Историй ограничены 25 МБ, а ссылки-кнопки — внутренними HTTPS-ссылками VK;
+-- `wall.repost` требует локальный user token;
+-- публикация и аналитика требуют действующий локальный пользовательский токен;
+-- серверные комментарии 24/7 и серверные Истории требуют отдельный токен
+-  конкретного сообщества; браузерный режим комментариев работает без него.
++Тесты не обращаются к VK и не используют настоящие токены. После деплоя сделайте
++smoke test на одном тестовом сообществе: текст, одно фото, отложенный пост и
++комментарий. В `/health` должна отображаться версия сервера `4.3.0`.
+diff --git a/background.js b/background.js
+index 6c34a75..e844dbf 100644
+--- a/background.js
++++ b/background.js
+@@ -1,8 +1,8 @@
+ /**
+  * VK Reposter Pro 4 — safe service worker.
+  *
+- * User tokens never leave this browser. Cookie-based authorization, token
+- * impersonation, auto-likes and multi-account automation are intentionally absent.
++ * User tokens are kept locally for immediate work and encrypted by the user's
++ * own server only for explicitly scheduled 24/7 jobs.
+  */
+ 
+ importScripts("safety-core.js", "cleanup-core.js", "cleanup-runner.js", "clip-queue-core.js", "maintenance-core.js");
+@@ -11,9 +11,7 @@ const VK_API_VERSION = "5.199";
+ const PUBLISH_QUEUE_KEY = "vkr_publish_queue";
+ const POST_HISTORY_KEY = "vkr_posts_history";
+ const LOCAL_COMMENTS_KEY = "vkr_scheduled_comments";
+-const GROUP_TOKENS_KEY = "vkr_group_tokens";
+ const USER_GROUPS_KEY = "vkr_user_groups";
+-const COMMENT_MODE_KEY = "vkr_comment_execution_mode";
+ const COMMENT_GROUP_INTERVAL_KEY = "vkr_comment_group_interval_seconds";
+ const QUEUE_PAUSE_KEY = "vkr_queue_pause";
+ const DEFAULT_COMMENT_DELAY_SECONDS = 60;
+@@ -234,13 +232,10 @@ function responseError(message, response) {
+ }
+ 
+ async function getLocalCredentials() {
+-  const data = await chrome.storage.local.get([
+-    GROUP_TOKENS_KEY,
+-    "vk_token",
+-  ]);
++  const data = await chrome.storage.local.get("vk_token");
+ 
+   return {
+-    groupTokens: data[GROUP_TOKENS_KEY] || {},
++    groupTokens: {},
+     userToken:
+       (typeof data.vk_token === "string" && data.vk_token.trim()) || "",
+   };
+@@ -285,26 +280,7 @@ async function listManagedCommunities({ refresh = true } = {}) {
+ }
+ 
+ async function mergedCommunityDirectory({ refresh = false } = {}) {
+-  const [managed, data] = await Promise.all([
+-    listManagedCommunities({ refresh }),
+-    chrome.storage.local.get(GROUP_TOKENS_KEY),
+-  ]);
+-  const known = new Map(managed.map((group) => [group.id, group]));
+-  for (const [rawId, rawEntry] of Object.entries(data[GROUP_TOKENS_KEY] || {})) {
+-    const id = Math.abs(Number(rawId));
+-    if (!Number.isSafeInteger(id) || id <= 0) continue;
+-    const entry = typeof rawEntry === "object" && rawEntry ? rawEntry : {};
+-    if (!known.has(id)) {
+-      known.set(id, {
+-        id,
+-        name: String(entry.label || `Сообщество ${id}`).slice(0, 160),
+-        screenName: `club${id}`,
+-        photoUrl: String(entry.photoUrl || entry.photo || ""),
+-        refreshedAt: Number(entry.savedAt) || 0,
+-      });
+-    }
+-  }
+-  return [...known.values()].sort((first, second) => first.name.localeCompare(second.name, "ru"));
++  return listManagedCommunities({ refresh });
+ }
+ 
+ async function getServerConfig() {
+@@ -408,17 +384,8 @@ function sanitizeJob(message) {
+   }
+ 
+   const mode = message.mode === "repost" ? "repost" : "copy";
+-  const requestedScheduleMode = String(message.scheduleMode || "native_vk");
+-  const scheduleMode = pubDate
+-    ? mode === "copy" && requestedScheduleMode !== "exact_photo_time"
+-      ? "native_vk"
+-      : "exact_photo_time"
+-    : "immediate";
+-  const deferMediaUntilPublish =
+-    Boolean(pubDate) &&
+-    (mode === "repost" ||
+-      (scheduleMode === "exact_photo_time" &&
+-        shouldDeferPhotoPublish({ post: message.post, mode, pubDate })));
++  const scheduleMode = pubDate ? "server_user" : "immediate";
++  const deferMediaUntilPublish = false;
+ 
+   return {
+     id: `pub_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`,
+@@ -433,6 +400,7 @@ function sanitizeJob(message) {
+       ? message.processedPhotos.length
+       : 0,
+     autoCommentText: String(message.autoCommentText || "").trim(),
++    groupIntervalSeconds: Math.max(15, Math.round((Number(message.intervalMinutes) || 0) * 60) || 15),
+     autoDeleteAfter: Math.max(0, Number(message.autoDeleteAfter) || 0),
+     label: String(message.label || `Пост #${message.post.id}`).slice(0, 160),
+     status: "queued",
+@@ -455,6 +423,7 @@ function stableRandomId(jobId, groupId) {
+ 
+ async function enqueuePublishJob(message) {
+   const job = sanitizeJob(message);
++  if (job.pubDate) return enqueueServerPublishJob(job);
+   await withStorageLock(PUBLISH_QUEUE_KEY, async () => {
+     const data = await chrome.storage.local.get(PUBLISH_QUEUE_KEY);
+     const queue = Array.isArray(data[PUBLISH_QUEUE_KEY])
+@@ -469,6 +438,46 @@ async function enqueuePublishJob(message) {
+   return job;
+ }
+ 
++async function enqueueServerPublishJob(job) {
++  const { userToken } = await getLocalCredentials();
++  if (!userToken) throw new Error("Подключите пользовательский токен VK в настройках.");
++  const settings = await chrome.storage.local.get([
++    USER_GROUPS_KEY,
++    "vkr_comment_delay_seconds",
++    COMMENT_GROUP_INTERVAL_KEY,
++  ]);
++  const labels = Object.fromEntries(
++    (Array.isArray(settings[USER_GROUPS_KEY]) ? settings[USER_GROUPS_KEY] : [])
++      .filter((group) => job.groups.includes(Math.abs(Number(group?.id))))
++      .map((group) => [String(Math.abs(Number(group.id))), String(group.name || `club${Math.abs(Number(group.id))}`)]),
++  );
++  const previewImages = copyPhotoObjects(job.post)
++    .map((photo) => largestPhotoUrl(photo))
++    .filter(Boolean)
++    .slice(0, 20);
++  const response = await serverRequest("/api/scheduled-posts", {
++    method: "POST",
++    body: {
++      idempotencyKey: job.id,
++      sourceOwnerId: Number(job.post.owner_id),
++      sourcePostId: Number(job.post.id),
++      groups: job.groups,
++      groupLabels: labels,
++      mode: job.mode,
++      text: job.text,
++      publishAt: new Date(job.pubDate).toISOString(),
++      groupIntervalSeconds: job.groupIntervalSeconds,
++      userToken,
++      autoCommentText: job.autoCommentText,
++      commentDelaySeconds: Math.max(15, Number(settings.vkr_comment_delay_seconds) || DEFAULT_COMMENT_DELAY_SECONDS),
++      commentGroupIntervalSeconds: Math.max(15, Number(settings[COMMENT_GROUP_INTERVAL_KEY]) || 30),
++      previewImages,
++      label: job.label,
++    },
++  });
++  return { ...(response.job || job), scheduleMode: "server_user", source: "server" };
++}
++
+ async function scheduleNextPublishAlarm(queueOverride = null) {
+   const queue = Array.isArray(queueOverride)
+     ? queueOverride
+@@ -692,12 +701,11 @@ async function scheduleDelayedComment({
+   commentText,
+   commentAt,
+   idempotencyKey,
+-  groupToken,
+-  executionMode = "local_user",
++  userToken,
+ }) {
+   if (!commentText || !postId) return { scheduled: false };
+ 
+-  if (executionMode === "community_24_7" && groupToken) {
++  if (userToken) {
+     try {
+       const result = await serverRequest("/api/scheduled-comments", {
+         method: "POST",
+@@ -707,7 +715,7 @@ async function scheduleDelayedComment({
+           postId,
+           commentText,
+           commentAt,
+-          groupToken,
++          userToken,
+         },
+       });
+       return { scheduled: true, location: "server", jobId: result.job?.id };
+@@ -739,7 +747,6 @@ async function completePostSideEffects(
+     try {
+       const storage = await chrome.storage.local.get([
+         "vkr_comment_delay_seconds",
+-        COMMENT_MODE_KEY,
+         COMMENT_GROUP_INTERVAL_KEY,
+       ]);
+       const delaySeconds = Math.max(
+@@ -759,21 +766,13 @@ async function completePostSideEffects(
+         publicationBase +
+         delaySeconds * 1000 +
+         groupPosition * groupIntervalSeconds * 1000;
+-      const groupTokenEntry =
+-        credentials.groupTokens[String(groupId)] ||
+-        credentials.groupTokens[groupId];
+-      const groupToken =
+-        typeof groupTokenEntry === "string"
+-          ? groupTokenEntry
+-          : groupTokenEntry?.token || "";
+       const scheduled = await scheduleDelayedComment({
+         groupId,
+         postId,
+         commentText: job.autoCommentText,
+         commentAt,
+         idempotencyKey: `${job.id}:${groupId}:${postId}:comment`,
+-        groupToken,
+-        executionMode: storage[COMMENT_MODE_KEY] || "local_user",
++        userToken: credentials.userToken,
+       });
+       if (scheduled.location === "browser") {
+         warnings.push("Комментарий выполнится только пока браузер запущен.");
+@@ -1122,9 +1121,6 @@ async function publishToGroup(job, groupId, credentials, onPublished) {
+       random_id: stableRandomId(job.id, groupId),
+     };
+     if (attachments.length) params.attachments = attachments.join(",");
+-    if (job.pubDate && !job.deferMediaUntilPublish) {
+-      params.publish_date = Math.floor(job.pubDate / 1000);
+-    }
+     const response = await vkApi("wall.post", params, credential.token);
+     postId = response?.post_id;
+   }
+@@ -2661,6 +2657,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+       const local = await purgeLocalMaintenanceRecords(scope);
+       const warnings = [];
+       let comments = { removedJobs: 0 };
++      let posts = { removedJobs: 0 };
+       let stories = { removedJobs: 0, removedMedia: 0, retainedJobs: 0, hasMore: false };
+       try {
+         comments = await serverRequest(
+@@ -2670,6 +2667,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+       } catch (error) {
+         warnings.push(`Комментарии на сервере не очищены: ${error.message}`);
+       }
++      try {
++        posts = await serverRequest(
++          `/api/scheduled-posts?scope=${encodeURIComponent(scope)}`,
++          { method: "DELETE" },
++        );
++      } catch (error) {
++        warnings.push(`Посты на сервере не очищены: ${error.message}`);
++      }
+       try {
+         stories = await serverRequest(
+           `/api/scheduled-stories?scope=${encodeURIComponent(scope)}`,
+@@ -2684,7 +2689,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+       if (Number(stories.retainedJobs) > 0) {
+         warnings.push(`Не удалось удалить медиа у ${stories.retainedJobs} Историй; записи сохранены для безопасного повтора.`);
+       }
+-      return { cleared: true, scope, local, comments, stories, warnings };
++      return { cleared: true, scope, local, posts, comments, stories, warnings };
+     });
+   }
+   if (type === "clips_start") {
+@@ -2738,6 +2743,24 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+       return { jobs: result.jobs || [] };
+     });
+   }
++  if (type === "list_scheduled_posts") {
++    return respond(async () => {
++      const result = await serverRequest("/api/scheduled-posts?limit=100");
++      return { jobs: result.jobs || [] };
++    });
++  }
++  if (type === "cancel_scheduled_post") {
++    return respond(async () => {
++      await serverRequest(`/api/scheduled-posts/${encodeURIComponent(message.id)}`, { method: "DELETE" });
++      return { removed: true };
++    });
++  }
++  if (type === "retry_scheduled_post") {
++    return respond(async () => {
++      const result = await serverRequest(`/api/scheduled-posts/${encodeURIComponent(message.id)}/retry`, { method: "POST" });
++      return { retried: true, job: result.job };
++    });
++  }
+   if (type === "delete_scheduled_comment") {
+     return respond(async () => {
+       await serverRequest(
+diff --git a/content-shadow-dom.js b/content-shadow-dom.js
+index 827a548..6e21d8f 100644
+--- a/content-shadow-dom.js
++++ b/content-shadow-dom.js
+@@ -229,14 +229,13 @@ function getModalHTML() {
+                 <input type="number" id="vkr-interval" value="0" min="0" max="1440">
+               </div>
+               <label style="display: grid; gap: 6px; width: 100%;">
+-                <span style="font-size: 13px; color: var(--vkr-text-secondary);">Как подготовить отложенный пост:</span>
++                <span style="font-size: 13px; color: var(--vkr-text-secondary);">Как выполнить отложенный пост:</span>
+                 <select id="vkr-schedule-mode" style="width: 100%; padding: 10px; color: var(--vkr-text-primary); background: var(--vkr-bg-tertiary); border: 1px solid var(--vkr-border); border-radius: var(--vkr-radius-md);">
+-                  <option value="native_vk">Надёжно: передать в отложку VK сейчас</option>
+-                  <option value="exact_photo_time">Точная дата фото: загрузить в момент выхода</option>
++                  <option value="server_user">Автоматически 24/7 через мой Render</option>
+                 </select>
+               </label>
+               <div id="vkr-schedule-mode-note" style="padding: 10px 12px; border: 1px solid rgba(56, 189, 248, .28); border-radius: var(--vkr-radius-md); background: rgba(56, 189, 248, .08); color: var(--vkr-text-secondary); font-size: 12px; line-height: 1.45;">
+-                Фото загрузятся сейчас, запись попадёт в отложку VK. После завершения подготовки Chrome можно закрыть.
++                Сервер загрузит фото и опубликует запись только в указанное время. Chrome и компьютер можно выключить; дата фото совпадёт с фактическим выходом поста.
+               </div>
+             </div>
+ 
+diff --git a/content.js b/content.js
+index 62250e9..4a134a6 100644
+--- a/content.js
++++ b/content.js
+@@ -1,14 +1,14 @@
+ /**
+  * VK Reposter Pro - Content Script
+  * Modern UI with Glassmorphism Design
+- * @version 4.3.3
++ * @version 4.5.0
+  * @updated 2026-08-09
+  */
+ 
+ // ========== CONSTANTS ==========
+ const BUTTON_CLASS = "vkr-btn";
+ const PROCESSED_ATTR = "data-vkr-checked";
+-const VKR_VERSION = "4.3.3";
++const VKR_VERSION = "4.5.0";
+ const GROUP_SETS_STORAGE_KEY = "vkr_group_sets_v1";
+ const groupSetsCore = globalThis.VkrGroupSetsCore;
+ const POST_SELECTORS = '[data-post-id], div[id^="post-"], article[data-post-id], .post, .wall_item, .feed_row, .Post, [data-testid="post-root"], [data-testid="post"]';
+@@ -3115,7 +3115,7 @@ async function sendToGroups() {
+         return;
+       }
+       intervalMinutes = parseInt($("vkr-interval")?.value || "0") || 0;
+-      scheduleMode = $("vkr-schedule-mode")?.value || "native_vk";
++      scheduleMode = "server_user";
+     }
+ 
+     // Autodelete
+@@ -3160,7 +3160,8 @@ async function sendToGroups() {
+       mode: mode,
+       text: txt || "",
+       pubDate: pubDate,
+-      scheduleMode: scheduleMode,
++      scheduleMode: "server_user",
++      intervalMinutes: intervalMinutes,
+       processedPhotos: processedPhotos,
+       token: tok,
+       label: label,
+diff --git a/docs/superpowers/plans/2026-08-11-server-user-automation.md b/docs/superpowers/plans/2026-08-11-server-user-automation.md
+new file mode 100644
+index 0000000..4d6350a
+--- /dev/null
++++ b/docs/superpowers/plans/2026-08-11-server-user-automation.md
+@@ -0,0 +1,138 @@
++# Server User Automation Implementation Plan
++
++> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
++
++**Goal:** Выполнять будущие посты, комментарии и истории на Render через зашифрованный пользовательский токен и сохранять полноценный черновик каждого поста в «Ожиданиях».
++
++**Architecture:** MongoDB хранит одну серверную задачу публикации с несколькими целевыми сообществами и зашифрованным user token. Worker обрабатывает по одному сообществу за проход, в фактическое время заново читает исходный пост, загружает фотографии в целевую группу и ставит комментарий в серверную очередь. Расширение использует локальную публикацию только для немедленных постов, а future jobs отправляет серверу.
++
++**Tech Stack:** Chrome Extension Manifest V3, vanilla JavaScript, Node.js 20+, Express 5, Mongoose 8, MongoDB, `node:test`.
++
++## Global Constraints
++
++- Токен хранится в MongoDB только через существующий AES-256-GCM vault.
++- API и логи не возвращают и не печатают токен.
++- Между целевыми сообществами одной задачи проходит не менее 15 секунд.
++- Новые future copy jobs не используют `publish_date`.
++- `vkr_group_tokens` не удаляется автоматически, но исключается из рабочих меню.
++- Все новые функции проходят RED → GREEN и полный `npm run verify`.
++
++---
++
++### Task 1: User-token contracts
++
++**Files:**
++- Modify: `server/src/validation.js`
++- Modify: `server/src/comment-service.js`
++- Modify: `server/src/worker.js`
++- Modify: `server/src/vk-client.js`
++- Modify: `server/src/story-validation.js`
++- Modify: `server/src/story-service.js`
++- Modify: `server/src/story-worker.js`
++- Test: `server/test/validation.test.js`
++- Test: `server/test/worker.test.js`
++- Test: `server/test/story-validation.test.js`
++- Test: `server/test/story-worker.test.js`
++- Test: `server/test/vk-client.test.js`
++
++**Interfaces:**
++- Consumes: `tokenVault.encrypt/decrypt`.
++- Produces: comment/story payloads with `userToken`; `vkClient.createUserComment()` and user-authorized story methods.
++
++- [ ] **Step 1: Write failing tests** asserting that `userToken` is required, `groupToken` is rejected/ignored, public serializers contain no secret, and VK methods receive `userToken`.
++- [ ] **Step 2: Run** `npm --prefix server test` and confirm contract failures mention the missing `userToken` API.
++- [ ] **Step 3: Implement minimal renaming** from group credential to user credential without changing encrypted schema fields.
++- [ ] **Step 4: Run** `npm --prefix server test` and confirm all server tests pass.
++
++### Task 2: Scheduled post service and worker
++
++**Files:**
++- Create: `server/src/models/scheduled-post.js`
++- Create: `server/src/post-validation.js`
++- Create: `server/src/post-service.js`
++- Create: `server/src/post-worker.js`
++- Modify: `server/src/vk-client.js`
++- Modify: `server/src/app.js`
++- Modify: `server/src/server.js`
++- Test: `server/test/post-validation.test.js`
++- Test: `server/test/post-service.test.js`
++- Test: `server/test/post-worker.test.js`
++- Test: `server/test/app.test.js`
++
++**Interfaces:**
++- Produces: `validateScheduledPostInput(input)`, `publicPostJob(document)`, `createPostService()`, `createPostWorker()`.
++- API: `POST/GET/DELETE /api/scheduled-posts`, `POST /api/scheduled-posts/:id/retry`, `DELETE /api/scheduled-posts/:id`.
++
++- [ ] **Step 1: Write failing validation/service tests** for groups, source IDs, publish time, idempotency, encryption, public shape, retry/cancel/purge.
++- [ ] **Step 2: Write failing worker tests** for one-community leases, due-time photo copy, 15-second next-group time, comment enqueue and protective pause.
++- [ ] **Step 3: Run focused tests** with `node --test server/test/post-*.test.js` and confirm missing-module failures.
++- [ ] **Step 4: Implement model, validation, service, VK upload helpers and worker** with one target per lease.
++- [ ] **Step 5: Add authenticated routes and runtime wiring**, then run `npm --prefix server test`.
++
++### Task 3: Extension routing and popup cleanup
++
++**Files:**
++- Modify: `background.js`
++- Modify: `popup.html`
++- Modify: `popup-auth.js`
++- Modify: `stories.js`
++- Modify: `scheduled.js`
++- Modify: `scheduled.html`
++- Test: `tests/user-first-contract.test.js`
++- Test: `tests/popup-account.test.js`
++- Test: `tests/stories-contract.test.js`
++- Test: `tests/scheduled-results-ui.test.js`
++
++**Interfaces:**
++- Future `enqueue_publish` sends `/api/scheduled-posts` with `userToken` and returns a server job.
++- Immediate publication sends `/api/scheduled-comments` with `userToken`; local comment queue is fallback only.
++- `list_scheduled_posts`, `cancel_scheduled_post`, `retry_scheduled_post` bridge the server API to the scheduled page.
++
++- [ ] **Step 1: Replace old static assertions with failing user-only/server-automation contracts.**
++- [ ] **Step 2: Run** `node --test tests/user-first-contract.test.js tests/popup-account.test.js tests/stories-contract.test.js tests/scheduled-results-ui.test.js` and confirm RED.
++- [ ] **Step 3: Implement future-server routing, server comment routing and story user token.**
++- [ ] **Step 4: Remove group-token and comment-mode controls from popup; build directories only from `vkr_user_groups`.**
++- [ ] **Step 5: Merge server posts into the Posts tab and expose retry/cancel.**
++- [ ] **Step 6: Run focused extension tests and confirm GREEN.**
++
++### Task 4: Persistent waiting drafts
++
++**Files:**
++- Create: `waiting-draft-core.js`
++- Modify: `manifest.json`
++- Modify: `scheduled.html`
++- Modify: `scheduled.js`
++- Modify: `scheduled-fixes.css`
++- Test: `tests/waiting-draft-core.test.js`
++- Test: `tests/scheduled-gallery-ui.test.js`
++
++**Interfaces:**
++- Produces: `VkrWaitingDraftCore.normalizeDraft()`, `toLocalDateTime()`, `describeDraft()`.
++- Each `vkr_waiting_posts[]` item may contain `draft` and older entries normalize safely.
++
++- [ ] **Step 1: Write failing pure-core tests** for group normalization, date preservation, legacy defaults and readable summary.
++- [ ] **Step 2: Run focused tests** and confirm missing-module RED.
++- [ ] **Step 3: Implement the pure core and load it on `scheduled.html`.**
++- [ ] **Step 4: Save draft on form input/change/close, restore it on open, show time and group names on cards, and add an explicit VK source link.**
++- [ ] **Step 5: Run focused tests and confirm GREEN.**
++
++### Task 5: Version, docs, verification and delivery
++
++**Files:**
++- Modify: `package.json`
++- Modify: `manifest.json`
++- Modify: `server/package.json`
++- Modify: `server/src/app.js`
++- Modify: `README.md`
++- Modify: `server/README.md`
++- Create: `verification/server-user-automation-v4.5.0/*`
++
++**Interfaces:**
++- Extension version: `4.5.0`.
++- Server version: `4.3.0`.
++
++- [ ] **Step 1: Update deployment and privacy documentation** with Render environment and token flow.
++- [ ] **Step 2: Run** `npm run verify` and record exact pass counts.
++- [ ] **Step 3: Generate MODIFIED_FILE, DIFF_FILE.patch, VERIFICATION.txt and executable ROLLBACK.sh.**
++- [ ] **Step 4: Apply rollback on another copy, verify baseline behavior and reopen all four artifacts.**
++- [ ] **Step 5: Commit and push branch `safe-v4`.**
+diff --git a/docs/superpowers/specs/2026-08-11-server-user-automation-design.md b/docs/superpowers/specs/2026-08-11-server-user-automation-design.md
+new file mode 100644
+index 0000000..4761fca
+--- /dev/null
++++ b/docs/superpowers/specs/2026-08-11-server-user-automation-design.md
+@@ -0,0 +1,101 @@
++# Серверная автоматизация через пользовательский токен — дизайн
++
++## Цель
++
++Отложенные копии постов, комментарии и истории должны выполняться на Render без
++запущенного Chrome. Фотографии копируемого поста должны загружаться в целевое
++сообщество только в фактический момент выхода, чтобы время фотографии совпадало
++со временем публикации. Токены сообществ временно исключаются из рабочих
++сценариев и интерфейса. Карточка «Ожидания» хранит выбранные сообщества, время,
++режим, текст и комментарий до отправки.
++
++## Выбранный подход
++
++Из трёх вариантов — локальная очередь Chrome, нативная отложка VK и очередь
++Render — используется очередь Render для будущих постов. Локальная очередь
++остаётся только для немедленной публикации и как резерв для комментария, если
++сервер недоступен. Нативный `publish_date` больше не применяется к новым копиям
++из «Ожиданий»: именно он вынуждал загружать фотографии заранее.
++
++Пользовательский токен передаётся только по HTTPS в запросе, защищённом
++`API_SECRET`, шифруется существующим AES-256-GCM vault с
++`TOKEN_ENCRYPTION_KEY`, не логируется и не возвращается API. Каждый документ
++получает собственные IV и authentication tag.
++
++## Компоненты
++
++### Серверные посты
++
++`ScheduledPost` хранит исходный `owner_id/post_id`, текст, режим, целевые
++сообщества, время выхода, результаты, зашифрованный пользовательский токен и
++данные комментария. Worker атомарно арендует одну задачу и обрабатывает только
++одно сообщество за проход. Следующее сообщество допускается не раньше чем через
++15 секунд. Это исключает параллельный шквал запросов с одного аккаунта.
++
++В режиме копии worker в момент выхода заново читает исходный пост через
++`wall.getById`, скачивает каждую фотографию по HTTPS, получает
++`photos.getWallUploadServer`, сохраняет её через `photos.saveWallPhoto` и лишь
++затем вызывает `wall.post` без `publish_date`. Видео, документы и аудио
++переиспользуются как VK-вложения. В режиме репоста worker вызывает
++`wall.repost` в фактическое время.
++
++После успешного `wall.post` worker создаёт серверное задание комментария с тем
++же токеном и рассчитанным временем. Результаты сохраняются по сообществам;
++задачу можно отменить или повторить. Завершённые записи удаляются существующей
++очисткой и TTL.
++
++### Комментарии и истории
++
++Поле входного API переименовывается с `groupToken` на `userToken`. Worker
++комментариев вызывает `wall.createComment` с `from_group` и пользовательским
++токеном. Истории выбирают сообщества из `vkr_user_groups` и передают тот же
++`vk_token`; серверный story worker использует его для upload/save вызовов.
++
++### Расширение
++
++Новый будущий пост отправляется на `/api/scheduled-posts`. Немедленный пост
++по-прежнему публикуется локально, после чего комментарий сначала ставится на
++сервер через пользовательский токен. При недоступности Render комментарий
++остаётся в локальной резервной очереди.
++
++Секция токенов сообществ и переключатель режима комментариев удаляются из
++popup. Список пабликов везде строится только из `vkr_user_groups`.
++Существующее значение `vkr_group_tokens` не удаляется автоматически, но больше
++не читается рабочими меню и не используется для публикации.
++
++### «Ожидания»
++
++Каждый элемент получает `draft` со следующими полями:
++
++- `groups: number[]`;
++- `mode: "copy" | "repost"`;
++- `pubDateLocal: string` в формате `datetime-local`;
++- `text: string`;
++- `commentText: string`;
++- `updatedAt: number`.
++
++Форма сохраняет draft при каждом изменении и перед закрытием. Карточка показывает
++названия выбранных пабликов и время, а кнопка «Открыть исходный пост в VK» и
++кликабельный заголовок всегда открывают исходную стену. После успешной постановки
++на сервер элемент удаляется из «Ожиданий».
++
++## Ошибки и восстановление
++
++- транспортные ошибки и VK 1/2/10 повторяются с ограниченным backoff;
++- CAPTCHA, flood control, проверка входа и другие protective коды переводят
++  задачу в `paused` без дальнейших запросов;
++- неверный/истёкший токен завершает целевое сообщество ошибкой;
++- повторный запрос с тем же `idempotencyKey` возвращает существующую задачу;
++- публичные сериализаторы исключают все поля токена;
++- отмена удаляет только ещё не опубликованные цели, уже вышедшие посты остаются
++  в результатах;
++- если сервер недоступен при создании будущего поста, карточка остаётся в
++  «Ожиданиях» вместе с draft.
++
++## Проверка
++
++TDD покрывает: валидацию user token, отсутствие секретов в ответе, серверный
++копирующий upload-поток, последовательный worker, комментарий через user token,
++истории через user token, CRUD scheduled posts, отсутствие group-token UI и
++сохранение/восстановление draft. Затем запускаются `npm run verify`, rollback на
++отдельной копии и повторный smoke-тест восстановленного baseline.
+diff --git a/manifest.json b/manifest.json
+index 81a5bec..885fe58 100644
+--- a/manifest.json
++++ b/manifest.json
+@@ -1,7 +1,7 @@
+ {
+   "manifest_version": 3,
+   "name": "VK Reposter Pro",
+-  "version": "4.4.2",
++  "version": "4.5.0",
+   "description": "Безопасная очередь постинга и отложенных комментариев для сообществ ВКонтакте",
+   "permissions": [
+     "storage",
+diff --git a/package.json b/package.json
+index 708c5b4..88ac642 100644
+--- a/package.json
++++ b/package.json
+@@ -1,11 +1,11 @@
+ {
+   "name": "vk-reposter-pro",
+-  "version": "4.4.2",
++  "version": "4.5.0",
+   "description": "VK Reposter Pro — расширение для репоста в ВКонтакте",
+   "private": true,
+   "scripts": {
+     "test": "node --test tests/*.test.js && npm --prefix server test",
+-    "check:js": "node --check safety-core.js && node --check cleanup-core.js && node --check cleanup-runner.js && node --check clip-queue-core.js && node --check maintenance-core.js && node --check group-sets-core.js && node --check backup-core.js && node --check background.js && node --check popup-auth.js && node --check content.js && node --check clips.js && node --check mesh-text.js && node --check clip-upload-content.js && node --check extension-server-client.js && node --check stories.js && node --check scheduled.js && npm --prefix server run check",
++    "check:js": "node --check safety-core.js && node --check cleanup-core.js && node --check cleanup-runner.js && node --check clip-queue-core.js && node --check maintenance-core.js && node --check group-sets-core.js && node --check backup-core.js && node --check waiting-draft-core.js && node --check background.js && node --check popup-auth.js && node --check content.js && node --check clips.js && node --check mesh-text.js && node --check clip-upload-content.js && node --check extension-server-client.js && node --check stories.js && node --check scheduled.js && npm --prefix server run check",
+     "verify": "npm test && npm run check:js"
+   }
+ }
+diff --git a/popup-auth.js b/popup-auth.js
+index 437ba39..e6e3033 100644
+--- a/popup-auth.js
++++ b/popup-auth.js
+@@ -106,12 +106,10 @@ async function readSettings() {
+   return chrome.storage.local.get([
+     "vk_token",
+     "vkr_user_profile",
+-    "vkr_group_tokens",
+     "vkr_user_groups",
+     "vkr_server_url",
+     "vkr_server_api_secret",
+     "vkr_comment_delay_seconds",
+-    "vkr_comment_execution_mode",
+     "vkr_comment_group_interval_seconds",
+   ]);
+ }
+@@ -257,59 +255,6 @@ async function refreshManagedGroups({ quiet = false } = {}) {
+   }
+ }
+ 
+-async function renderGroupTokens(tokens) {
+-  const list = $("group-token-list");
+-  const entries = Object.entries(tokens || {}).sort(
+-    ([first], [second]) => Number(first) - Number(second),
+-  );
+-  $("group-token-count").textContent = String(entries.length);
+-  list.replaceChildren();
+-
+-  if (!entries.length) {
+-    const empty = document.createElement("div");
+-    empty.className = "status-line";
+-    empty.textContent = "Токены сообществ пока не добавлены.";
+-    list.appendChild(empty);
+-    return;
+-  }
+-
+-  for (const [groupId, entryValue] of entries) {
+-    const entry =
+-      typeof entryValue === "string" ? { token: entryValue } : entryValue;
+-    const row = document.createElement("div");
+-    row.className = "token-row";
+-
+-    const id = document.createElement("strong");
+-    id.textContent = `club${groupId}`;
+-
+-    const name = document.createElement("div");
+-    name.className = "token-row__name";
+-    const label = document.createElement("strong");
+-    label.textContent = entry.label || `Сообщество ${groupId}`;
+-    const masked = document.createElement("span");
+-    masked.textContent = maskToken(entry.token);
+-    name.append(label, masked);
+-
+-    const remove = document.createElement("button");
+-    remove.className = "btn btn--secondary btn--compact";
+-    remove.textContent = "Удалить";
+-    remove.addEventListener("click", async () => {
+-      const data = await chrome.storage.local.get("vkr_group_tokens");
+-      const updated = { ...(data.vkr_group_tokens || {}) };
+-      delete updated[groupId];
+-      await chrome.storage.local.set({ vkr_group_tokens: updated });
+-      await renderGroupTokens(updated);
+-      notify(`Токен club${groupId} удалён.`, "success");
+-    });
+-
+-    const actions = document.createElement("div");
+-    actions.style.cssText = "display:flex;gap:6px;justify-content:flex-end";
+-    actions.append(remove);
+-    row.append(id, name, actions);
+-    list.appendChild(row);
+-  }
+-}
+-
+ async function refreshQueue() {
+   try {
+     const response = await runtimeMessage({ type: "get_queue_status" });
+@@ -395,34 +340,6 @@ async function clearUserToken() {
+   notify("Аккаунт отключён от расширения.", "success");
+ }
+ 
+-async function saveGroupToken() {
+-  const groupId = Math.abs(Number($("group-id").value));
+-  const label = $("group-label").value.trim();
+-  const token = $("group-token").value.trim();
+-  if (!Number.isSafeInteger(groupId) || groupId <= 0) {
+-    notify("Укажите числовой ID сообщества.", "warning");
+-    return;
+-  }
+-  if (token.length < 20) {
+-    notify("Токен сообщества выглядит слишком коротким.", "warning");
+-    return;
+-  }
+-
+-  const data = await chrome.storage.local.get("vkr_group_tokens");
+-  const tokens = { ...(data.vkr_group_tokens || {}) };
+-  tokens[String(groupId)] = {
+-    token,
+-    label: label || `Сообщество ${groupId}`,
+-    savedAt: Date.now(),
+-  };
+-  await chrome.storage.local.set({ vkr_group_tokens: tokens });
+-  $("group-id").value = "";
+-  $("group-label").value = "";
+-  $("group-token").value = "";
+-  await renderGroupTokens(tokens);
+-  notify(`Токен club${groupId} сохранён локально.`, "success");
+-}
+-
+ function randomSecret() {
+   const bytes = crypto.getRandomValues(new Uint8Array(32));
+   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join(
+@@ -433,10 +350,6 @@ function randomSecret() {
+ async function persistCommentSettings() {
+   await chrome.storage.local.set({
+     vkr_comment_delay_seconds: Math.max(15, Number($("comment-delay").value) || 60),
+-    vkr_comment_execution_mode:
+-      $("comment-mode").value === "community_24_7"
+-        ? "community_24_7"
+-        : "local_user",
+     vkr_comment_group_interval_seconds: Math.max(
+       15,
+       Number($("comment-group-interval").value) || 30,
+@@ -448,9 +361,6 @@ async function saveServer() {
+   const url = $("server-url").value.trim().replace(/\/+$/, "");
+   const secret = $("server-secret").value.trim();
+   const delaySeconds = Math.max(15, Number($("comment-delay").value) || 60);
+-  const commentMode = $("comment-mode").value === "community_24_7"
+-    ? "community_24_7"
+-    : "local_user";
+   const groupIntervalSeconds = Math.max(15, Number($("comment-group-interval").value) || 30);
+ 
+   if (!/^https:\/\/[a-z0-9.-]+(?::\d+)?$/i.test(url)) {
+@@ -466,7 +376,6 @@ async function saveServer() {
+     vkr_server_url: url,
+     vkr_server_api_secret: secret,
+     vkr_comment_delay_seconds: delaySeconds,
+-    vkr_comment_execution_mode: commentMode,
+     vkr_comment_group_interval_seconds: groupIntervalSeconds,
+   });
+   try {
+@@ -510,9 +419,7 @@ async function init() {
+   $("server-secret").value = settings.vkr_server_api_secret || "";
+   $("comment-delay").value =
+     settings.vkr_comment_delay_seconds || 60;
+-  $("comment-mode").value = settings.vkr_comment_execution_mode || "local_user";
+   $("comment-group-interval").value = settings.vkr_comment_group_interval_seconds || 30;
+-  await renderGroupTokens(settings.vkr_group_tokens || {});
+   await refreshQueue();
+ 
+   if (settings.vkr_server_url && settings.vkr_server_api_secret) {
+@@ -553,9 +460,7 @@ document.addEventListener("DOMContentLoaded", () => {
+     const userId = Number($("user-profile-link").dataset.userId);
+     if (Number.isSafeInteger(userId) && userId > 0) chrome.tabs.create({ url: `https://vk.ru/id${userId}` });
+   });
+-  $("save-group-token").addEventListener("click", saveGroupToken);
+   $("refresh-managed-groups").addEventListener("click", () => void refreshManagedGroups());
+-  $("comment-mode").addEventListener("change", () => void persistCommentSettings());
+   $("comment-delay").addEventListener("change", () => void persistCommentSettings());
+   $("comment-group-interval").addEventListener("change", () => void persistCommentSettings());
+   $("save-server").addEventListener("click", saveServer);
+diff --git a/popup.html b/popup.html
+index 59f5980..aaffae2 100644
+--- a/popup.html
++++ b/popup.html
+@@ -19,7 +19,6 @@
+     .action-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+     .section > .field-stack, .section > .action-grid { margin: 16px; }
+     .section > .status-line { margin: 0; padding: 0 16px 16px; }
+-    #group-token-list { padding: 0 16px; }
+     #queue-message { padding-top: 14px; }
+     #resume-queue { width: calc(100% - 32px); margin: 0 16px 16px; }
+     .user-profile-card { margin: 16px; padding: 14px; }
+@@ -43,7 +42,7 @@
+         <div class="logo">
+           <div id="logo-lottie" class="logo__lottie"></div>
+         </div>
+-        <div class="version">v4.4.2</div>
++        <div class="version">v4.5.0</div>
+       </div>
+     </header>
+ 
+@@ -98,7 +97,7 @@
+           </select>
+           <label class="backup-check">
+             <input type="checkbox" id="backup-include-secrets" checked>
+-            <span>Включить пользовательский токен, токены сообществ, API_SECRET Render и ключ TwiBoost</span>
++            <span>Включить пользовательский токен, API_SECRET Render и ключ TwiBoost</span>
+           </label>
+           <div class="action-grid">
+             <button class="btn btn--primary" id="export-backup">
+@@ -128,33 +127,7 @@
+           Обновить список из VK
+         </button>
+         <div class="status-line">
+-          Публикации, загрузка фото, аналитика и локальные комментарии выполняются одним пользовательским токеном. Он остаётся только в браузере.
+-        </div>
+-      </section>
+-
+-      <section class="section">
+-        <div class="section__header">
+-          <h2 class="section__title">
+-            <i class="ti ti-building-community section__icon-img"></i>
+-            Токены сообществ 24/7 (необязательно)
+-          </h2>
+-          <span class="section__badge" id="group-token-count">0</span>
+-        </div>
+-        <div class="field-stack">
+-          <input type="number" id="group-id" class="input" min="1"
+-                 placeholder="ID сообщества, например 123456">
+-          <input type="text" id="group-label" class="input"
+-                 placeholder="Название для себя (необязательно)">
+-          <input type="password" id="group-token" class="input" autocomplete="off"
+-                 placeholder="Токен этого сообщества">
+-          <button class="btn btn--primary btn--full" id="save-group-token">
+-            Добавить токен сообщества
+-          </button>
+-        </div>
+-        <div id="group-token-list"></div>
+-        <div class="status-line">
+-          Для обычного постинга эти токены не нужны. Они используются только
+-          для серверных комментариев 24/7 и серверных историй, когда браузер закрыт.
++          Публикации, загрузка фото, аналитика, истории и комментарии выполняются одним пользовательским токеном. Для автоматизации 24/7 задания передаются на ваш Render в зашифрованном виде.
+         </div>
+       </section>
+ 
+@@ -162,7 +135,7 @@
+         <div class="section__header">
+           <h2 class="section__title">
+             <i class="ti ti-server section__icon-img"></i>
+-            Сервер и комментарии
++            Серверная автоматизация 24/7
+           </h2>
+           <span class="server-status" id="server-status">Не настроен</span>
+         </div>
+@@ -179,11 +152,7 @@
+             Задержка комментария, секунд (минимум 15)
+           </label>
+           <input type="number" id="comment-delay" class="input" min="15" max="86400" value="60">
+-          <label class="status-line" for="comment-mode">Где выполнять комментарии</label>
+-          <select id="comment-mode" class="input">
+-            <option value="local_user">В браузере — пользовательский токен</option>
+-            <option value="community_24_7">На сервере 24/7 — токен сообщества</option>
+-          </select>
++          <div class="backup-note">Комментарии 24/7, отложенные посты и истории выполняются сервером с пользовательским токеном, даже когда Chrome закрыт.</div>
+           <label class="status-line" for="comment-group-interval">Интервал между пабликами, секунд</label>
+           <input type="number" id="comment-group-interval" class="input" min="15" max="3600" value="30">
+         </div>
+diff --git a/render.yaml b/render.yaml
+index 8a47e09..e2249bc 100644
+--- a/render.yaml
++++ b/render.yaml
+@@ -20,6 +20,8 @@ services:
+         generateValue: true
+       - key: WORKER_INTERVAL_MS
+         value: "15000"
++      - key: POST_GROUP_INTERVAL_MS
++        value: "15000"
+       - key: STALE_LOCK_MS
+         value: "600000"
+       - key: VK_API_VERSION
+diff --git a/scheduled.html b/scheduled.html
+index a1f5bb0..ec993c5 100644
+--- a/scheduled.html
++++ b/scheduled.html
+@@ -87,6 +87,6 @@
+     </section>
+   </dialog>
+   <div id="toast" class="toast" hidden></div>
+-  <script src="extension-server-client.js"></script><script src="scheduled.js"></script>
++  <script src="extension-server-client.js"></script><script src="waiting-draft-core.js"></script><script src="scheduled.js"></script>
+ </body>
+ </html>
+diff --git a/scheduled.js b/scheduled.js
+index 08bef3b..33b120a 100644
+--- a/scheduled.js
++++ b/scheduled.js
+@@ -70,7 +70,8 @@ function hasRecordError(item) {
+   if(String(item?.status||"")==="cancelled")return false;
+   return String(item?.status||"")==="failed"||Number(item?.fail)>0||Number(item?.progress?.fail)>0||(Array.isArray(item?.results)&&item.results.some((result)=>result?.ok===false))||Boolean(String(item?.error||item?.lastError||"").trim());
+ }
+-function postJobTime(job) { return Number(job.pubDate||job.completedAt||job.createdAt)||0; }
++function timestamp(value) { const direct=Number(value);if(Number.isFinite(direct)&&direct>0)return direct;const parsed=new Date(value).getTime();return Number.isFinite(parsed)?parsed:0; }
++function postJobTime(job) { return timestamp(job.pubDate||job.publishAt||job.completedAt||job.createdAt); }
+ function sortPostJobs(items) {
+   const finalStatuses=new Set(["completed","done","failed","cancelled"]);
+   return [...items].sort((first,second)=>{
+@@ -102,6 +103,9 @@ function publishProgressSnapshot(job) {
+   if(job.cancelRequested){
+     stage="Останавливаю публикацию";
+     detail="Текущий запрос завершится, новые паблики обрабатываться не будут";
++  }else if(job.status==="queued"&&job.source==="server"&&postJobTime(job)>Date.now()){
++    stage="Сервер ожидает время публикации · ещё "+compactDuration(postJobTime(job)-Date.now());
++    detail="Render загрузит фотографии в фактическое время "+formatDate(job.publishAt||job.pubDate)+" и сразу опубликует пост";
+   }else if(job.status==="queued"&&job.deferMediaUntilPublish&&Number(job.pubDate)>Date.now()){
+     stage=`Ожидание публикации · ещё ${compactDuration(Number(job.pubDate)-Date.now())}`;
+     detail=`Загрузка начнётся ${formatDate(job.pubDate)}`;
+@@ -393,18 +397,14 @@ async function loadAnalytics(force=false) {
+ }
+ 
+ async function loadAll() {
+-  const local = await chrome.storage.local.get(["vkr_waiting_posts","vkr_posts_history","vkr_scheduled_comments","vkr_group_tokens","vkr_user_groups"]);
+-  state.waiting=Array.isArray(local.vkr_waiting_posts)?local.vkr_waiting_posts:[];
++  const local = await chrome.storage.local.get(["vkr_waiting_posts","vkr_posts_history","vkr_scheduled_comments","vkr_user_groups"]);
++  state.waiting=(Array.isArray(local.vkr_waiting_posts)?local.vkr_waiting_posts:[]).map((item)=>({...item,draft:VkrWaitingDraftCore.normalizeDraft(item.draft,{defaultText:item.post?.text||""})}));
+   state.history=(Array.isArray(local.vkr_posts_history)?local.vkr_posts_history:[]).sort((first,second)=>(Number(second.timestamp)||0)-(Number(first.timestamp)||0));
+   const managed=Array.isArray(local.vkr_user_groups)?local.vkr_user_groups:[];
+-  state.configuredGroupIds=[...new Set([...managed.map((group)=>Math.abs(Number(group.id))),...Object.keys(local.vkr_group_tokens||{}).map((groupId)=>Math.abs(Number(groupId)))])].filter((groupId)=>Number.isSafeInteger(groupId)&&groupId>0).sort((first,second)=>first-second);
++  state.configuredGroupIds=[...new Set(managed.map((group)=>Math.abs(Number(group.id))))].filter((groupId)=>Number.isSafeInteger(groupId)&&groupId>0).sort((first,second)=>first-second);
+   const nextDirectorySignature=state.configuredGroupIds.join(",");
+   if(nextDirectorySignature!==groupDirectorySignature){groupDirectorySignature=nextDirectorySignature;groupDirectoryLoaded=false;state.groupPhotos={};state.groupScreenNames={};state.analytics.loaded=false;}
+-  state.groupLabels=Object.fromEntries([...managed.map((group)=>[String(group.id),group.name||`club${group.id}`]),...Object.entries(local.vkr_group_tokens||{}).map(([groupId,raw])=>{
+-    const entry=raw&&typeof raw==="object"?raw:{};
+-    const id=String(Math.abs(Number(groupId)));
+-    return [id,String(entry.label||"").trim()||`club${id}`];
+-  })]);
++  state.groupLabels=Object.fromEntries(managed.map((group)=>[String(group.id),group.name||"club"+group.id]));
+   if(!groupDirectoryLoaded){
+     try{
+       const directory=await runtimeMessage({type:"list_clip_groups"});
+@@ -419,7 +419,9 @@ async function loadAll() {
+     }catch{/* сохранённые подписи остаются рабочим fallback */}
+     groupDirectoryLoaded=true;
+   }
+-  const queue=await runtimeMessage({type:"get_queue_status"}); state.posts=sortPostJobs(queue.queue||[]); state.pause=queue.pause||null;
++  const queue=await runtimeMessage({type:"get_queue_status"});
++  let serverPosts=[];try{const server=await runtimeMessage({type:"list_scheduled_posts"});serverPosts=server.jobs||[];}catch{/* Render may be waking up; local cards remain visible */}
++  state.posts=sortPostJobs([...(queue.queue||[]),...serverPosts]); state.pause=queue.pause||null;
+   const localComments=(local.vkr_scheduled_comments||[]).map((item)=>({...item,id:item.idempotencyKey||`local_${item.groupId}_${item.postId}`,status:"queued",commentAt:item.commentAt,local:true}));
+   try { const server=await runtimeMessage({type:"list_scheduled_comments"}); state.comments=[...(server.jobs||[]),...localComments]; } catch { state.comments=localComments; }
+   try { const stories=await VkrServerClient.request("/scheduled-stories?limit=200"); state.stories=stories.jobs||[]; } catch { state.stories=[]; }
+@@ -437,22 +439,24 @@ function updateCounts() {
+ function renderWaiting() {
+   if(!state.waiting.length)return empty("Пока пусто. Во ВКонтакте нажмите «⏳ В ожидания» у нужного поста.");
+   for(const item of [...state.waiting].reverse()){
+-    const {card,body}=baseCard({title:`wall${item.post?.owner_id}_${item.post?.id}`,status:"queued",text:item.post?.text||"Пост без текста",meta:`Добавлен ${formatDate(item.addedAt)}`,images:postPhotos(item.post,item.photoDataUrls)});
+-    const root=actions(body);addButton(root,"Опубликовать",()=>openPublish(item),"primary");addButton(root,"Источник",()=>chrome.tabs.create({url:item.url}));addButton(root,"Убрать",async()=>{state.waiting=state.waiting.filter((candidate)=>candidate.id!==item.id);await chrome.storage.local.set({vkr_waiting_posts:state.waiting});updateCounts();render();},"danger");$("cards").appendChild(card);
++    const summary=VkrWaitingDraftCore.describeDraft(item.draft,state.groupLabels);
++    const {card,body}=baseCard({title:`wall${item.post?.owner_id}_${item.post?.id}`,status:"queued",text:item.post?.text||"Пост без текста",meta:`Добавлен ${formatDate(item.addedAt)} · ${summary.timeText}`,images:postPhotos(item.post,item.photoDataUrls)});
++    body.appendChild(make("div","waiting-draft-summary",`Выбрано: ${summary.groupsText}`));
++    const root=actions(body);addButton(root,"Настроить публикацию",()=>openPublish(item),"primary");addButton(root,"Открыть исходный пост в VK",()=>chrome.tabs.create({url:item.url||`https://vk.ru/wall${item.post?.owner_id}_${item.post?.id}`}));addButton(root,"Убрать",async()=>{state.waiting=state.waiting.filter((candidate)=>candidate.id!==item.id);await chrome.storage.local.set({vkr_waiting_posts:state.waiting});updateCounts();render();},"danger");$("cards").appendChild(card);
+   }
+ }
+ 
+ function renderPosts() {
+-  if(!state.posts.length)return empty("Локальная очередь постинга пуста.");
++  if(!state.posts.length)return empty("Очередь постов пуста.");
+   for(const job of sortPostJobs(state.posts)){
+-    const progress=job.progress||{};const nativePending=job.scheduleMode==="native_vk"&&Number(job.pubDate)>Date.now()&&job.status==="completed";const displayStatus=nativePending?"scheduled":(progress.ok||0)>0&&(progress.fail||0)>0?"partial":job.status;const {card,body}=baseCard({title:job.label||`Пост #${job.post?.id||"?"}`,status:displayStatus,text:job.post?.text||job.text||"",meta:`${formatDate(postJobTime(job))} · групп ${job.groups?.length||0} · успешно ${progress.ok||0}, ошибок ${progress.fail||0}`,error:job.error,images:postPhotos(job.post,job.previewImages)});
++    const progress=job.progress||{};const displayStatus=(progress.ok||0)>0&&(progress.fail||0)>0?"partial":job.status;const {card,body}=baseCard({title:job.label||`Пост #${job.post?.id||job.sourcePostId||"?"}`,status:displayStatus,text:job.post?.text||job.text||"",meta:`${formatDate(job.publishAt||postJobTime(job))} · групп ${job.groups?.length||0} · успешно ${progress.ok||0}, ошибок ${progress.fail||0}`,error:job.error||job.lastError,images:postPhotos(job.post,job.previewImages)});
+     card.dataset.jobId=job.id;
+     if(state.pause?.jobId===job.id)card.classList.add("paused-target");
+     appendPublishResults(body,job.results);
+-    if(job.deferMediaUntilPublish&&job.status==="queued"){body.appendChild(make("div","media-schedule-note",`Фото будут загружены ${formatDate(job.pubDate)}, затем запись сразу выйдет. Chrome должен быть запущен.`));}
+-    if(nativePending){body.appendChild(make("div","media-schedule-note native-schedule-note",`Запись передана в отложку VK и выйдет ${formatDate(job.pubDate)}. Chrome можно закрыть.`));}
++    if(job.source==="server"&&job.status==="queued"){body.appendChild(make("div","media-schedule-note native-schedule-note",`Render загрузит фотографии в фактическое время ${formatDate(job.publishAt||job.pubDate)} и сразу опубликует пост. Компьютер можно выключить.`));}
+     appendPostProgress(body,job);
+-    if(((["queued","processing","paused"].includes(job.status)&&job.pauseReason!=="ambiguous_repost")||nativePending)&&!job.cancelRequested){const root=actions(body);addButton(root,job.status==="processing"?"Остановить":"Отменить",async()=>{if(confirm(nativePending?"Снять эту запись с отложки VK?":"Отменить эту публикацию?")){const result=await runtimeMessage({type:"cancel_publish_job",jobId:job.id});toast(result.requested?"Остановка запрошена. Текущий запрос завершится, затем очередь остановится.":"Публикация отменена.","info");await loadAll();}},"danger");}
++    if(job.source==="server"&&["queued","processing","paused","failed"].includes(job.status)){const root=actions(body);if(["paused","failed"].includes(job.status))addButton(root,"Повторить",async()=>{await runtimeMessage({type:"retry_scheduled_post",id:job.id});await loadAll();},"primary");addButton(root,job.status==="processing"?"Остановить":"Отменить",async()=>{if(confirm("Отменить эту серверную публикацию? Текущий запрос VK может успеть завершиться.")){await runtimeMessage({type:"cancel_scheduled_post",id:job.id});toast("Серверная публикация отменена.");await loadAll();}},"danger");if(job.sourceUrl)addButton(root,"Исходный пост",()=>chrome.tabs.create({url:job.sourceUrl}));}
++    else if(["queued","processing","paused"].includes(job.status)&&job.pauseReason!=="ambiguous_repost"&&!job.cancelRequested){const root=actions(body);addButton(root,job.status==="processing"?"Остановить":"Отменить",async()=>{if(confirm("Отменить эту публикацию?")){const result=await runtimeMessage({type:"cancel_publish_job",jobId:job.id});toast(result.requested?"Остановка запрошена. Текущий запрос завершится, затем очередь остановится.":"Публикация отменена.","info");await loadAll();}},"danger");}
+     if(job.status==="paused"&&job.pauseReason==="ambiguous_repost"){
+       const root=actions(body);addButton(root,"Уже есть — пропустить",async()=>{await runtimeMessage({type:"resolve_ambiguous_repost",jobId:job.id,action:"skip"});await loadAll();},"primary");addButton(root,"Нет — повторить",async()=>{if(confirm("Вы проверили стену и репоста точно нет?")){await runtimeMessage({type:"resolve_ambiguous_repost",jobId:job.id,action:"retry"});await loadAll();}});addButton(root,"Отменить",async()=>{await runtimeMessage({type:"resolve_ambiguous_repost",jobId:job.id,action:"cancel"});await loadAll();},"danger");
+     }
+@@ -511,10 +515,11 @@ async function runMaintenance(scope) {
+   try{
+     const result=await runtimeMessage({type:"purge_maintenance",scope});
+     const localCount=Object.entries(result.local||{}).reduce((sum,[key,value])=>sum+(key==="analyticsCache"?0:(Number(value)||0)),0);
++    const postCount=Number(result.posts?.removedJobs)||0;
+     const commentCount=Number(result.comments?.removedJobs)||0;
+     const storyCount=Number(result.stories?.removedJobs)||0;
+     const mediaCount=Number(result.stories?.removedMedia)||0;
+-    const total=localCount+commentCount+storyCount;
++    const total=localCount+postCount+commentCount+storyCount;
+     const warnings=Array.isArray(result.warnings)?result.warnings:[];
+     status.textContent=`${total?`Удалено записей: ${total}.`:`Подходящих завершённых записей не найдено.`}${mediaCount?` Файлов Историй из GridFS: ${mediaCount}.`:""}${warnings.length?`\n${warnings.join("\n")}`:""}`;
+     status.classList.toggle("has-warning",warnings.length>0);
+@@ -528,9 +533,11 @@ async function runMaintenance(scope) {
+ const tabInfo={waiting:["Ожидания","Посты, которые вы отметили во ВКонтакте"],posts:["Очередь постов","Сначала ближайшие активные задания, затем завершённые — от новых к старым"],comments:["Комментарии 24/7","Серверные и локальные отложенные комментарии"],stories:["Истории","Отложенные истории сообществ с превью"],clips:["Клипы","Одна видимая вкладка VK на публикацию"],history:["История и аналитика","Результаты публикаций и сравнение активности сообществ"]};
+ function render(){const cards=$("cards");cards.replaceChildren();const [title,hint]=tabInfo[state.tab];$("section-title").textContent=title;$("section-hint").textContent=hint;$("clear-finished").hidden=state.tab!=="posts";$("analytics-panel").hidden=state.tab!=="history";if(state.tab==="history")renderAnalytics();({waiting:renderWaiting,posts:renderPosts,comments:renderComments,stories:renderStories,clips:renderClips,history:renderHistory})[state.tab]();}
+ 
+-async function openPublish(item){selectedWaitingId=item.id;$("publish-text").value=item.post?.text||"";$("publish-comment").value="";$("publish-date").value="";$("publish-mode").value="copy";$("dialog-preview").textContent=item.post?.text||"Пост без текста";const data=await chrome.storage.local.get(["vkr_group_tokens","vkr_user_groups"]);const directory=new Map((Array.isArray(data.vkr_user_groups)?data.vkr_user_groups:[]).map((group)=>[String(group.id),group.name||`club${group.id}`]));for(const [groupId,raw] of Object.entries(data.vkr_group_tokens||{})){const entry=typeof raw==="object"?raw:{};if(!directory.has(String(groupId)))directory.set(String(groupId),entry.label||`club${groupId}`);}const root=$("publish-groups");root.replaceChildren();for(const [groupId,name] of directory){const label=make("label");const input=make("input");input.type="checkbox";input.name="publish-group";input.value=groupId;label.append(input,document.createTextNode(` ${name}`));root.appendChild(label);}if(!root.children.length)root.appendChild(make("div","meta","Подключите пользовательский токен и обновите список сообществ в настройках."));$("publish-dialog").showModal();}
++async function saveWaitingDraft(){if(!selectedWaitingId)return;const data=await chrome.storage.local.get("vkr_waiting_posts");const items=Array.isArray(data.vkr_waiting_posts)?data.vkr_waiting_posts:[];const groups=[...document.querySelectorAll('input[name="publish-group"]:checked')].map((input)=>Number(input.value));const draft=VkrWaitingDraftCore.normalizeDraft({groups,mode:$("publish-mode").value,text:$("publish-text").value,commentText:$("publish-comment").value,pubDateLocal:$("publish-date").value,updatedAt:Date.now()});const updated=items.map((item)=>item.id===selectedWaitingId?{...item,draft}:item);await chrome.storage.local.set({vkr_waiting_posts:updated});state.waiting=updated.map((item)=>({...item,draft:VkrWaitingDraftCore.normalizeDraft(item.draft,{defaultText:item.post?.text||""})}));}
+ 
+-async function submitPublish(event){event.preventDefault();const groups=[...document.querySelectorAll('input[name="publish-group"]:checked')].map((input)=>Number(input.value));if(!groups.length)return toast("Выберите хотя бы одно сообщество.","error");const data=await chrome.storage.local.get(["vkr_waiting_posts","vk_token"]);const item=(data.vkr_waiting_posts||[]).find((candidate)=>candidate.id===selectedWaitingId);if(!item)return toast("Пост больше не найден.","error");const mode=$("publish-mode").value;if(mode==="repost"&&!data.vk_token)return toast("Для репоста нужен локальный пользовательский токен.","error");const pubDate=$("publish-date").value?new Date($("publish-date").value).getTime():null;if(pubDate&&pubDate<=Date.now())return toast("Дата должна быть в будущем.","error");const button=$("publish-submit");button.disabled=true;try{await runtimeMessage({type:"enqueue_publish",post:item.post,groups,mode,text:mode==="copy"?$("publish-text").value:"",pubDate,scheduleMode:pubDate?"native_vk":"immediate",processedPhotos:[],autoCommentText:$("publish-comment").value.trim(),label:`Пост из ожиданий #${item.post?.id||"?"}`});state.waiting=(data.vkr_waiting_posts||[]).filter((candidate)=>candidate.id!==item.id);await chrome.storage.local.set({vkr_waiting_posts:state.waiting});$("publish-dialog").close();toast("Пост добавлен в последовательную очередь.");await loadAll();}finally{button.disabled=false;}}
++async function openPublish(item){selectedWaitingId=item.id;const draft=VkrWaitingDraftCore.normalizeDraft(item.draft,{defaultText:item.post?.text||""});$("publish-text").value=draft.text;$("publish-comment").value=draft.commentText;$("publish-date").value=draft.pubDateLocal;$("publish-mode").value=draft.mode;$("dialog-preview").textContent=item.post?.text||"Пост без текста";const data=await chrome.storage.local.get("vkr_user_groups");const directory=new Map((Array.isArray(data.vkr_user_groups)?data.vkr_user_groups:[]).map((group)=>[String(group.id),group.name||`club${group.id}`]));const root=$("publish-groups");root.replaceChildren();for(const [groupId,name] of directory){const label=make("label");const input=make("input");input.type="checkbox";input.name="publish-group";input.value=groupId;input.checked=draft.groups.includes(Number(groupId));input.addEventListener("change",()=>void saveWaitingDraft());label.append(input,document.createTextNode(` ${name}`));root.appendChild(label);}if(!root.children.length)root.appendChild(make("div","meta","Подключите пользовательский токен и обновите список сообществ в настройках."));$("publish-dialog").showModal();}
++
++async function submitPublish(event){event.preventDefault();await saveWaitingDraft();const groups=[...document.querySelectorAll('input[name="publish-group"]:checked')].map((input)=>Number(input.value));if(!groups.length)return toast("Выберите хотя бы одно сообщество.","error");const data=await chrome.storage.local.get(["vkr_waiting_posts","vk_token"]);const item=(data.vkr_waiting_posts||[]).find((candidate)=>candidate.id===selectedWaitingId);if(!item)return toast("Пост больше не найден.","error");const mode=$("publish-mode").value;if(!data.vk_token)return toast("Подключите пользовательский токен.","error");const pubDate=$("publish-date").value?new Date($("publish-date").value).getTime():null;if(pubDate&&pubDate<=Date.now())return toast("Дата должна быть в будущем.","error");const button=$("publish-submit");button.disabled=true;try{await runtimeMessage({type:"enqueue_publish",post:item.post,groups,mode,text:mode==="copy"?$("publish-text").value:"",pubDate,scheduleMode:pubDate?"server_user":"immediate",processedPhotos:[],autoCommentText:$("publish-comment").value.trim(),label:`Пост из ожиданий #${item.post?.id||"?"}`});state.waiting=(data.vkr_waiting_posts||[]).filter((candidate)=>candidate.id!==item.id);await chrome.storage.local.set({vkr_waiting_posts:state.waiting});$("publish-dialog").close();selectedWaitingId=null;toast(pubDate?"Пост передан на Render и выйдет автоматически.":"Пост добавлен в последовательную очередь.");await loadAll();}finally{button.disabled=false;}}
+ 
+ async function resumePublishQueue() {
+   const result=await runtimeMessage({type:"resume_publish_queue"});
+@@ -551,8 +558,9 @@ async function init(){
+   $("maintenance-errors").onclick=()=>runMaintenance("errors");
+   $("maintenance-completed").onclick=()=>runMaintenance("completed");
+   $("maintenance-all").onclick=()=>runMaintenance("all");
+-  $("close-dialog").onclick=()=>$("publish-dialog").close();
++  $("close-dialog").onclick=async()=>{await saveWaitingDraft();$("publish-dialog").close();selectedWaitingId=null;render();};
+   $("publish-form").onsubmit=submitPublish;
++  ["publish-text","publish-comment","publish-date","publish-mode"].forEach((id)=>$(id).addEventListener("change",()=>void saveWaitingDraft()));
+   $("pause-open-vk").onclick=()=>chrome.tabs.create({url:"https://vk.ru/"});
+   $("pause-open-job").onclick=showPausedJob;
+   $("resume").onclick=resumePublishQueue;
+diff --git a/server/.env.example b/server/.env.example
+index f552bf5..9c3ff3b 100644
+--- a/server/.env.example
++++ b/server/.env.example
+@@ -3,5 +3,6 @@ API_SECRET=replace-with-at-least-32-random-characters
+ TOKEN_ENCRYPTION_KEY=replace-with-base64-encoded-32-random-bytes
+ PORT=3000
+ WORKER_INTERVAL_MS=15000
++POST_GROUP_INTERVAL_MS=15000
+ STALE_LOCK_MS=600000
+ VK_API_VERSION=5.199
+diff --git a/server/README.md b/server/README.md
+index b6ec416..a76b82a 100644
+--- a/server/README.md
++++ b/server/README.md
+@@ -1,117 +1,108 @@
+-# VK Reposter Safe Server
++# VK Reposter Server 4.3.0
+ 
+-Сервер выполняет отложенные комментарии и Истории сообществ. Пользовательские
+-токены и аккаунты на него не загружаются. Токен целевого сообщества принимается
+-только при создании задания и хранится в MongoDB в виде AES-256-GCM шифротекста.
+-Медиа Истории временно хранится в отдельном GridFS bucket и удаляется после
+-успешной публикации или отмены.
+-
+-## Что понадобится
+-
+-- новый MongoDB Atlas cluster;
+-- новый Render Web Service;
+-- два разных случайных секрета;
+-- этот проект в GitHub/GitLab-репозитории, подключённом к Render.
++Сервер выполняет отложенные посты, комментарии и Истории с одним
++пользовательским токеном. Токен принимается только через защищённый API и
++хранится в MongoDB как AES-256-GCM-шифротекст (`ciphertext`, `iv`, `tag`). В
++ответах API и логах токен отсутствует.
+ 
+ ## 1. MongoDB Atlas
+ 
+-1. Создайте отдельный проект и cluster.
+-2. В `Database Access` создайте отдельного пользователя только для базы
+-   `vk_reposter_safe`.
+-3. В `Network Access` разрешите исходящие диапазоны выбранного региона Render.
+-   Для первого запуска допустимо временно использовать `0.0.0.0/0`, но только с
+-   длинным уникальным паролем; затем сузьте список.
+-4. Скопируйте строку подключения драйвера Node.js, укажите в ней имя базы
+-   `vk_reposter_safe` и сохраните как `MONGODB_URI`.
++1. Создайте кластер и отдельного Database User.
++2. В **Network Access** разрешите подключение из региона Render.
++3. Получите Node.js connection string и добавьте базу `vk_reposter_safe`:
+ 
+-Если пароль содержит `@`, `:`, `/`, `?` или `#`, закодируйте его как URI component.
++```text
++mongodb+srv://USER:PASSWORD@CLUSTER/vk_reposter_safe?retryWrites=true&w=majority
++```
+ 
+-## 2. Создание секретов
++Спецсимволы пароля должны быть URL-encoded. Коллекции постов, комментариев и
++Историй, индексы и TTL создаются приложением автоматически.
+ 
+-В PowerShell из папки проекта:
++## 2. Секреты
+ 
+ ```powershell
+ node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
+ node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))"
+ ```
+ 
+-Первая строка — `API_SECRET`. Не добавляйте её в Git. Blueprint сам создаёт
+-случайный `TOKEN_ENCRYPTION_KEY`; если вы создаёте Web Service вручную, используйте
+-для него вторую строку. Не меняйте `TOKEN_ENCRYPTION_KEY` после появления
+-заданий: без прежнего ключа уже сохранённые токены расшифровать невозможно.
+-
+-## 3. Render
+-
+-Проект содержит `render.yaml`, поэтому Render может создать сервис через
+-`New + -> Blueprint`.
++- первая строка — `API_SECRET` (не короче 32 символов);
++- вторая строка — `TOKEN_ENCRYPTION_KEY` (ровно 32 байта в base64).
+ 
+-Blueprint использует платный экземпляр `starter`. Это намеренно: бесплатный Render Web
+-Service засыпает после 15 минут без входящего трафика, поэтому не может надёжно
+-выполнить комментарий к отложенному посту. Для короткого теста можно вручную
+-выбрать `free`, но комментарии 24/7 тогда не гарантируются.
++Не меняйте `TOKEN_ENCRYPTION_KEY`, пока в MongoDB есть активные задания: новый
++ключ не расшифрует уже созданные записи.
+ 
+-При создании Blueprint Render попросит задать:
+-
+-- `MONGODB_URI`;
+-- `API_SECRET`;
++## 3. Render
+ 
+-`TOKEN_ENCRYPTION_KEY` Blueprint создаёт автоматически. Задавайте его вручную
+-только при создании Web Service без Blueprint.
++Через **New → Blueprint** выберите репозиторий с `render.yaml` либо создайте Web
++Service вручную:
+ 
+-Build command: `cd server && npm ci`
++```text
++Build Command: cd server && npm ci
++Start Command: cd server && npm start
++Health Check Path: /health
++```
+ 
+-Start command: `cd server && npm start`
++Environment Variables:
++
++```text
++MONGODB_URI=...
++API_SECRET=...
++TOKEN_ENCRYPTION_KEY=...
++WORKER_INTERVAL_MS=15000
++POST_GROUP_INTERVAL_MS=15000
++STALE_LOCK_MS=600000
++VK_API_VERSION=5.199
++STORY_MAX_BYTES=26214400
++```
+ 
+-Health check: `/health`
++Для выполнения заданий при выключенном компьютере сервис должен быть always-on.
++`render.yaml` использует `starter`. На засыпающем web service процесс и таймеры
++не работают до следующего входящего запроса.
+ 
+-После deploy откройте `https://ИМЯ-СЕРВИСА.onrender.com/health`. Нормальный ответ:
++После деплоя:
+ 
+ ```json
+-{"status":"ok","version":"4.2.1","database":"connected"}
++{"status":"ok","version":"4.3.0","database":"connected"}
+ ```
+ 
++Корневой URL намеренно возвращает `{"ok":false,"error":"Not found"}`; это не
++ошибка соединения. Проверять нужно маршрут `/health`.
++
+ ## 4. Расширение
+ 
+-1. Откройте `chrome://extensions`, включите режим разработчика.
+-2. Нажмите `Загрузить распакованное` и выберите корень этого проекта.
+-3. В панели расширения добавьте локальный пользовательский токен, если он нужен
+-   для чтения исходных постов/репостов.
+-4. Для каждой целевой группы добавьте её ID и токен сообщества.
+-5. В секции сервера вставьте Render URL и тот же `API_SECRET`.
+-6. Нажмите `Сохранить и проверить`.
++1. Подключите пользовательский токен VK.
++2. Обновите список администрируемых сообществ.
++3. Укажите Render URL и `API_SECRET`.
++4. Нажмите **Сохранить и проверить**.
+ 
+-## 5. Первый безопасный тест
++Отдельные токены сообществ в версии 4.5.0 не настраиваются. Пост, комментарий и
++История получают пользовательский токен при создании задания; MongoDB видит
++только его шифротекст.
+ 
+-1. Используйте отдельное тестовое сообщество.
+-2. Отправьте один текстовый пост без вложений.
+-3. Проверьте один пост с существующим публичным вложением.
+-4. Проверьте один отложенный пост с комментарием через 60 секунд.
+-5. Только после этого добавляйте остальные сообщества, не более 6–7 за одну
+-   очередь.
+-6. Для Историй сначала проверьте одно фото 9:16 без ссылки на тестовой группе.
++## 5. Как исполняется пост
+ 
+-Коллекции и GridFS bucket MongoDB создаются приложением автоматически. Для
+-Историй можно дополнительно задать `STORY_MAX_BYTES`; по умолчанию это 26214400
+-байт (25 МБ). После обновления этого репозитория Render нужно передеплоить, а
+-расширение — перезагрузить на `chrome://extensions`.
++1. `POST /api/scheduled-posts` сохраняет источник, паблики, время и шифротекст.
++2. Worker атомарно берёт одно просроченное задание.
++3. В момент выхода он вызывает `wall.getById`, скачивает фото по разрешённым VK
++   HTTPS-хостам, загружает их через `photos.getWallUploadServer` и
++   `photos.saveWallPhoto` в целевой паблик.
++4. `wall.post` вызывается без `publish_date`, поэтому дата медиа не предшествует
++   фактическому выходу записи.
++5. Следующий паблик обрабатывается после настроенного интервала, минимум 15 с.
++6. Комментарий создаётся отдельным серверным заданием с тем же user token.
+ 
+-Если VK возвращает CAPTCHA, validation, flood-control или suspicious-activity
+-ошибку, расширение/сервер ставят задание на паузу. Не возобновляйте его до
+-завершения проверки в VK.
++## 6. Очистка MongoDB
+ 
+-## Очистка данных на бесплатном MongoDB Atlas
++На странице **Публикации и отложка → Очистка данных** доступны режимы:
+ 
+-На странице «Публикации и отложка» нажмите `Очистка данных`. Доступны три
+-независимых режима: удалить записи с ошибками, успешно завершённые записи или
+-всю завершённую историю. Активные, ожидающие и приостановленные задания эти
+-операции не затрагивают.
++- только ошибки;
++- только успешно завершённые;
++- вся завершённая история.
+ 
+-Очистка удаляет локальную историю постов и Клипов, завершённые документы
+-комментариев и Историй из MongoDB, а также оставшиеся файлы Историй из GridFS.
+-За один запрос обрабатывается до 100 Историй, чтобы не перегружать бесплатный
+-Render; если записей больше, интерфейс предложит нажать кнопку ещё раз.
++Активные, ожидающие и приостановленные задания сохраняются. Медиа Историй также
++удаляются из GridFS. TTL дополнительно удаляет старые завершённые документы.
+ 
+-## Локальная проверка сервера
++## 7. Локальная проверка
+ 
+ ```powershell
+ cd server
+@@ -120,6 +111,5 @@ npm test
+ npm run check
+ ```
+ 
+-Запуск требует настоящих значений из `.env.example` в переменных окружения.
+-Файл `.env` намеренно не загружается автоматически: на Render используются
+-Environment Variables.
++При CAPTCHA, validation, flood-control или suspicious activity worker ставит
++задание на паузу. После ручной проверки VK используйте **Повторить**.
+diff --git a/server/package-lock.json b/server/package-lock.json
+index 75fda79..141404c 100644
+--- a/server/package-lock.json
++++ b/server/package-lock.json
+@@ -1,12 +1,12 @@
+ {
+   "name": "vk-reposter-safe-server",
+-  "version": "4.2.1",
++  "version": "4.3.0",
+   "lockfileVersion": 3,
+   "requires": true,
+   "packages": {
+     "": {
+       "name": "vk-reposter-safe-server",
+-      "version": "4.2.1",
++      "version": "4.3.0",
+       "dependencies": {
+         "express": "^5.1.0",
+         "express-rate-limit": "^8.0.1",
+diff --git a/server/package.json b/server/package.json
+index 37318e1..1c6df19 100644
+--- a/server/package.json
++++ b/server/package.json
+@@ -1,6 +1,6 @@
+ {
+   "name": "vk-reposter-safe-server",
+-  "version": "4.2.1",
++  "version": "4.3.0",
+   "private": true,
+   "engines": {
+     "node": ">=20"
+@@ -8,7 +8,7 @@
+   "scripts": {
+     "start": "node src/server.js",
+     "test": "node --test test/*.test.js",
+-    "check": "node --check src/server.js && node --check src/app.js && node --check src/worker.js && node --check src/story-validation.js && node --check src/story-media-store.js && node --check src/story-service.js && node --check src/story-worker.js"
++    "check": "node --check src/server.js && node --check src/app.js && node --check src/worker.js && node --check src/post-validation.js && node --check src/models/scheduled-post.js && node --check src/post-service.js && node --check src/post-worker.js && node --check src/story-validation.js && node --check src/story-media-store.js && node --check src/story-service.js && node --check src/story-worker.js"
+   },
+   "dependencies": {
+     "express": "^5.1.0",
+diff --git a/server/src/app.js b/server/src/app.js
+index 7e05a4f..f38ce35 100644
+--- a/server/src/app.js
++++ b/server/src/app.js
+@@ -9,6 +9,7 @@ const { createBearerAuth } = require("./auth.js");
+ function createApp({
+   config,
+   commentService,
++  postService,
+   storyService,
+   databaseReady = () => mongoose.connection.readyState === 1,
+ }) {
+@@ -25,7 +26,7 @@ function createApp({
+     const connected = databaseReady();
+     response.status(connected ? 200 : 503).json({
+       status: connected ? "ok" : "degraded",
+-      version: "4.2.1",
++      version: "4.3.0",
+       database: connected ? "connected" : "disconnected",
+     });
+   });
+@@ -47,11 +48,56 @@ function createApp({
+     response.json({
+       ok: true,
+       status: connected ? "ready" : "degraded",
+-      version: "4.2.1",
++      version: "4.3.0",
+       database: connected ? "connected" : "disconnected",
+     });
+   });
+ 
++  api.post("/scheduled-posts", async (request, response, next) => {
++    try {
++      const result = await postService.enqueue(request.body);
++      response.status(result.created ? 201 : 200).json({ ok: true, created: result.created, job: result.job });
++    } catch (error) {
++      if (/required|must|invalid|future|within|groups|mode|userToken|source|publishAt|idempotencyKey|text/i.test(error.message)) {
++        response.status(400).json({ ok: false, error: error.message });
++        return;
++      }
++      next(error);
++    }
++  });
++
++  api.get("/scheduled-posts", async (request, response, next) => {
++    try {
++      const jobs = await postService.list({ status: request.query.status, limit: request.query.limit });
++      response.json({ ok: true, jobs });
++    } catch (error) { next(error); }
++  });
++
++  api.delete("/scheduled-posts", async (request, response, next) => {
++    try {
++      response.json({ ok: true, ...(await postService.purge({ scope: request.query.scope })) });
++    } catch (error) {
++      if (/scope/i.test(error.message)) { response.status(400).json({ ok: false, error: error.message }); return; }
++      next(error);
++    }
++  });
++
++  api.delete("/scheduled-posts/:id", async (request, response, next) => {
++    try { response.json({ ok: true, job: await postService.cancel(request.params.id) }); }
++    catch (error) {
++      if (/cannot be cancelled/i.test(error.message)) { response.status(400).json({ ok: false, error: error.message }); return; }
++      next(error);
++    }
++  });
++
++  api.post("/scheduled-posts/:id/retry", async (request, response, next) => {
++    try { response.json({ ok: true, job: await postService.retry(request.params.id) }); }
++    catch (error) {
++      if (/cannot be retried/i.test(error.message)) { response.status(400).json({ ok: false, error: error.message }); return; }
++      next(error);
++    }
++  });
++
+   api.post("/scheduled-comments", async (request, response, next) => {
+     try {
+       const result = await commentService.enqueue(request.body);
+@@ -62,7 +108,7 @@ function createApp({
+       });
+     } catch (error) {
+       if (
+-        /required|must|invalid|groupToken|commentText|commentAt|groupId|postId|idempotencyKey/i.test(
++        /required|must|invalid|userToken|commentText|commentAt|groupId|postId|idempotencyKey/i.test(
+           error.message,
+         )
+       ) {
+@@ -130,7 +176,7 @@ function createApp({
+       const result = await storyService.createDraft(request.body);
+       response.status(result.created ? 201 : 200).json({ ok: true, created: result.created, job: result.job });
+     } catch (error) {
+-      if (/required|must|invalid|groupToken|publishAt|linkUrl|linkText|previewDataUrl|idempotencyKey/i.test(error.message)) {
++      if (/required|must|invalid|userToken|publishAt|linkUrl|linkText|previewDataUrl|idempotencyKey/i.test(error.message)) {
+         response.status(400).json({ ok: false, error: error.message }); return;
+       }
+       next(error);
+diff --git a/server/src/comment-service.js b/server/src/comment-service.js
+index 8f67b21..3ddfc9f 100644
+--- a/server/src/comment-service.js
++++ b/server/src/comment-service.js
+@@ -23,7 +23,7 @@ function createCommentService({ CommentModel, tokenVault }) {
+         return { created: false, job: publicCommentJob(existing) };
+       }
+ 
+-      const encryptedToken = tokenVault.encrypt(input.groupToken);
++      const encryptedToken = tokenVault.encrypt(input.userToken);
+       try {
+         const document = await CommentModel.create({
+           idempotencyKey: input.idempotencyKey,
+diff --git a/server/src/config.js b/server/src/config.js
+index 5aab860..85b6b3f 100644
+--- a/server/src/config.js
++++ b/server/src/config.js
+@@ -33,6 +33,10 @@ function loadConfig(environment = process.env) {
+       60_000,
+       Number(environment.STALE_LOCK_MS) || 10 * 60_000,
+     ),
++    postGroupIntervalMs: Math.max(
++      15_000,
++      Number(environment.POST_GROUP_INTERVAL_MS) || 15_000,
++    ),
+     vkApiVersion: String(environment.VK_API_VERSION || "5.199"),
+     storyMaxBytes: Math.max(
+       1024 * 1024,
+diff --git a/server/src/models/scheduled-post.js b/server/src/models/scheduled-post.js
+new file mode 100644
+index 0000000..1a1debe
+--- /dev/null
++++ b/server/src/models/scheduled-post.js
+@@ -0,0 +1,51 @@
++"use strict";
++
++const mongoose = require("mongoose");
++
++const resultSchema = new mongoose.Schema({
++  gid: { type: Number, required: true },
++  ok: { type: Boolean, required: true },
++  postId: { type: Number, default: null },
++  publishedAt: { type: Date, default: null },
++  error: { type: String, default: null, maxlength: 1000 },
++  code: { type: Number, default: null },
++  warning: { type: String, default: null, maxlength: 1000 },
++}, { _id: false });
++
++const scheduledPostSchema = new mongoose.Schema({
++  idempotencyKey: { type: String, required: true, unique: true, index: true },
++  sourceOwnerId: { type: Number, required: true },
++  sourcePostId: { type: Number, required: true, min: 1 },
++  sourceUrl: { type: String, required: true },
++  groups: { type: [Number], required: true, validate: (value) => value.length > 0 && value.length <= 100 },
++  groupLabels: { type: mongoose.Schema.Types.Mixed, default: {} },
++  mode: { type: String, enum: ["copy", "repost"], required: true },
++  text: { type: String, default: "", maxlength: 16384 },
++  label: { type: String, default: "", maxlength: 160 },
++  publishAt: { type: Date, required: true, index: true },
++  nextRunAt: { type: Date, required: true, index: true },
++  nextGroupIndex: { type: Number, default: 0, min: 0 },
++  previewImages: { type: [String], default: [] },
++ autoCommentText: { type: String, default: "", maxlength: 4096 },
++  groupIntervalSeconds: { type: Number, default: 15, min: 15, max: 86400 },
++ commentDelaySeconds: { type: Number, default: 60, min: 15, max: 86400 },
++  commentGroupIntervalSeconds: { type: Number, default: 30, min: 15, max: 3600 },
++  results: { type: [resultSchema], default: [] },
++  tokenCiphertext: { type: String, required: true, select: false },
++  tokenIv: { type: String, required: true, select: false },
++  tokenTag: { type: String, required: true, select: false },
++  status: { type: String, enum: ["queued", "processing", "completed", "failed", "paused", "cancelled"], default: "queued", index: true },
++  attempts: { type: Number, default: 0, min: 0 },
++  lockedAt: { type: Date, default: null },
++  lockId: { type: String, default: null },
++  cancelRequested: { type: Boolean, default: false },
++  completedAt: { type: Date, default: null },
++  lastError: { type: String, default: null, maxlength: 1000 },
++  lastErrorCode: { type: Number, default: null },
++  expiresAt: { type: Date, required: true },
++}, { timestamps: true, versionKey: false });
++
++scheduledPostSchema.index({ status: 1, nextRunAt: 1, lockedAt: 1 }, { name: "claim_due_post" });
++scheduledPostSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0, name: "expire_old_post_jobs" });
++
++module.exports = mongoose.models.ScheduledPost || mongoose.model("ScheduledPost", scheduledPostSchema);
+diff --git a/server/src/post-service.js b/server/src/post-service.js
+new file mode 100644
+index 0000000..17d0af1
+--- /dev/null
++++ b/server/src/post-service.js
+@@ -0,0 +1,88 @@
++"use strict";
++
++const { publicPostJob, validateScheduledPostInput } = require("./post-validation.js");
++
++function postPurgeStatuses(scope) {
++  if (scope === "errors") return ["failed"];
++  if (scope === "completed") return ["completed", "cancelled"];
++  if (scope === "all") return ["completed", "failed", "cancelled"];
++  throw new Error("scope must be errors, completed, or all");
++}
++
++function createPostService({ PostModel, tokenVault, now = () => new Date() }) {
++  return Object.freeze({
++    async enqueue(rawInput) {
++      const input = validateScheduledPostInput(rawInput, { now: now() });
++      const existing = await PostModel.findOne({ idempotencyKey: input.idempotencyKey });
++      if (existing) return { created: false, job: publicPostJob(existing) };
++      const encryptedToken = tokenVault.encrypt(input.userToken);
++      const retentionBase = Math.max(Date.now(), input.publishAt.getTime());
++      try {
++        const document = await PostModel.create({
++          idempotencyKey: input.idempotencyKey,
++          sourceOwnerId: input.sourceOwnerId,
++          sourcePostId: input.sourcePostId,
++          sourceUrl: input.sourceUrl,
++          groups: input.groups,
++          groupLabels: input.groupLabels,
++          mode: input.mode,
++          text: input.text,
++          label: input.label,
++          publishAt: input.publishAt,
++          nextRunAt: input.publishAt,
++          nextGroupIndex: 0,
++          previewImages: input.previewImages,
++         autoCommentText: input.autoCommentText,
++          groupIntervalSeconds: input.groupIntervalSeconds,
++         commentDelaySeconds: input.commentDelaySeconds,
++          commentGroupIntervalSeconds: input.commentGroupIntervalSeconds,
++          results: [],
++          ...encryptedToken,
++          status: "queued",
++          expiresAt: new Date(retentionBase + 30 * 24 * 60 * 60_000),
++        });
++        return { created: true, job: publicPostJob(document) };
++      } catch (error) {
++        if (error?.code !== 11000) throw error;
++        const duplicate = await PostModel.findOne({ idempotencyKey: input.idempotencyKey });
++        return { created: false, job: publicPostJob(duplicate) };
++      }
++    },
++
++    async list({ status, limit = 100 } = {}) {
++      const documents = await PostModel.find(status ? { status } : {})
++        .sort({ publishAt: 1 })
++        .limit(Math.min(200, Math.max(1, Number(limit) || 100)));
++      return documents.map(publicPostJob);
++    },
++
++    async cancel(id) {
++      const document = await PostModel.findOneAndUpdate(
++        { _id: id, status: { $in: ["queued", "processing", "paused", "failed"] } },
++        { $set: { status: "cancelled", completedAt: now(), lockedAt: null, lockId: null, lastError: null, lastErrorCode: null } },
++        { new: true },
++      );
++      if (!document) throw new Error("Post job cannot be cancelled");
++      return publicPostJob(document);
++    },
++
++    async retry(id) {
++      const current = now();
++      const document = await PostModel.findOneAndUpdate(
++        { _id: id, status: { $in: ["failed", "paused", "cancelled"] } },
++        { $set: { status: "queued", attempts: 0, nextRunAt: current, lockedAt: null, lockId: null, completedAt: null, lastError: null, lastErrorCode: null, cancelRequested: false } },
++        { new: true },
++      );
++      if (!document) throw new Error("Post job cannot be retried");
++      return publicPostJob(document);
++    },
++
++    async purge({ scope }) {
++      const statuses = postPurgeStatuses(scope);
++      const result = await PostModel.deleteMany({ status: { $in: statuses } });
++      return { removedJobs: Number(result.deletedCount) || 0 };
++    },
++  });
++}
++
++module.exports = { createPostService, postPurgeStatuses };
+diff --git a/server/src/post-validation.js b/server/src/post-validation.js
+new file mode 100644
+index 0000000..4c5a174
+--- /dev/null
++++ b/server/src/post-validation.js
+@@ -0,0 +1,154 @@
++"use strict";
++
++const { requirePositiveInteger } = require("./validation.js");
++
++function safeIdempotencyKey(value) {
++  const key = String(value || "").trim();
++  if (!/^[a-zA-Z0-9:_-]{8,200}$/.test(key)) {
++    throw new Error("idempotencyKey must contain 8-200 safe characters");
++  }
++  return key;
++}
++
++function sourceOwnerId(value) {
++  const number = Number(value);
++  if (!Number.isSafeInteger(number) || number === 0) {
++    throw new Error("sourceOwnerId must be a non-zero integer");
++  }
++  return number;
++}
++
++function normalizeGroups(value) {
++  if (!Array.isArray(value)) throw new Error("groups must be a non-empty array");
++  const groups = [...new Set(value.map((id) => Math.abs(Number(id))).filter((id) => Number.isSafeInteger(id) && id > 0))];
++  if (!groups.length || groups.length > 100) {
++    throw new Error("groups must contain 1-100 positive community IDs");
++  }
++  return groups;
++}
++
++function cleanText(value, maximum) {
++  const text = String(value || "").trim();
++  if (text.length > maximum) throw new Error(`text must not exceed ${maximum} characters`);
++  return text;
++}
++
++function normalizeLabels(rawLabels, groups) {
++  const labels = {};
++  const source = rawLabels && typeof rawLabels === "object" ? rawLabels : {};
++  for (const groupId of groups) {
++    labels[String(groupId)] = cleanText(source[String(groupId)] || `club${groupId}`, 160) || `club${groupId}`;
++  }
++  return labels;
++}
++
++function normalizePreviewImages(value) {
++  if (!Array.isArray(value)) return [];
++  return value.slice(0, 20).flatMap((raw) => {
++    try {
++      const url = new URL(String(raw || ""));
++      if (url.protocol !== "https:") return [];
++      const host = url.hostname.toLowerCase();
++      const allowed = ["userapi.com", "vkuserphoto.ru", "vk-cdn.net", "vk.com", "vk.ru"];
++      if (!allowed.some((suffix) => host === suffix || host.endsWith(`.${suffix}`))) return [];
++      return [url.toString()];
++    } catch {
++      return [];
++    }
++  });
++}
++
++function validateScheduledPostInput(input, { now = new Date() } = {}) {
++  if (!input || typeof input !== "object") throw new Error("JSON body is required");
++  const idempotencyKey = safeIdempotencyKey(input.idempotencyKey);
++  const normalizedSourceOwnerId = sourceOwnerId(input.sourceOwnerId);
++  const sourcePostId = requirePositiveInteger(input.sourcePostId, "sourcePostId");
++  const groups = normalizeGroups(input.groups);
++  const mode = input.mode === "repost" ? "repost" : input.mode === "copy" ? "copy" : "";
++  if (!mode) throw new Error("mode must be copy or repost");
++  const publishAt = new Date(input.publishAt);
++  const current = new Date(now);
++  if (!Number.isFinite(publishAt.getTime())) throw new Error("publishAt must be a valid date");
++  if (publishAt.getTime() < current.getTime() + 15_000) {
++    throw new Error("publishAt must be at least 15 seconds in the future");
++  }
++  if (publishAt.getTime() > current.getTime() + 180 * 24 * 60 * 60_000) {
++    throw new Error("publishAt must be within 180 days");
++  }
++  const userToken = String(input.userToken || "").trim();
++  if (userToken.length < 20 || userToken.length > 4096) {
++    throw new Error("userToken has an invalid length");
++  }
++  const autoCommentText = cleanText(input.autoCommentText, 4096);
++ const commentDelaySeconds = Math.min(86_400, Math.max(15, Number(input.commentDelaySeconds) || 60));
++  const groupIntervalSeconds = Math.min(86_400, Math.max(15, Number(input.groupIntervalSeconds) || 15));
++ const commentGroupIntervalSeconds = Math.min(3_600, Math.max(15, Number(input.commentGroupIntervalSeconds) || 30));
++
++  return {
++    idempotencyKey,
++    sourceOwnerId: normalizedSourceOwnerId,
++    sourcePostId,
++    sourceUrl: `https://vk.ru/wall${normalizedSourceOwnerId}_${sourcePostId}`,
++    groups,
++    groupLabels: normalizeLabels(input.groupLabels, groups),
++    mode,
++    text: cleanText(input.text, 16_384),
++    publishAt,
++    userToken,
++   autoCommentText,
++    groupIntervalSeconds,
++   commentDelaySeconds,
++    commentGroupIntervalSeconds,
++    previewImages: normalizePreviewImages(input.previewImages),
++    label: cleanText(input.label, 160) || `Пост wall${normalizedSourceOwnerId}_${sourcePostId}`,
++  };
++}
++
++function publicPostJob(document) {
++  const source = document && typeof document.toObject === "function" ? document.toObject() : { ...(document || {}) };
++  const groups = Array.isArray(source.groups) ? source.groups : [];
++  const results = Array.isArray(source.results) ? source.results : [];
++  const ok = results.filter((item) => item?.ok === true).length;
++  const fail = results.filter((item) => item?.ok === false).length;
++  return {
++    id: String(source._id || source.id || ""),
++    idempotencyKey: source.idempotencyKey,
++    source: "server",
++    sourceOwnerId: source.sourceOwnerId,
++    sourcePostId: source.sourcePostId,
++    sourceUrl: source.sourceUrl,
++    groups,
++    groupLabels: source.groupLabels || {},
++    mode: source.mode,
++    text: source.text || "",
++    label: source.label || "",
++    publishAt: source.publishAt,
++    pubDate: source.publishAt,
++    nextRunAt: source.nextRunAt,
++    nextGroupIndex: Number(source.nextGroupIndex) || 0,
++    previewImages: Array.isArray(source.previewImages) ? source.previewImages : [],
++   autoCommentText: source.autoCommentText || "",
++    groupIntervalSeconds: Number(source.groupIntervalSeconds) || 15,
++   status: source.status,
++    results,
++    progress: {
++      total: groups.length,
++      current: Math.min(groups.length, ok + fail),
++      ok,
++      fail,
++      percent: groups.length ? Math.round(((ok + fail) / groups.length) * 100) : 0,
++    },
++    attempts: Number(source.attempts) || 0,
++    lastError: source.lastError || null,
++    lastErrorCode: source.lastErrorCode || null,
++    error: source.lastError || null,
++    createdAt: source.createdAt,
++    updatedAt: source.updatedAt,
++    completedAt: source.completedAt || null,
++  };
++}
++
++module.exports = {
++  publicPostJob,
++  validateScheduledPostInput,
++};
+diff --git a/server/src/post-worker.js b/server/src/post-worker.js
+new file mode 100644
+index 0000000..73755ba
+--- /dev/null
++++ b/server/src/post-worker.js
+@@ -0,0 +1,171 @@
++"use strict";
++
++const crypto = require("node:crypto");
++const { classifyVkError } = require("../../safety-core.js");
++
++const MAX_POST_ATTEMPTS = 3;
++const POST_RETRY_MINUTES = Object.freeze([2, 5]);
++
++function safeMessage(error) {
++  return String(error?.message || "Unknown error").slice(0, 1000);
++}
++
++function retryDelayMs(attempts) {
++  return POST_RETRY_MINUTES[Math.min(POST_RETRY_MINUTES.length - 1, Math.max(0, Number(attempts) - 1))] * 60_000;
++}
++
++function stableRandomId(jobId, groupId) {
++  const digest = crypto.createHash("sha256").update(`${jobId}:${groupId}`).digest();
++  return digest.readUInt32BE(0) % 2_147_483_647 || 1;
++}
++
++function createPostWorker({
++  PostModel,
++  tokenVault,
++  vkClient,
++  commentService,
++  intervalMs = 15_000,
++  staleLockMs = 10 * 60_000,
++  minGroupIntervalMs = 15_000,
++  now = () => new Date(),
++  logger = console,
++}) {
++  let timer = null;
++  let running = false;
++
++  async function claimOne() {
++    const current = now();
++    const staleBefore = new Date(current.getTime() - staleLockMs);
++    const lockId = crypto.randomUUID();
++    return PostModel.findOneAndUpdate(
++      {
++        status: { $in: ["queued", "processing"] },
++        nextRunAt: { $lte: current },
++        cancelRequested: { $ne: true },
++        $or: [{ status: "queued" }, { lockedAt: null }, { lockedAt: { $lt: staleBefore } }],
++      },
++      { $set: { status: "processing", lockedAt: current, lockId }, $inc: { attempts: 1 } },
++      { sort: { nextRunAt: 1 }, new: true },
++    ).select("+tokenCiphertext +tokenIv +tokenTag");
++  }
++
++  function completionState(results) {
++    return results.some((item) => item.ok) ? "completed" : "failed";
++  }
++
++  async function runOnce() {
++    if (running) return false;
++    running = true;
++    try {
++      const job = await claimOne();
++      if (!job) return false;
++      const current = now();
++      const groupIndex = Math.max(0, Number(job.nextGroupIndex) || 0);
++      const groupId = Number(job.groups?.[groupIndex]);
++      const results = Array.isArray(job.results) ? [...job.results] : [];
++      try {
++        if (!Number.isSafeInteger(groupId) || groupId <= 0) throw new Error("Post job has no remaining community");
++        const userToken = tokenVault.decrypt(job);
++        const input = {
++          sourceOwnerId: job.sourceOwnerId,
++          sourcePostId: job.sourcePostId,
++          targetGroupId: groupId,
++          text: job.text || "",
++          userToken,
++          randomId: stableRandomId(job.idempotencyKey || String(job._id), groupId),
++        };
++        const published = job.mode === "repost"
++          ? await vkClient.repostToGroup(input)
++          : await vkClient.publishCopiedPost(input);
++        const postId = Number(published?.postId ?? published?.post_id);
++        if (!Number.isSafeInteger(postId) || postId <= 0) throw new Error("VK did not return a published post ID");
++        const result = { gid: groupId, ok: true, postId, publishedAt: current };
++
++        if (job.autoCommentText) {
++          try {
++            const commentAt = new Date(current.getTime() + Math.max(15, Number(job.commentDelaySeconds) || 60) * 1000 + groupIndex * Math.max(15, Number(job.commentGroupIntervalSeconds) || 30) * 1000);
++            await commentService.enqueue({
++              idempotencyKey: `post:${String(job._id)}:${groupId}:${postId}:comment`.slice(0, 200),
++              groupId,
++              postId,
++              commentText: job.autoCommentText,
++              commentAt,
++              userToken,
++            });
++          } catch (error) {
++            result.warning = `Комментарий не запланирован: ${safeMessage(error)}`;
++          }
++        }
++
++        results.push(result);
++        const nextGroupIndex = groupIndex + 1;
++        const finished = nextGroupIndex >= job.groups.length;
++        await PostModel.updateOne(
++          { _id: job._id, status: "processing", lockId: job.lockId },
++          { $set: {
++            status: finished ? completionState(results) : "queued",
++            nextGroupIndex,
++            nextRunAt: finished ? current : new Date(current.getTime() + Math.max(15_000, minGroupIntervalMs, (Number(job.groupIntervalSeconds) || 15) * 1000)),
++            results,
++            attempts: 0,
++            completedAt: finished ? current : null,
++            lockedAt: null,
++            lockId: null,
++            lastError: null,
++            lastErrorCode: null,
++          } },
++        );
++      } catch (error) {
++        const decision = classifyVkError(error.vkError || { code: error.code, transport: error.transport === true });
++        const exhausted = Number(job.attempts) >= MAX_POST_ATTEMPTS;
++        if (decision.action === "pause") {
++          await PostModel.updateOne(
++            { _id: job._id, status: "processing", lockId: job.lockId },
++            { $set: { status: "paused", lockedAt: null, lockId: null, lastError: safeMessage(error), lastErrorCode: Number(error.code) || null } },
++          );
++        } else if (decision.action === "retry" && !exhausted) {
++          await PostModel.updateOne(
++            { _id: job._id, status: "processing", lockId: job.lockId },
++            { $set: { status: "queued", nextRunAt: new Date(current.getTime() + retryDelayMs(job.attempts)), lockedAt: null, lockId: null, lastError: safeMessage(error), lastErrorCode: Number(error.code) || null } },
++          );
++        } else {
++          results.push({ gid: groupId, ok: false, error: safeMessage(error), code: Number(error.code) || null });
++          const nextGroupIndex = groupIndex + 1;
++          const finished = nextGroupIndex >= (job.groups?.length || 0);
++          await PostModel.updateOne(
++            { _id: job._id, status: "processing", lockId: job.lockId },
++            { $set: {
++              status: finished ? completionState(results) : "queued",
++              nextGroupIndex,
++              nextRunAt: finished ? current : new Date(current.getTime() + Math.max(15_000, minGroupIntervalMs, (Number(job.groupIntervalSeconds) || 15) * 1000)),
++              results,
++              attempts: 0,
++              completedAt: finished ? current : null,
++              lockedAt: null,
++              lockId: null,
++              lastError: finished ? safeMessage(error) : null,
++              lastErrorCode: finished ? Number(error.code) || null : null,
++            } },
++          );
++        }
++        logger.warn("[post-worker] Post target did not complete", { jobId: String(job._id), groupId, errorCode: Number(error.code) || null });
++      }
++      return true;
++    } finally {
++      running = false;
++    }
++  }
++
++  return Object.freeze({
++    runOnce,
++    start() {
++      if (timer) return;
++      timer = setInterval(() => void runOnce().catch((error) => logger.error("[post-worker] Unexpected worker error", { message: safeMessage(error) })), intervalMs);
++      timer.unref?.();
++      void runOnce().catch((error) => logger.error("[post-worker] Unexpected worker error", { message: safeMessage(error) }));
++    },
++    stop() { if (timer) clearInterval(timer); timer = null; },
++  });
++}
++
++module.exports = { MAX_POST_ATTEMPTS, createPostWorker, retryDelayMs, stableRandomId };
+diff --git a/server/src/server.js b/server/src/server.js
+index 0f0af59..9632591 100644
+--- a/server/src/server.js
++++ b/server/src/server.js
+@@ -6,7 +6,10 @@ const { createApp } = require("./app.js");
+ const { createCommentService } = require("./comment-service.js");
+ const { loadConfig } = require("./config.js");
+ const ScheduledComment = require("./models/scheduled-comment.js");
++const ScheduledPost = require("./models/scheduled-post.js");
+ const ScheduledStory = require("./models/scheduled-story.js");
++const { createPostService } = require("./post-service.js");
++const { createPostWorker } = require("./post-worker.js");
+ const { createStoryMediaStore } = require("./story-media-store.js");
+ const { createStoryService } = require("./story-service.js");
+ const { createStoryWorker } = require("./story-worker.js");
+@@ -30,6 +33,10 @@ async function main() {
+     CommentModel: ScheduledComment,
+     tokenVault,
+   });
++  const postService = createPostService({
++    PostModel: ScheduledPost,
++    tokenVault,
++  });
+   const vkClient = createVkClient({ apiVersion: config.vkApiVersion });
+   const worker = createCommentWorker({
+     CommentModel: ScheduledComment,
+@@ -38,6 +45,15 @@ async function main() {
+     intervalMs: config.workerIntervalMs,
+     staleLockMs: config.staleLockMs,
+   });
++  const postWorker = createPostWorker({
++    PostModel: ScheduledPost,
++    tokenVault,
++    vkClient,
++    commentService,
++    intervalMs: config.workerIntervalMs,
++    staleLockMs: config.staleLockMs,
++    minGroupIntervalMs: config.postGroupIntervalMs,
++  });
+   const storyService = createStoryService({
+     StoryModel: ScheduledStory,
+     tokenVault,
+@@ -52,11 +68,12 @@ async function main() {
+     intervalMs: config.workerIntervalMs,
+     staleLockMs: config.staleLockMs,
+   });
+-  const app = createApp({ config, commentService, storyService });
++  const app = createApp({ config, commentService, postService, storyService });
+   const server = http.createServer(app);
+ 
+   await new Promise((resolve) => server.listen(config.port, resolve));
+   worker.start();
++  postWorker.start();
+   storyWorker.start();
+   const mediaCleanupTimer = setInterval(() => {
+     void storyService.cleanupExpiredMedia().catch((error) => {
+@@ -69,6 +86,7 @@ async function main() {
+   async function shutdown(signal) {
+     console.log(`[server] ${signal}: shutting down`);
+     worker.stop();
++    postWorker.stop();
+     storyWorker.stop();
+     clearInterval(mediaCleanupTimer);
+     await new Promise((resolve) => server.close(resolve));
+diff --git a/server/src/story-service.js b/server/src/story-service.js
+index bc8bb4c..f906ccc 100644
+--- a/server/src/story-service.js
++++ b/server/src/story-service.js
+@@ -15,7 +15,7 @@ function createStoryService({ StoryModel, tokenVault, mediaStore, maxBytes, now
+       const input = validateStoryDraftInput(rawInput, { now: now() });
+       const existing = await StoryModel.findOne({ idempotencyKey: input.idempotencyKey });
+       if (existing) return { created: false, job: publicStoryJob(existing) };
+-      const encryptedToken = tokenVault.encrypt(input.groupToken);
++      const encryptedToken = tokenVault.encrypt(input.userToken);
+       try {
+         const document = await StoryModel.create({
+           idempotencyKey: input.idempotencyKey, groupId: input.groupId, groupName: input.groupName,
+diff --git a/server/src/story-validation.js b/server/src/story-validation.js
+index c6c8bd9..efa80b7 100644
+--- a/server/src/story-validation.js
++++ b/server/src/story-validation.js
+@@ -24,8 +24,8 @@ function validateStoryDraftInput(input, { now = new Date() } = {}) {
+   if (!Number.isFinite(publishAt.getTime())) throw new Error("publishAt must be a valid date");
+   if (publishAt.getTime() < current.getTime() + 60_000) throw new Error("publishAt must be at least 60 seconds in the future");
+   if (publishAt.getTime() > current.getTime() + 180 * 24 * 60 * 60_000) throw new Error("publishAt must be within 180 days");
+-  const groupToken = String(input.groupToken || "").trim();
+-  if (groupToken.length < 20 || groupToken.length > 4096) throw new Error("groupToken has an invalid length");
++  const userToken = String(input.userToken || "").trim();
++  if (userToken.length < 20 || userToken.length > 4096) throw new Error("userToken has an invalid length");
+   let linkUrl = String(input.linkUrl || "").trim();
+   let linkText = String(input.linkText || "").trim();
+   if (linkUrl) {
+@@ -49,7 +49,7 @@ function validateStoryDraftInput(input, { now = new Date() } = {}) {
+   if (previewDataUrl && (!/^data:image\/(?:jpeg|png);base64,/i.test(previewDataUrl) || previewDataUrl.length > 180_000)) {
+     throw new Error("previewDataUrl must be a small JPEG or PNG data URL");
+   }
+-  return { idempotencyKey, groupId, groupName, publishAt, groupToken, linkUrl, linkText, previewDataUrl };
++  return { idempotencyKey, groupId, groupName, publishAt, userToken, linkUrl, linkText, previewDataUrl };
+ }
+ 
+ function validateStoryMedia({ fileName, mimeType, byteLength, maxBytes }) {
+diff --git a/server/src/story-worker.js b/server/src/story-worker.js
+index bd24c9f..28e6a91 100644
+--- a/server/src/story-worker.js
++++ b/server/src/story-worker.js
+@@ -31,17 +31,17 @@ function createStoryWorker({ StoryModel, tokenVault, mediaStore, vkClient, inter
+       const job = await claimOne();
+       if (!job) return false;
+       try {
+-        const groupToken = tokenVault.decrypt(job);
++        const userToken = tokenVault.decrypt(job);
+         const media = await mediaStore.read(job.mediaId);
+         const server = await vkClient.createStoryUploadServer({
+-          kind: job.kind, groupId: job.groupId, groupToken, linkUrl: job.linkUrl, linkText: job.linkText,
++          kind: job.kind, groupId: job.groupId, userToken, linkUrl: job.linkUrl, linkText: job.linkText,
+         });
+         const uploadUrl = server?.upload_url || server?.uploadUrl;
+         if (!uploadUrl) throw new Error("VK did not return a story upload URL");
+         const uploadResult = await vkClient.uploadStoryMedia({
+           uploadUrl, kind: job.kind, media, fileName: job.fileName, mimeType: job.mimeType,
+         });
+-        const saved = await vkClient.saveCommunityStory({ groupToken, uploadResult });
++        const saved = await vkClient.saveCommunityStory({ userToken, uploadResult });
+         const storyId = String(saved?.items?.[0]?.id || saved?.[0]?.id || saved?.story_id || saved?.id || "");
+         const cleanupDueAt = new Date();
+         const completed = await StoryModel.updateOne(
+diff --git a/server/src/validation.js b/server/src/validation.js
+index 7e1e0f9..2e4cd27 100644
+--- a/server/src/validation.js
++++ b/server/src/validation.js
+@@ -30,9 +30,9 @@ function validateScheduledCommentInput(input) {
+   if (!Number.isFinite(commentAt.getTime())) {
+     throw new Error("commentAt must be a valid date");
+   }
+-  const groupToken = String(input.groupToken || "").trim();
+-  if (groupToken.length < 20 || groupToken.length > 4096) {
+-    throw new Error("groupToken has an invalid length");
++  const userToken = String(input.userToken || "").trim();
++  if (userToken.length < 20 || userToken.length > 4096) {
++    throw new Error("userToken has an invalid length");
+   }
+ 
+   return {
+@@ -41,7 +41,7 @@ function validateScheduledCommentInput(input) {
+     postId,
+     commentText,
+     commentAt,
+-    groupToken,
++    userToken,
+   };
+ }
+ 
+diff --git a/server/src/vk-client.js b/server/src/vk-client.js
+index ade77a9..4a63793 100644
+--- a/server/src/vk-client.js
++++ b/server/src/vk-client.js
+@@ -1,5 +1,13 @@
+ "use strict";
+ 
++const {
++  buildReusableAttachments,
++  buildUploadedPhotoAttachment,
++  largestPhotoUrl,
++} = require("../../safety-core.js");
++
++const MAX_SOURCE_PHOTO_BYTES = 50 * 1024 * 1024;
++
+ function createVkClient({ apiVersion = "5.199", fetchImpl = globalThis.fetch, timeoutMs = 20_000 } = {}) {
+   async function fetchWithTimeout(url, options, requestTimeout = timeoutMs) {
+     const controller = new AbortController();
+@@ -22,8 +30,8 @@ function createVkClient({ apiVersion = "5.199", fetchImpl = globalThis.fetch, ti
+     } finally { clearTimeout(timeout); }
+   }
+ 
+-  async function callVkMethod(method, parameters, groupToken) {
+-    const body = new URLSearchParams({ access_token: groupToken, v: apiVersion });
++  async function callVkMethod(method, parameters, token) {
++    const body = new URLSearchParams({ access_token: token, v: apiVersion });
+     for (const [key, value] of Object.entries(parameters || {})) {
+       if (value !== undefined && value !== null && value !== "") body.set(key, String(value));
+     }
+@@ -40,17 +48,99 @@ function createVkClient({ apiVersion = "5.199", fetchImpl = globalThis.fetch, ti
+     return payload.response;
+   }
+ 
++  function checkedHttpsUrl(rawUrl, allowedSuffixes, label) {
++    let url;
++    try { url = new URL(String(rawUrl || "")); }
++    catch { throw new Error(`${label} has an invalid URL`); }
++    const host = url.hostname.toLowerCase();
++    if (url.protocol !== "https:" || !allowedSuffixes.some((suffix) => host === suffix || host.endsWith(`.${suffix}`))) {
++      throw new Error(`${label} has an unsupported HTTPS host`);
++    }
++    return url.toString();
++  }
++
++  async function fetchSourcePost({ sourceOwnerId, sourcePostId, userToken }) {
++    const response = await callVkMethod("wall.getById", {
++      posts: `${Number(sourceOwnerId)}_${Number(sourcePostId)}`,
++      extended: 0,
++    }, userToken);
++    const post = Array.isArray(response) ? response[0] : response?.items?.[0];
++    if (!post) throw new Error("VK did not return the source post");
++    return post;
++  }
++
++  async function uploadCopiedPhoto({ photo, targetGroupId, userToken, position }) {
++    const sourceUrl = checkedHttpsUrl(
++      largestPhotoUrl(photo),
++      ["userapi.com", "vkuserphoto.ru", "vk-cdn.net", "vk.com", "vk.ru"],
++      `Photo ${position}`,
++    );
++    const source = await fetchWithTimeout(sourceUrl, { method: "GET" }, Math.max(timeoutMs, 60_000));
++    const blob = await source.blob();
++    if (!blob.size || blob.size > MAX_SOURCE_PHOTO_BYTES || (blob.type && !blob.type.toLowerCase().startsWith("image/"))) {
++      throw new Error(`Photo ${position} is empty, too large, or is not an image`);
++    }
++    const uploadServer = await callVkMethod("photos.getWallUploadServer", { group_id: Math.abs(targetGroupId) }, userToken);
++    const uploadUrl = checkedHttpsUrl(uploadServer?.upload_url, ["vk.com", "vk.ru"], `Photo ${position} upload server`);
++    const form = new FormData();
++    form.append("photo", blob, `vkr-server-copy-${position}.jpg`);
++    const uploadedResponse = await fetchWithTimeout(uploadUrl, { method: "POST", body: form }, Math.max(timeoutMs, 60_000));
++    const uploaded = await uploadedResponse.json();
++    if (!uploaded?.photo || uploaded.server === undefined || !uploaded?.hash) {
++      const error = new Error(`Photo ${position} upload response is incomplete`);
++      error.transport = true;
++      throw error;
++    }
++    const saved = await callVkMethod("photos.saveWallPhoto", {
++      group_id: Math.abs(targetGroupId),
++      photo: uploaded.photo,
++      server: uploaded.server,
++      hash: uploaded.hash,
++    }, userToken);
++    if (!Array.isArray(saved) || !saved[0]) throw new Error(`Photo ${position} was not saved by VK`);
++    return buildUploadedPhotoAttachment(saved[0], photo);
++  }
++
+   return Object.freeze({
+-    async createGroupComment({ groupId, postId, commentText, groupToken, guid }) {
++    async createUserComment({ groupId, postId, commentText, userToken, guid }) {
+       return callVkMethod("wall.createComment", {
+         owner_id: -Math.abs(groupId), post_id: postId, message: commentText,
+         from_group: Math.abs(groupId), guid,
+-      }, groupToken);
++      }, userToken);
++    },
++
++    async publishCopiedPost({ sourceOwnerId, sourcePostId, targetGroupId, text, userToken, randomId }) {
++      const post = await fetchSourcePost({ sourceOwnerId, sourcePostId, userToken });
++      const attachments = Array.isArray(post.attachments) ? post.attachments : [];
++      const photos = attachments.flatMap((attachment) => attachment?.type === "photo" && attachment.photo ? [attachment.photo] : []);
++      const copiedPhotos = [];
++      for (let index = 0; index < photos.length; index += 1) {
++        copiedPhotos.push(await uploadCopiedPhoto({ photo: photos[index], targetGroupId, userToken, position: index + 1 }));
++      }
++      const reusable = buildReusableAttachments(attachments.filter((attachment) => attachment?.type !== "photo"));
++      const params = {
++        owner_id: -Math.abs(targetGroupId),
++        from_group: 1,
++        message: String(text || ""),
++        random_id: Number(randomId) || 1,
++      };
++      const finalAttachments = [...copiedPhotos, ...reusable];
++      if (finalAttachments.length) params.attachments = finalAttachments.join(",");
++      const response = await callVkMethod("wall.post", params, userToken);
++      return { postId: Number(response?.post_id) || null };
++    },
++
++    async repostToGroup({ sourceOwnerId, sourcePostId, targetGroupId, userToken }) {
++      const response = await callVkMethod("wall.repost", {
++        object: `wall${Number(sourceOwnerId)}_${Number(sourcePostId)}`,
++        group_id: Math.abs(targetGroupId),
++      }, userToken);
++      return { postId: Number(response?.post_id) || null };
+     },
+ 
+-    async createStoryUploadServer({ kind, groupId, groupToken, linkUrl, linkText }) {
++    async createStoryUploadServer({ kind, groupId, userToken, linkUrl, linkText }) {
+       const method = kind === "photo" ? "stories.getPhotoUploadServer" : "stories.getVideoUploadServer";
+-      return callVkMethod(method, { group_id: Math.abs(groupId), link_url: linkUrl, link_text: linkText }, groupToken);
++      return callVkMethod(method, { group_id: Math.abs(groupId), link_url: linkUrl, link_text: linkText }, userToken);
+     },
+ 
+     async uploadStoryMedia({ uploadUrl, kind, media, fileName, mimeType }) {
+@@ -62,11 +152,11 @@ function createVkClient({ apiVersion = "5.199", fetchImpl = globalThis.fetch, ti
+       try { return JSON.parse(text); } catch { return text; }
+     },
+ 
+-    async saveCommunityStory({ groupToken, uploadResult }) {
++    async saveCommunityStory({ userToken, uploadResult }) {
+       const parameters = typeof uploadResult === "string"
+         ? { upload_results: uploadResult }
+         : { upload_results_json: JSON.stringify([uploadResult]) };
+-      return callVkMethod("stories.save", parameters, groupToken);
++      return callVkMethod("stories.save", parameters, userToken);
+     },
+   });
+ }
+diff --git a/server/src/worker.js b/server/src/worker.js
+index 2d00b76..e0a1953 100644
+--- a/server/src/worker.js
++++ b/server/src/worker.js
+@@ -62,12 +62,12 @@ function createCommentWorker({
+       if (!job) return false;
+ 
+       try {
+-        const groupToken = tokenVault.decrypt(job);
+-        await vkClient.createGroupComment({
++        const userToken = tokenVault.decrypt(job);
++        await vkClient.createUserComment({
+           groupId: job.groupId,
+           postId: job.postId,
+           commentText: job.commentText,
+-          groupToken,
++          userToken,
+           guid: job.idempotencyKey,
+         });
+         await CommentModel.updateOne(
+diff --git a/server/test/app.test.js b/server/test/app.test.js
+index f7daf86..75c8e5e 100644
+--- a/server/test/app.test.js
++++ b/server/test/app.test.js
+@@ -39,9 +39,17 @@ async function withServer(callback) {
+     async retry() { throw new Error("Story job cannot be retried"); },
+     async purge() { return { removedJobs: 2, removedMedia: 1, retainedJobs: 0, hasMore: false }; },
+   };
++  const postService = {
++    async enqueue() { return { created: true, job: { id: "post-job", status: "queued", groups: [42] } }; },
++    async list() { return [{ id: "post-job", status: "queued", groups: [42] }]; },
++    async cancel(id) { return { id, status: "cancelled", groups: [42] }; },
++    async retry(id) { return { id, status: "queued", groups: [42] }; },
++    async purge() { return { removedJobs: 5 }; },
++  };
+   const app = createApp({
+     config: { apiSecret: "s".repeat(40), storyMaxBytes: 25 * 1024 * 1024 },
+     commentService,
++    postService,
+     storyService,
+     databaseReady: () => true,
+   });
+@@ -106,6 +114,34 @@ test("scheduled comment response contains no credential fields", async () => {
+   });
+ });
+ 
++test("scheduled post endpoints are authenticated and never echo the user token", async () => {
++  await withServer(async (baseUrl) => {
++    const headers = {
++      Authorization: `Bearer ${"s".repeat(40)}`,
++      "Content-Type": "application/json",
++    };
++    const created = await fetch(`${baseUrl}/api/scheduled-posts`, {
++      method: "POST",
++      headers,
++      body: JSON.stringify({ userToken: "must-not-return" }),
++    });
++    assert.equal(created.status, 201);
++    assert.doesNotMatch(await created.text(), /token|cipher|secret/i);
++
++    const listed = await fetch(`${baseUrl}/api/scheduled-posts?limit=100`, { headers });
++    assert.equal(listed.status, 200);
++    assert.equal((await listed.json()).jobs[0].id, "post-job");
++
++    const cancelled = await fetch(`${baseUrl}/api/scheduled-posts/post-job`, { method: "DELETE", headers });
++    assert.equal(cancelled.status, 200);
++    assert.equal((await cancelled.json()).job.status, "cancelled");
++
++    const retried = await fetch(`${baseUrl}/api/scheduled-posts/post-job/retry`, { method: "POST", headers });
++    assert.equal(retried.status, 200);
++    assert.equal((await retried.json()).job.status, "queued");
++  });
++});
++
+ test("authenticated comment retry returns the requeued public job", async () => {
+   await withServer(async (baseUrl) => {
+     const response = await fetch(
+@@ -143,5 +179,9 @@ test("authenticated maintenance endpoints return actual MongoDB cleanup counts",
+       retainedJobs: 0,
+       hasMore: false,
+     });
++
++    const posts = await fetch(`${baseUrl}/api/scheduled-posts?scope=all`, { method: "DELETE", headers });
++    assert.equal(posts.status, 200);
++    assert.deepEqual(await posts.json(), { ok: true, removedJobs: 5 });
+   });
+ });
+diff --git a/server/test/comment-service.test.js b/server/test/comment-service.test.js
+index 1dd049e..9e2f3a4 100644
+--- a/server/test/comment-service.test.js
++++ b/server/test/comment-service.test.js
+@@ -36,7 +36,7 @@ test("comment expiration stays 30 days beyond a future schedule", async () => {
+     postId: 10,
+     commentText: "comment",
+     commentAt: scheduledAt,
+-    groupToken: "x".repeat(40),
++    userToken: "x".repeat(40),
+   });
+ 
+   const retentionMs = created.expiresAt.getTime() - scheduledAt.getTime();
+diff --git a/server/test/post-service.test.js b/server/test/post-service.test.js
+new file mode 100644
+index 0000000..e282049
+--- /dev/null
++++ b/server/test/post-service.test.js
+@@ -0,0 +1,62 @@
++"use strict";
++
++const test = require("node:test");
++const assert = require("node:assert/strict");
++const { createPostService } = require("../src/post-service.js");
++
++function validInput() {
++  return {
++    idempotencyKey: "pub_42:source_1:batch",
++    sourceOwnerId: -100,
++    sourcePostId: 55,
++    groups: [42, 43],
++    groupLabels: { 42: "Первая", 43: "Вторая" },
++    mode: "copy",
++    text: "Текст",
++    publishAt: new Date(Date.now() + 60_000).toISOString(),
++    userToken: "u".repeat(40),
++    previewImages: [],
++  };
++}
++
++test("post service encrypts the user token and initializes one batch", async () => {
++  let encryptedPlaintext;
++  let created;
++  const service = createPostService({
++    PostModel: {
++      async findOne() { return null; },
++      async create(input) { created = input; return { _id: "post-job", ...input }; },
++    },
++    tokenVault: {
++      encrypt(value) {
++        encryptedPlaintext = value;
++        return { tokenCiphertext: "cipher", tokenIv: "iv", tokenTag: "tag" };
++      },
++    },
++  });
++  const result = await service.enqueue(validInput());
++  assert.equal(encryptedPlaintext, "u".repeat(40));
++  assert.equal(created.nextGroupIndex, 0);
++  assert.equal(created.status, "queued");
++  assert.equal(result.job.id, "post-job");
++  assert.equal(JSON.stringify(result).includes("cipher"), false);
++});
++
++test("post service can cancel, retry and purge terminal jobs only", async () => {
++  const calls = [];
++  const service = createPostService({
++    PostModel: {
++      async findOneAndUpdate(filter, update) {
++        calls.push({ filter, update });
++        return { _id: "post-job", groups: [42], results: [], publishAt: new Date(), ...update.$set };
++      },
++      async deleteMany(filter) { calls.push({ filter }); return { deletedCount: 4 }; },
++    },
++    tokenVault: {},
++  });
++  assert.equal((await service.cancel("post-job")).status, "cancelled");
++  assert.deepEqual(calls[0].filter.status, { $in: ["queued", "processing", "paused", "failed"] });
++  assert.equal((await service.retry("post-job")).status, "queued");
++  assert.deepEqual(await service.purge({ scope: "all" }), { removedJobs: 4 });
++  assert.deepEqual(calls.at(-1).filter, { status: { $in: ["completed", "failed", "cancelled"] } });
++});
+diff --git a/server/test/post-validation.test.js b/server/test/post-validation.test.js
+new file mode 100644
+index 0000000..2c197eb
+--- /dev/null
++++ b/server/test/post-validation.test.js
+@@ -0,0 +1,69 @@
++"use strict";
++
++const test = require("node:test");
++const assert = require("node:assert/strict");
++const {
++  publicPostJob,
++  validateScheduledPostInput,
++} = require("../src/post-validation.js");
++
++test("scheduled post validation normalizes a future user-authorized batch", () => {
++  const value = validateScheduledPostInput({
++    idempotencyKey: "pub_42:source_1:batch",
++    sourceOwnerId: -100,
++    sourcePostId: 55,
++    groups: [42, "43", 42],
++    groupLabels: { 42: "Первая", 43: "Вторая" },
++    mode: "copy",
++    text: "Текст",
++    publishAt: "2026-08-12T12:00:00.000Z",
++    userToken: "u".repeat(40),
++    autoCommentText: "Первый комментарий",
++    groupIntervalSeconds: 3600,
++    commentDelaySeconds: 60,
++    commentGroupIntervalSeconds: 30,
++    previewImages: ["https://sun.userapi.com/photo.jpg"],
++  }, { now: new Date("2026-08-11T12:00:00.000Z") });
++
++  assert.deepEqual(value.groups, [42, 43]);
++  assert.equal(value.groupLabels["42"], "Первая");
++  assert.equal(value.publishAt.toISOString(), "2026-08-12T12:00:00.000Z");
++  assert.equal(value.userToken, "u".repeat(40));
++  assert.equal(value.groupIntervalSeconds, 3600);
++});
++
++test("scheduled post rejects a past date, empty groups and group token payloads", () => {
++  const common = {
++    idempotencyKey: "pub_42:source_1:batch",
++    sourceOwnerId: -100,
++    sourcePostId: 55,
++    mode: "copy",
++    text: "Текст",
++    userToken: "u".repeat(40),
++  };
++  assert.throws(() => validateScheduledPostInput({ ...common, groups: [], publishAt: "2026-08-10T12:00:00Z" }, { now: new Date("2026-08-11T12:00:00Z") }), /groups/i);
++  assert.throws(() => validateScheduledPostInput({ ...common, groups: [42], publishAt: "2026-08-10T12:00:00Z" }, { now: new Date("2026-08-11T12:00:00Z") }), /future/i);
++  assert.throws(() => validateScheduledPostInput({ ...common, userToken: "", groupToken: "g".repeat(40), groups: [42], publishAt: "2026-08-12T12:00:00Z" }, { now: new Date("2026-08-11T12:00:00Z") }), /userToken/i);
++});
++
++test("public scheduled post never exposes encrypted credentials", () => {
++  const value = publicPostJob({
++    _id: "post-job",
++    idempotencyKey: "safe-key",
++    sourceOwnerId: -100,
++    sourcePostId: 55,
++    groups: [42],
++    groupLabels: { 42: "Первая" },
++    status: "queued",
++    publishAt: new Date("2026-08-12T12:00:00Z"),
++    nextRunAt: new Date("2026-08-12T12:00:00Z"),
++    results: [],
++    tokenCiphertext: "cipher",
++    tokenIv: "iv",
++    tokenTag: "tag",
++  });
++  assert.equal(value.id, "post-job");
++  for (const field of ["tokenCiphertext", "tokenIv", "tokenTag", "userToken"]) {
++    assert.equal(field in value, false);
++  }
++});
+diff --git a/server/test/post-worker.test.js b/server/test/post-worker.test.js
+new file mode 100644
+index 0000000..4cb696d
+--- /dev/null
++++ b/server/test/post-worker.test.js
+@@ -0,0 +1,65 @@
++"use strict";
++
++const test = require("node:test");
++const assert = require("node:assert/strict");
++const { createPostWorker } = require("../src/post-worker.js");
++
++function modelFor(job) {
++  const updates = [];
++  return {
++    updates,
++    findOneAndUpdate() { return { select: async () => job }; },
++    async updateOne(filter, update) { updates.push({ filter, update }); return { modifiedCount: 1 }; },
++  };
++}
++
++test("post worker publishes one community per lease and waits before the next", async () => {
++  const now = new Date("2026-08-11T12:00:00.000Z");
++  const model = modelFor({
++    _id: "job", lockId: "lease", attempts: 1, idempotencyKey: "post-job-one",
++    sourceOwnerId: -100, sourcePostId: 55, groups: [42, 43], groupLabels: { 42: "Первая", 43: "Вторая" },
++    nextGroupIndex: 0, results: [], mode: "copy", text: "Текст", publishAt: now,
++    autoCommentText: "Комментарий", groupIntervalSeconds: 3600, commentDelaySeconds: 60, commentGroupIntervalSeconds: 30,
++  });
++  const publishes = [];
++  const comments = [];
++  const worker = createPostWorker({
++    PostModel: model,
++    tokenVault: { decrypt: () => "user-token" },
++    vkClient: { async publishCopiedPost(input) { publishes.push(input); return { postId: 77 }; } },
++    commentService: { async enqueue(input) { comments.push(input); return { created: true }; } },
++    now: () => new Date(now),
++    minGroupIntervalMs: 15_000,
++    logger: { warn() {}, error() {} },
++  });
++
++  await worker.runOnce();
++  assert.equal(publishes.length, 1);
++  assert.equal(publishes[0].targetGroupId, 42);
++  assert.equal(publishes[0].userToken, "user-token");
++  assert.equal(comments[0].userToken, "user-token");
++  const update = model.updates[0].update.$set;
++  assert.equal(update.status, "queued");
++  assert.equal(update.nextGroupIndex, 1);
++  assert.equal(update.nextRunAt.toISOString(), "2026-08-11T13:00:00.000Z");
++  assert.equal(update.results[0].postId, 77);
++});
++
++test("post worker pauses the full batch when VK requests verification", async () => {
++  const model = modelFor({
++    _id: "job", lockId: "lease", attempts: 1, idempotencyKey: "post-job-two",
++    sourceOwnerId: -100, sourcePostId: 55, groups: [42], nextGroupIndex: 0,
++    results: [], mode: "repost", text: "", publishAt: new Date(),
++  });
++  const error = Object.assign(new Error("Captcha needed"), { code: 14, vkError: { error_code: 14 } });
++  const worker = createPostWorker({
++    PostModel: model,
++    tokenVault: { decrypt: () => "user-token" },
++    vkClient: { async repostToGroup() { throw error; } },
++    commentService: { async enqueue() {} },
++    logger: { warn() {}, error() {} },
++  });
++  await worker.runOnce();
++  assert.equal(model.updates[0].update.$set.status, "paused");
++  assert.equal(model.updates[0].update.$set.lastErrorCode, 14);
++});
+diff --git a/server/test/story-validation.test.js b/server/test/story-validation.test.js
+index a348feb..93faed3 100644
+--- a/server/test/story-validation.test.js
++++ b/server/test/story-validation.test.js
+@@ -7,17 +7,19 @@ const { publicStoryJob, validateStoryDraftInput, validateStoryMedia } = require(
+ test("story draft accepts a future community story with an internal VK link", () => {
+   const draft = validateStoryDraftInput({
+     idempotencyKey: "story_1:42:abc12345", groupId: "42", groupName: "Test club",
+-    publishAt: "2026-08-09T12:00:00.000Z", groupToken: "x".repeat(40),
++    publishAt: "2026-08-09T12:00:00.000Z", userToken: "x".repeat(40),
+     linkUrl: "https://vk.com/club42", linkText: "go_to", previewDataUrl: "data:image/jpeg;base64,AA==",
+   }, { now: new Date("2026-08-08T12:00:00.000Z") });
+   assert.equal(draft.groupId, 42);
+   assert.equal(draft.linkUrl, "https://vk.com/club42");
++  assert.equal(draft.userToken, "x".repeat(40));
++  assert.equal("groupToken" in draft, false);
+ });
+ 
+ test("story rejects external CTA links and oversized media", () => {
+   assert.throws(() => validateStoryDraftInput({
+     idempotencyKey: "story_1:42:abc12345", groupId: 42, publishAt: "2026-08-09T12:00:00.000Z",
+-    groupToken: "x".repeat(40), linkUrl: "https://example.com",
++    userToken: "x".repeat(40), linkUrl: "https://example.com",
+   }, { now: new Date("2026-08-08T12:00:00.000Z") }), /vk\.com/i);
+   assert.throws(() => validateStoryMedia({ fileName: "clip.mp4", mimeType: "video/mp4", byteLength: 25 * 1024 * 1024 + 1, maxBytes: 25 * 1024 * 1024 }), /maximum/i);
+ });
+@@ -25,7 +27,7 @@ test("story rejects external CTA links and oversized media", () => {
+ test("story normalizes the visible vk.ru host to the API-supported vk.com host", () => {
+   const draft = validateStoryDraftInput({
+     idempotencyKey: "story_vkru:42:abc12345", groupId: 42,
+-    publishAt: "2026-08-09T12:00:00.000Z", groupToken: "x".repeat(40),
++    publishAt: "2026-08-09T12:00:00.000Z", userToken: "x".repeat(40),
+     linkUrl: "https://vk.ru/club42", linkText: "go_to",
+   }, { now: new Date("2026-08-08T12:00:00.000Z") });
+   assert.equal(draft.linkUrl, "https://vk.com/club42");
+diff --git a/server/test/story-worker.test.js b/server/test/story-worker.test.js
+index fc3ad18..1ba50dd 100644
+--- a/server/test/story-worker.test.js
++++ b/server/test/story-worker.test.js
+@@ -17,8 +17,8 @@ test("story worker pauses on CAPTCHA without attempting an upload twice", async
+   const captcha = Object.assign(new Error("Captcha needed"), { code: 14 });
+   const worker = createStoryWorker({
+     StoryModel: modelFor({ _id:"1", lockId:"lock", attempts:1, groupId:42, kind:"photo", mediaId:"m", publishAt:new Date(), fileName:"x.jpg", mimeType:"image/jpeg" }, updates),
+-    tokenVault: { decrypt: () => "secret" }, mediaStore: { read: async () => Buffer.from("x"), remove: async () => {} },
+-    vkClient: { createStoryUploadServer: async () => { uploadCalls += 1; throw captcha; } },
++    tokenVault: { decrypt: () => "user-secret" }, mediaStore: { read: async () => Buffer.from("x"), remove: async () => {} },
++    vkClient: { createStoryUploadServer: async (input) => { assert.equal(input.userToken, "user-secret"); uploadCalls += 1; throw captcha; } },
+     logger: { warn() {}, error() {} },
+   });
+   await worker.runOnce();
+@@ -30,8 +30,8 @@ test("story worker completes its lease and removes media after VK save", async (
+   const updates = []; const removed = [];
+   const worker = createStoryWorker({
+     StoryModel: modelFor({ _id:"1", lockId:"lock", attempts:1, groupId:42, kind:"photo", mediaId:"m", publishAt:new Date(), fileName:"x.jpg", mimeType:"image/jpeg" }, updates),
+-    tokenVault: { decrypt: () => "secret" }, mediaStore: { read: async () => Buffer.from("x"), remove: async (id) => removed.push(id) },
+-    vkClient: { createStoryUploadServer: async () => ({ upload_url:"https://upload" }), uploadStoryMedia: async () => ({ response:"r" }), saveCommunityStory: async () => ({ items:[{ id:7 }] }) },
++    tokenVault: { decrypt: () => "user-secret" }, mediaStore: { read: async () => Buffer.from("x"), remove: async (id) => removed.push(id) },
++    vkClient: { createStoryUploadServer: async (input) => { assert.equal(input.userToken, "user-secret"); return { upload_url:"https://upload" }; }, uploadStoryMedia: async () => ({ response:"r" }), saveCommunityStory: async (input) => { assert.equal(input.userToken, "user-secret"); return { items:[{ id:7 }] }; } },
+     logger: { warn() {}, error() {} },
+   });
+   await worker.runOnce();
+@@ -46,7 +46,7 @@ test("published story remains completed when immediate media cleanup fails", asy
+   const updates = []; const warnings = [];
+   const worker = createStoryWorker({
+     StoryModel: modelFor({ _id:"1", lockId:"lock", attempts:1, groupId:42, kind:"photo", mediaId:"m", publishAt:new Date(), fileName:"x.jpg", mimeType:"image/jpeg" }, updates),
+-    tokenVault: { decrypt: () => "secret" },
++    tokenVault: { decrypt: () => "user-secret" },
+     mediaStore: { read: async () => Buffer.from("x"), remove: async () => { throw new Error("temporary GridFS error"); } },
+     vkClient: { createStoryUploadServer: async () => ({ upload_url:"https://upload" }), uploadStoryMedia: async () => ({ response:"r" }), saveCommunityStory: async () => ({ items:[{ id:7 }] }) },
+     logger: { warn(message) { warnings.push(message); }, error() {} },
+diff --git a/server/test/validation.test.js b/server/test/validation.test.js
+index 6931a72..8701485 100644
+--- a/server/test/validation.test.js
++++ b/server/test/validation.test.js
+@@ -15,12 +15,14 @@ test("scheduled comment validation normalizes a valid payload", () => {
+     postId: "10",
+     commentText: "Первый комментарий",
+     commentAt: "2026-08-05T12:00:00.000Z",
+-    groupToken: "x".repeat(40),
++    userToken: "x".repeat(40),
+   });
+ 
+   assert.equal(value.groupId, 42);
+   assert.equal(value.postId, 10);
+   assert.equal(value.commentAt.toISOString(), "2026-08-05T12:00:00.000Z");
++  assert.equal(value.userToken, "x".repeat(40));
++  assert.equal("groupToken" in value, false);
+ });
+ 
+ test("scheduled comment validation rejects bad IDs and oversized text", () => {
+@@ -32,7 +34,7 @@ test("scheduled comment validation rejects bad IDs and oversized text", () => {
+         postId: 0,
+         commentText: "x".repeat(4097),
+         commentAt: Date.now(),
+-        groupToken: "x".repeat(40),
++        userToken: "x".repeat(40),
+       }),
+     /groupId/i,
+   );
+diff --git a/server/test/vk-client.test.js b/server/test/vk-client.test.js
+index 8b82dc2..92d3ca7 100644
+--- a/server/test/vk-client.test.js
++++ b/server/test/vk-client.test.js
+@@ -21,18 +21,18 @@ test("VK client posts the token in the body and sends a stable guid", async () =
+     },
+   });
+ 
+-  await client.createGroupComment({
++  await client.createUserComment({
+     groupId: 42,
+     postId: 10,
+     commentText: "comment",
+-    groupToken: "group-secret",
++    userToken: "user-secret",
+     guid: "stable-comment-guid",
+   });
+ 
+   assert.equal(requestUrl, "https://api.vk.com/method/wall.createComment");
+-  assert.equal(requestUrl.includes("group-secret"), false);
++  assert.equal(requestUrl.includes("user-secret"), false);
+   assert.equal(requestOptions.method, "POST");
+-  assert.equal(requestOptions.body.get("access_token"), "group-secret");
++  assert.equal(requestOptions.body.get("access_token"), "user-secret");
+   assert.equal(requestOptions.body.get("guid"), "stable-comment-guid");
+   assert.equal(requestOptions.body.get("from_group"), "42");
+ });
+@@ -45,11 +45,39 @@ test("story upload server uses community fields and save sends upload result onl
+       return { ok: true, async json() { return url.includes("getPhoto") ? { response: { upload_url: "https://upload.example" } } : { response: { count: 1, items: [{ id: 7 }] } }; } };
+     },
+   });
+-  await client.createStoryUploadServer({ kind: "photo", groupId: 42, groupToken: "secret", linkUrl: "https://vk.ru/club42", linkText: "go_to" });
+-  await client.saveCommunityStory({ groupToken: "secret", uploadResult: { response: "upload-result" } });
++  await client.createStoryUploadServer({ kind: "photo", groupId: 42, userToken: "secret", linkUrl: "https://vk.ru/club42", linkText: "go_to" });
++  await client.saveCommunityStory({ userToken: "secret", uploadResult: { response: "upload-result" } });
+   assert.equal(requests[0].options.body.get("group_id"), "42");
+   assert.equal(requests[0].options.body.get("link_url"), "https://vk.ru/club42");
+   assert.equal(requests[0].url.includes("secret"), false);
+   assert.equal(requests[1].options.body.has("link_url"), false);
+   assert.match(requests[1].options.body.get("upload_results_json"), /upload-result/);
+ });
++
++test("server copy publishes only at execution time and never sends publish_date", async () => {
++  const requests = [];
++  const client = createVkClient({
++    fetchImpl: async (url, options) => {
++      requests.push({ url, options });
++      if (url.endsWith("wall.getById")) {
++        return { ok: true, async json() { return { response: [{ owner_id: -100, id: 5, attachments: [] }] }; } };
++      }
++      return { ok: true, async json() { return { response: { post_id: 77 } }; } };
++    },
++  });
++
++  const published = await client.publishCopiedPost({
++    sourceOwnerId: -100,
++    sourcePostId: 5,
++    targetGroupId: 42,
++    text: "Текст",
++    userToken: "user-secret",
++    randomId: 123,
++  });
++
++  assert.equal(published.postId, 77);
++  assert.equal(requests[1].url, "https://api.vk.com/method/wall.post");
++  assert.equal(requests[1].options.body.get("owner_id"), "-42");
++  assert.equal(requests[1].options.body.get("access_token"), "user-secret");
++  assert.equal(requests[1].options.body.has("publish_date"), false);
++});
+diff --git a/server/test/worker.test.js b/server/test/worker.test.js
+index 0e570c9..bb665d0 100644
+--- a/server/test/worker.test.js
++++ b/server/test/worker.test.js
+@@ -39,9 +39,9 @@ test("worker pauses a job on CAPTCHA instead of retrying it", async () => {
+   const CommentModel = fakeModelFor(job);
+   const worker = createCommentWorker({
+     CommentModel,
+-    tokenVault: { decrypt: () => "group-token" },
++    tokenVault: { decrypt: () => "user-token" },
+     vkClient: {
+-      async createGroupComment() {
++      async createUserComment() {
+         const error = new Error("Captcha needed");
+         error.code = 14;
+         error.vkError = { error_code: 14 };
+@@ -73,9 +73,9 @@ test("worker retries a transient failure with bounded backoff", async () => {
+   const CommentModel = fakeModelFor(job);
+   const worker = createCommentWorker({
+     CommentModel,
+-    tokenVault: { decrypt: () => "group-token" },
++    tokenVault: { decrypt: () => "user-token" },
+     vkClient: {
+-      async createGroupComment() {
++      async createUserComment() {
+         const error = new Error("Internal VK error");
+         error.code = 10;
+         error.vkError = { error_code: 10 };
+@@ -107,9 +107,9 @@ test("worker gives a transient VK error six attempts before marking it failed",
+   const CommentModel = fakeModelFor(job);
+   const worker = createCommentWorker({
+     CommentModel,
+-    tokenVault: { decrypt: () => "group-token" },
++    tokenVault: { decrypt: () => "user-token" },
+     vkClient: {
+-      async createGroupComment() {
++      async createUserComment() {
+         const error = new Error("Internal VK error");
+         error.code = 10;
+         error.vkError = { error_code: 10 };
+@@ -138,9 +138,9 @@ test("worker uses VK guid and completes only its own lease", async () => {
+   let sent;
+   const worker = createCommentWorker({
+     CommentModel,
+-    tokenVault: { decrypt: () => "group-token" },
++    tokenVault: { decrypt: () => "user-token" },
+     vkClient: {
+-      async createGroupComment(input) {
++      async createUserComment(input) {
+         sent = input;
+         return { comment_id: 99 };
+       },
+@@ -150,6 +150,7 @@ test("worker uses VK guid and completes only its own lease", async () => {
+ 
+   await worker.runOnce();
+   assert.equal(sent.guid, "comment-job-three");
++  assert.equal(sent.userToken, "user-token");
+   assert.equal(CommentModel.updates[0].filter.lockId, "lease-three");
+   assert.equal(CommentModel.updates[0].update.$set.status, "completed");
+   assert.equal(CommentModel.updates[0].update.$set.lockId, null);
+diff --git a/stories.js b/stories.js
+index 02bc06b..33cde0e 100644
+--- a/stories.js
++++ b/stories.js
+@@ -5,6 +5,7 @@ let selectedFile = null;
+ let selectedFileNonce = "";
+ let previewDataUrl = "";
+ let groupEntries = [];
++let userToken = "";
+ let toastTimer = null;
+ 
+ function toast(message, type = "info") {
+@@ -38,7 +39,7 @@ async function makePreview(file) {
+   } finally { URL.revokeObjectURL(url); }
+ }
+ 
+-function updateReady() { $("schedule").disabled = !selectedFile || !$("group").value || !$("publish-at").value; }
++function updateReady() { $("schedule").disabled = !selectedFile || !userToken || !$("group").value || !$("publish-at").value; }
+ 
+ async function chooseFile(file) {
+   const allowed = new Set(["image/jpeg","image/png","video/mp4","video/webm","video/quicktime"]);
+@@ -98,7 +99,7 @@ async function scheduleStory() {
+     progress.querySelector("span").style.width = "20%"; progress.querySelector("b").textContent = "Создаю защищённое задание…";
+     const draft = await VkrServerClient.request("/scheduled-stories", { method:"POST", json:{
+       idempotencyKey:`story_${group.id}:${fingerprint}`, groupId:group.id, groupName:group.name,
+-      publishAt:publishAt.toISOString(), groupToken:group.token, linkUrl, linkText, previewDataUrl,
++      publishAt:publishAt.toISOString(), userToken: userToken, linkUrl, linkText, previewDataUrl,
+     } });
+     progress.querySelector("span").style.width = "55%"; progress.querySelector("b").textContent = "Загружаю файл на ваш сервер…";
+     if (draft.job.status === "uploading") {
+@@ -122,10 +123,11 @@ async function scheduleStory() {
+ 
+ async function init() {
+   $("publish-at").value = defaultSchedule();
+-  const data = await chrome.storage.local.get("vkr_group_tokens");
+-  groupEntries = Object.entries(data.vkr_group_tokens || {}).map(([id, value]) => ({ id:Number(id), name:typeof value === "object" ? value.label || `Сообщество ${id}` : `Сообщество ${id}`, token:typeof value === "object" ? value.token : value })).filter((entry) => entry.token);
++  const data = await chrome.storage.local.get(["vk_token", "vkr_user_groups"]);
++  userToken = String(data.vk_token || "").trim();
++  groupEntries = (Array.isArray(data.vkr_user_groups) ? data.vkr_user_groups : []).map((group) => ({ id:Number(group.id), name:String(group.name || `Сообщество ${group.id}`) })).filter((entry) => Number.isSafeInteger(entry.id) && entry.id > 0);
+   $("group").replaceChildren();
+-  const placeholder = document.createElement("option"); placeholder.value = ""; placeholder.textContent = groupEntries.length ? "Выберите сообщество" : "Нет токенов сообществ"; $("group").appendChild(placeholder);
++  const placeholder = document.createElement("option"); placeholder.value = ""; placeholder.textContent = !userToken ? "Подключите пользовательский токен" : groupEntries.length ? "Выберите сообщество" : "Обновите сообщества в настройках"; $("group").appendChild(placeholder);
+   for (const group of groupEntries) { const option = document.createElement("option"); option.value = String(group.id); option.textContent = `${group.name} · club${group.id}`; $("group").appendChild(option); }
+   $("file").onchange = (event) => void chooseFile(event.target.files[0]); $("group").onchange = updateReady; $("publish-at").onchange = updateReady; $("schedule").onclick = scheduleStory; $("refresh").onclick = loadJobs;
+   $("open-scheduled").onclick = () => chrome.tabs.create({ url:chrome.runtime.getURL("scheduled.html") }); $("open-clips").onclick = () => chrome.tabs.create({ url:chrome.runtime.getURL("clips.html") });
+diff --git a/tests/manifest-security.test.js b/tests/manifest-security.test.js
+index 4cb9224..76188fb 100644
+--- a/tests/manifest-security.test.js
++++ b/tests/manifest-security.test.js
+@@ -20,7 +20,7 @@ const scheduled = fs.readFileSync(
+ const content = fs.readFileSync(path.join(root, "content.js"), "utf8");
+ 
+ test("manifest has no cookie interception, OAuth impersonation, or global hosts", () => {
+-  assert.equal(manifest.version, "4.4.2");
++  assert.equal(manifest.version, "4.5.0");
+   for (const permission of [
+     "cookies",
+     "declarativeNetRequest",
+diff --git a/tests/popup-account.test.js b/tests/popup-account.test.js
+index 0cb241e..def62a4 100644
+--- a/tests/popup-account.test.js
++++ b/tests/popup-account.test.js
+@@ -24,11 +24,12 @@ test("popup omits temporary safe-mode warnings and labels", () => {
+   assert.doesNotMatch(html, /logo__badge">SAFE/);
+ });
+ 
+-test("popup exposes user-first communities and optional 24/7 group tokens", () => {
++test("popup exposes user-only communities and server automation without group-token menus", () => {
+   assert.match(html, /id="managed-group-list"/);
+   assert.match(html, /Мои сообщества/);
+-  assert.match(html, /Токены сообществ 24\/7 \(необязательно\)/);
+-  assert.match(html, /value="local_user"/);
++  assert.match(html, /Комментарии 24\/7/);
++  assert.doesNotMatch(html, /id="group-token"|id="group-token-list"|Токены сообществ/);
++  assert.doesNotMatch(html, /id="comment-mode"|community_24_7|local_user/);
+   assert.match(auth, /list_managed_communities/);
+-  assert.match(auth, /vkr_comment_execution_mode/);
++  assert.doesNotMatch(auth, /vkr_group_tokens|vkr_comment_execution_mode/);
+ });
+diff --git a/tests/scheduled-gallery-ui.test.js b/tests/scheduled-gallery-ui.test.js
+index ade7a7a..44040d6 100644
+--- a/tests/scheduled-gallery-ui.test.js
++++ b/tests/scheduled-gallery-ui.test.js
+@@ -56,11 +56,18 @@ test("data maintenance exposes scoped cleanup without deleting active jobs", ()
+   assert.match(css, /\.maintenance-danger/);
+ });
+ 
+-test("scheduled photo copies explain local due-time upload and failed comments can retry", () => {
+-  assert.match(scheduled, /Фото будут загружены/);
+-  assert.match(scheduled, /Chrome должен быть запущен/);
++test("scheduled photo copies explain server due-time upload and failed comments can retry", () => {
++  assert.match(scheduled, /Render загрузит фотографии в фактическое время/);
++  assert.doesNotMatch(scheduled, /Chrome должен быть запущен/);
+   assert.match(scheduled, /retry_scheduled_comment/);
+-  assert.match(background, /nextRunnablePublishJobIndex/);
+-  assert.match(background, /PUBLISH_DUE_ALARM/);
+-  assert.match(background, /!job\.deferMediaUntilPublish/);
++  assert.match(background, /scheduled-posts/);
++});
++
++test("waiting cards persist drafts and expose their original VK wall post", () => {
++  assert.match(html, /waiting-draft-core\.js/);
++  assert.match(scheduled, /function saveWaitingDraft/);
++  assert.match(scheduled, /item\.draft/);
++  assert.match(scheduled, /Открыть исходный пост в VK/);
++  assert.match(scheduled, /draft\.groups/);
++  assert.match(scheduled, /draft\.pubDateLocal/);
+ });
+diff --git a/tests/scheduled-results-ui.test.js b/tests/scheduled-results-ui.test.js
+index b2f97d6..eb33307 100644
+--- a/tests/scheduled-results-ui.test.js
++++ b/tests/scheduled-results-ui.test.js
+@@ -13,10 +13,9 @@ const content = fs.readFileSync(path.join(root, "content.js"), "utf8");
+ const shadow = fs.readFileSync(path.join(root, "content-shadow-dom.js"), "utf8");
+ 
+ test("scheduled comments use saved community labels", () => {
+-  assert.match(scheduled, /vkr_group_tokens/);
+   assert.match(scheduled, /vkr_user_groups/);
+   assert.match(scheduled, /groupName\(groupId\)/);
+-  assert.match(scheduled, /entry\.label/);
++  assert.doesNotMatch(scheduled, /vkr_group_tokens|entry\.label/);
+ });
+ 
+ test("partial post failures are visible per community", () => {
+@@ -45,15 +44,17 @@ test("post queue exposes live publication and photo-upload progress", () => {
+   assert.match(css, /\.publish-progress-head/);
+ });
+ 
+-test("scheduled posts can run in VK without Chrome and can be cancelled", () => {
+-  assert.match(background, /scheduleMode = pubDate/);
+-  assert.match(background, /params\.publish_date/);
++test("scheduled posts run on the server at photo time and can be cancelled", () => {
++  assert.match(background, /serverRequest\("\/api\/scheduled-posts"/);
++  assert.match(background, /scheduleMode:\s*"server_user"/);
++  assert.doesNotMatch(background, /params\.publish_date/);
+   assert.match(background, /async function cancelPublishJob/);
+   assert.match(background, /cancel_publish_job/);
+   assert.match(background, /publishCancellationRequested/);
+-  assert.match(scheduled, /Запланировано в VK/);
++  assert.match(scheduled, /list_scheduled_posts/);
++  assert.match(scheduled, /cancel_scheduled_post/);
+   assert.match(scheduled, /cancel_publish_job/);
+-  assert.match(content, /scheduleMode: scheduleMode/);
++  assert.match(content, /scheduleMode:\s*"server_user"/);
+   assert.match(shadow, /id="vkr-schedule-mode"/);
+   assert.match(css, /\.status\.scheduled/);
+ });
+diff --git a/tests/stories-contract.test.js b/tests/stories-contract.test.js
+index 1fbd1cf..246c7e9 100644
+--- a/tests/stories-contract.test.js
++++ b/tests/stories-contract.test.js
+@@ -17,8 +17,9 @@ test("story media is uploaded raw and scheduled cards use captured previews", ()
+   assert.doesNotMatch(scheduled, /wall\.getById|stories\.getById|analyze_activity/);
+ });
+ 
+-test("story UI requires a locally configured community token", () => {
+-  assert.match(stories, /vkr_group_tokens/);
+-  assert.match(stories, /groupToken\s*:\s*group\.token/);
+-  assert.doesNotMatch(stories, /vk_token/);
++test("story UI uses the connected user token and managed community directory", () => {
++  assert.match(stories, /vkr_user_groups/);
++  assert.match(stories, /userToken\s*:\s*userToken/);
++  assert.match(stories, /vk_token/);
++  assert.doesNotMatch(stories, /vkr_group_tokens|groupToken/);
+ });
+diff --git a/tests/user-first-contract.test.js b/tests/user-first-contract.test.js
+index e105311..686ff59 100644
+--- a/tests/user-first-contract.test.js
++++ b/tests/user-first-contract.test.js
+@@ -17,15 +17,16 @@ test("managed communities are discovered locally with the user token", () => {
+   assert.match(background, /type === "list_managed_communities"/);
+ });
+ 
+-test("normal delayed comments stay local and server mode sends only a community token", () => {
+-  assert.match(background, /executionMode = "local_user"/);
+-  assert.match(background, /executionMode === "community_24_7" && groupToken/);
++test("delayed comments use an encrypted server-side user token with local fallback", () => {
++  assert.match(background, /userToken/);
+   const serverBlock = background.slice(
+     background.indexOf('serverRequest("/api/scheduled-comments"'),
+     background.indexOf("await scheduleLocalComment", background.indexOf('serverRequest("/api/scheduled-comments"')),
+   );
+-  assert.match(serverBlock, /groupToken/);
+-  assert.doesNotMatch(serverBlock, /userToken|vk_token/);
++  assert.match(serverBlock, /userToken/);
++  assert.doesNotMatch(serverBlock, /groupToken/);
++  assert.match(background, /serverRequest\("\/api\/scheduled-posts"/);
++  assert.match(background, /scheduleMode:\s*"server_user"/);
+ });
+ 
+ test("comments are staggered between communities", () => {
+diff --git a/tests/waiting-draft-core.test.js b/tests/waiting-draft-core.test.js
+new file mode 100644
+index 0000000..79b4328
+--- /dev/null
++++ b/tests/waiting-draft-core.test.js
+@@ -0,0 +1,40 @@
++"use strict";
++
++const test = require("node:test");
++const assert = require("node:assert/strict");
++const {
++  describeDraft,
++  normalizeDraft,
++} = require("../waiting-draft-core.js");
++
++test("waiting draft normalizes groups and keeps every form field", () => {
++  const draft = normalizeDraft({
++    groups: [42, "43", 42, -1],
++    mode: "repost",
++    pubDateLocal: "2026-08-12T10:30",
++    text: "Текст",
++    commentText: "Комментарий",
++    updatedAt: 123,
++  }, { defaultText: "Исходный" });
++  assert.deepEqual(draft.groups, [42, 43]);
++  assert.equal(draft.mode, "repost");
++  assert.equal(draft.pubDateLocal, "2026-08-12T10:30");
++  assert.equal(draft.text, "Текст");
++  assert.equal(draft.commentText, "Комментарий");
++});
++
++test("legacy waiting item receives readable defaults and a group summary", () => {
++  const draft = normalizeDraft(null, { defaultText: "Исходный" });
++  assert.deepEqual(draft.groups, []);
++  assert.equal(draft.mode, "copy");
++  assert.equal(draft.text, "Исходный");
++  assert.equal(draft.pubDateLocal, "");
++  assert.deepEqual(describeDraft(draft, { 42: "Первая", 43: "Вторая" }), {
++    groupsText: "Паблики ещё не выбраны",
++    timeText: "Время ещё не выбрано",
++  });
++  assert.deepEqual(describeDraft({ ...draft, groups: [42, 43], pubDateLocal: "2026-08-12T10:30" }, { 42: "Первая", 43: "Вторая" }), {
++    groupsText: "Первая, Вторая",
++    timeText: "12.08.2026, 10:30",
++  });
++});
+diff --git a/waiting-draft-core.js b/waiting-draft-core.js
+new file mode 100644
+index 0000000..2e62ad6
+--- /dev/null
++++ b/waiting-draft-core.js
+@@ -0,0 +1,37 @@
++(function exposeWaitingDraftCore(root, factory) {
++  const api = factory();
++  if (typeof module === "object" && module.exports) module.exports = api;
++  root.VkrWaitingDraftCore = api;
++})(typeof globalThis !== "undefined" ? globalThis : this, function createWaitingDraftCore() {
++  "use strict";
++
++  function uniqueGroups(groups) {
++    return [...new Set((Array.isArray(groups) ? groups : []).map(Number).filter((id) => Number.isSafeInteger(id) && id > 0))];
++  }
++
++  function normalizeDraft(value, { defaultText = "" } = {}) {
++    const draft = value && typeof value === "object" ? value : {};
++    return {
++      groups: uniqueGroups(draft.groups),
++      mode: draft.mode === "repost" ? "repost" : "copy",
++      text: typeof draft.text === "string" ? draft.text : String(defaultText || ""),
++      commentText: typeof draft.commentText === "string" ? draft.commentText : "",
++      pubDateLocal: /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(String(draft.pubDateLocal || "")) ? String(draft.pubDateLocal) : "",
++      updatedAt: Math.max(0, Number(draft.updatedAt) || 0),
++    };
++  }
++
++  function describeDraft(value, labels = {}) {
++    const draft = normalizeDraft(value);
++    const groups = draft.groups.map((id) => labels[id] || labels[String(id)] || `club${id}`);
++    const timeText = draft.pubDateLocal
++      ? new Date(draft.pubDateLocal).toLocaleString("ru-RU", { dateStyle: "short", timeStyle: "short" })
++      : "Время ещё не выбрано";
++    return {
++      groupsText: groups.length ? groups.join(", ") : "Паблики ещё не выбраны",
++      timeText,
++    };
++  }
++
++  return { normalizeDraft, describeDraft };
++});

@@ -15,12 +15,14 @@ test("scheduled comment validation normalizes a valid payload", () => {
     postId: "10",
     commentText: "Первый комментарий",
     commentAt: "2026-08-05T12:00:00.000Z",
-    groupToken: "x".repeat(40),
+    userToken: "x".repeat(40),
   });
 
   assert.equal(value.groupId, 42);
   assert.equal(value.postId, 10);
   assert.equal(value.commentAt.toISOString(), "2026-08-05T12:00:00.000Z");
+  assert.equal(value.userToken, "x".repeat(40));
+  assert.equal("groupToken" in value, false);
 });
 
 test("scheduled comment validation rejects bad IDs and oversized text", () => {
@@ -32,7 +34,7 @@ test("scheduled comment validation rejects bad IDs and oversized text", () => {
         postId: 0,
         commentText: "x".repeat(4097),
         commentAt: Date.now(),
-        groupToken: "x".repeat(40),
+        userToken: "x".repeat(40),
       }),
     /groupId/i,
   );

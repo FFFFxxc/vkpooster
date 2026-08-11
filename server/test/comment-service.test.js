@@ -36,7 +36,7 @@ test("comment expiration stays 30 days beyond a future schedule", async () => {
     postId: 10,
     commentText: "comment",
     commentAt: scheduledAt,
-    groupToken: "x".repeat(40),
+    userToken: "x".repeat(40),
   });
 
   const retentionMs = created.expiresAt.getTime() - scheduledAt.getTime();

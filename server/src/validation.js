@@ -30,9 +30,9 @@ function validateScheduledCommentInput(input) {
   if (!Number.isFinite(commentAt.getTime())) {
     throw new Error("commentAt must be a valid date");
   }
-  const groupToken = String(input.groupToken || "").trim();
-  if (groupToken.length < 20 || groupToken.length > 4096) {
-    throw new Error("groupToken has an invalid length");
+  const userToken = String(input.userToken || "").trim();
+  if (userToken.length < 20 || userToken.length > 4096) {
+    throw new Error("userToken has an invalid length");
   }
 
   return {
@@ -41,7 +41,7 @@ function validateScheduledCommentInput(input) {
     postId,
     commentText,
     commentAt,
-    groupToken,
+    userToken,
   };
 }
 

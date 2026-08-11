@@ -1,0 +1,53 @@
+VK Reposter Pro 4.5.0 — verification record
+Date: 2026-08-11 Europe/Moscow
+Branch: safe-v4
+Baseline commit: 9524179ce981434880d0ca0026278eebe3f90eb3
+Changed field: delayed automation authorization/scheduling
+Before: community-token server jobs or browser/native publish_date scheduling.
+After: AES-256-GCM encrypted userToken server jobs; source photos upload at execution time; wall.post has no publish_date; waiting-card draft persists groups/time/mode/text/comment.
+
+Original/modified binding
+Original background.js blob: 6c34a750ea4db2b56f95fa6153030750af04dcfd
+Modified background.js blob: e844dbf05702174d7a8aa82bf7405a926d3aeff9
+
+Four artifacts
+MODIFIED_FILE: C:\Users\USER\Desktop\Новая папка (5)\verification\server-user-automation-v4.5.0\MODIFIED_FILE
+DIFF_FILE: C:\Users\USER\Desktop\Новая папка (5)\verification\server-user-automation-v4.5.0\DIFF_FILE.patch
+VERIFICATION: C:\Users\USER\Desktop\Новая папка (5)\verification\server-user-automation-v4.5.0\VERIFICATION.txt
+ROLLBACK: C:\Users\USER\Desktop\Новая папка (5)\verification\server-user-automation-v4.5.0\ROLLBACK.sh
+
+BASELINE
+Command: $env:NODE_PATH='C:\Users\USER\Desktop\Новая папка (5)\server\node_modules'; npm test
+Input/CWD: C:\Users\USER\Desktop\NEW-rollback-v450 at 9524179ce981434880d0ca0026278eebe3f90eb3
+Literal result:
+  extension: tests 100; pass 100; fail 0
+  server: tests 30; pass 30; fail 0
+  BASELINE_TEST_EXIT=0
+Exit status: 0
+
+MODIFIED
+Command: npm run verify
+Input/CWD: C:\Users\USER\Desktop\Новая папка (5), extension 4.5.0 / server 4.3.0
+Literal result:
+  extension: tests 103; pass 103; fail 0
+  server: tests 39; pass 39; fail 0
+  server check: node --check completed without output
+  MODIFIED_VERIFY_EXIT=0
+Exit status: 0
+
+ROLLBACK
+Command: & 'C:\Program Files\Git\bin\bash.exe' 'C:/Users/USER/Desktop/Новая папка (5)/verification/server-user-automation-v4.5.0/ROLLBACK.sh' 'C:/Users/USER/Desktop/NEW-rollback-v450'; $env:NODE_PATH='C:\Users\USER\Desktop\Новая папка (5)\server\node_modules'; npm test
+Input/CWD: modified patch overlaid on C:\Users\USER\Desktop\NEW-rollback-v450
+Literal result:
+  ROLLBACK_OK baseline=9524179ce981434880d0ca0026278eebe3f90eb3 target=C:/Users/USER/Desktop/NEW-rollback-v450
+  ROLLBACK_SCRIPT_EXIT=0
+  ROLLBACK_STATUS: clean
+  extension: tests 100; pass 100; fail 0
+  server: tests 30; pass 30; fail 0
+  ROLLBACK_TEST_EXIT=0
+Exit status: 0
+Restored behavior/status: rollback copy is clean at 4.4.2/4.2.1; original group-token/local scheduling behavior and baseline tests are restored. Main MODIFIED_FILE remains on the 4.5.0 user-token/server branch.
+
+oh-my-codex
+Command: omx --version; omx doctor
+Literal result: oh-my-codex v0.20.5; 19 passed, 0 warnings, 1 failed (Windows native process identity provider unavailable); CLI, hooks, prompts and 31 OMX skills are installed.

@@ -15,7 +15,7 @@ function createStoryService({ StoryModel, tokenVault, mediaStore, maxBytes, now 
       const input = validateStoryDraftInput(rawInput, { now: now() });
       const existing = await StoryModel.findOne({ idempotencyKey: input.idempotencyKey });
       if (existing) return { created: false, job: publicStoryJob(existing) };
-      const encryptedToken = tokenVault.encrypt(input.groupToken);
+      const encryptedToken = tokenVault.encrypt(input.userToken);
       try {
         const document = await StoryModel.create({
           idempotencyKey: input.idempotencyKey, groupId: input.groupId, groupName: input.groupName,

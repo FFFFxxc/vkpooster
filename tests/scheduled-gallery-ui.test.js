@@ -56,11 +56,18 @@ test("data maintenance exposes scoped cleanup without deleting active jobs", () 
   assert.match(css, /\.maintenance-danger/);
 });
 
-test("scheduled photo copies explain local due-time upload and failed comments can retry", () => {
-  assert.match(scheduled, /Фото будут загружены/);
-  assert.match(scheduled, /Chrome должен быть запущен/);
+test("scheduled photo copies explain server due-time upload and failed comments can retry", () => {
+  assert.match(scheduled, /Render загрузит фотографии в фактическое время/);
+  assert.doesNotMatch(scheduled, /Chrome должен быть запущен/);
   assert.match(scheduled, /retry_scheduled_comment/);
-  assert.match(background, /nextRunnablePublishJobIndex/);
-  assert.match(background, /PUBLISH_DUE_ALARM/);
-  assert.match(background, /!job\.deferMediaUntilPublish/);
+  assert.match(background, /scheduled-posts/);
+});
+
+test("waiting cards persist drafts and expose their original VK wall post", () => {
+  assert.match(html, /waiting-draft-core\.js/);
+  assert.match(scheduled, /function saveWaitingDraft/);
+  assert.match(scheduled, /item\.draft/);
+  assert.match(scheduled, /Открыть исходный пост в VK/);
+  assert.match(scheduled, /draft\.groups/);
+  assert.match(scheduled, /draft\.pubDateLocal/);
 });

@@ -9,6 +9,7 @@ const { createBearerAuth } = require("./auth.js");
 function createApp({
   config,
   commentService,
+  postService,
   storyService,
   databaseReady = () => mongoose.connection.readyState === 1,
 }) {
@@ -25,7 +26,7 @@ function createApp({
     const connected = databaseReady();
     response.status(connected ? 200 : 503).json({
       status: connected ? "ok" : "degraded",
-      version: "4.2.1",
+      version: "4.3.0",
       database: connected ? "connected" : "disconnected",
     });
   });
@@ -47,9 +48,54 @@ function createApp({
     response.json({
       ok: true,
       status: connected ? "ready" : "degraded",
-      version: "4.2.1",
+      version: "4.3.0",
       database: connected ? "connected" : "disconnected",
     });
+  });
+
+  api.post("/scheduled-posts", async (request, response, next) => {
+    try {
+      const result = await postService.enqueue(request.body);
+      response.status(result.created ? 201 : 200).json({ ok: true, created: result.created, job: result.job });
+    } catch (error) {
+      if (/required|must|invalid|future|within|groups|mode|userToken|source|publishAt|idempotencyKey|text/i.test(error.message)) {
+        response.status(400).json({ ok: false, error: error.message });
+        return;
+      }
+      next(error);
+    }
+  });
+
+  api.get("/scheduled-posts", async (request, response, next) => {
+    try {
+      const jobs = await postService.list({ status: request.query.status, limit: request.query.limit });
+      response.json({ ok: true, jobs });
+    } catch (error) { next(error); }
+  });
+
+  api.delete("/scheduled-posts", async (request, response, next) => {
+    try {
+      response.json({ ok: true, ...(await postService.purge({ scope: request.query.scope })) });
+    } catch (error) {
+      if (/scope/i.test(error.message)) { response.status(400).json({ ok: false, error: error.message }); return; }
+      next(error);
+    }
+  });
+
+  api.delete("/scheduled-posts/:id", async (request, response, next) => {
+    try { response.json({ ok: true, job: await postService.cancel(request.params.id) }); }
+    catch (error) {
+      if (/cannot be cancelled/i.test(error.message)) { response.status(400).json({ ok: false, error: error.message }); return; }
+      next(error);
+    }
+  });
+
+  api.post("/scheduled-posts/:id/retry", async (request, response, next) => {
+    try { response.json({ ok: true, job: await postService.retry(request.params.id) }); }
+    catch (error) {
+      if (/cannot be retried/i.test(error.message)) { response.status(400).json({ ok: false, error: error.message }); return; }
+      next(error);
+    }
   });
 
   api.post("/scheduled-comments", async (request, response, next) => {
@@ -62,7 +108,7 @@ function createApp({
       });
     } catch (error) {
       if (
-        /required|must|invalid|groupToken|commentText|commentAt|groupId|postId|idempotencyKey/i.test(
+        /required|must|invalid|userToken|commentText|commentAt|groupId|postId|idempotencyKey/i.test(
           error.message,
         )
       ) {
@@ -130,7 +176,7 @@ function createApp({
       const result = await storyService.createDraft(request.body);
       response.status(result.created ? 201 : 200).json({ ok: true, created: result.created, job: result.job });
     } catch (error) {
-      if (/required|must|invalid|groupToken|publishAt|linkUrl|linkText|previewDataUrl|idempotencyKey/i.test(error.message)) {
+      if (/required|must|invalid|userToken|publishAt|linkUrl|linkText|previewDataUrl|idempotencyKey/i.test(error.message)) {
         response.status(400).json({ ok: false, error: error.message }); return;
       }
       next(error);

@@ -24,8 +24,8 @@ function validateStoryDraftInput(input, { now = new Date() } = {}) {
   if (!Number.isFinite(publishAt.getTime())) throw new Error("publishAt must be a valid date");
   if (publishAt.getTime() < current.getTime() + 60_000) throw new Error("publishAt must be at least 60 seconds in the future");
   if (publishAt.getTime() > current.getTime() + 180 * 24 * 60 * 60_000) throw new Error("publishAt must be within 180 days");
-  const groupToken = String(input.groupToken || "").trim();
-  if (groupToken.length < 20 || groupToken.length > 4096) throw new Error("groupToken has an invalid length");
+  const userToken = String(input.userToken || "").trim();
+  if (userToken.length < 20 || userToken.length > 4096) throw new Error("userToken has an invalid length");
   let linkUrl = String(input.linkUrl || "").trim();
   let linkText = String(input.linkText || "").trim();
   if (linkUrl) {
@@ -49,7 +49,7 @@ function validateStoryDraftInput(input, { now = new Date() } = {}) {
   if (previewDataUrl && (!/^data:image\/(?:jpeg|png);base64,/i.test(previewDataUrl) || previewDataUrl.length > 180_000)) {
     throw new Error("previewDataUrl must be a small JPEG or PNG data URL");
   }
-  return { idempotencyKey, groupId, groupName, publishAt, groupToken, linkUrl, linkText, previewDataUrl };
+  return { idempotencyKey, groupId, groupName, publishAt, userToken, linkUrl, linkText, previewDataUrl };
 }
 
 function validateStoryMedia({ fileName, mimeType, byteLength, maxBytes }) {

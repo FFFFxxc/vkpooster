@@ -5,6 +5,7 @@ let selectedFile = null;
 let selectedFileNonce = "";
 let previewDataUrl = "";
 let groupEntries = [];
+let userToken = "";
 let toastTimer = null;
 
 function toast(message, type = "info") {
@@ -38,7 +39,7 @@ async function makePreview(file) {
   } finally { URL.revokeObjectURL(url); }
 }
 
-function updateReady() { $("schedule").disabled = !selectedFile || !$("group").value || !$("publish-at").value; }
+function updateReady() { $("schedule").disabled = !selectedFile || !userToken || !$("group").value || !$("publish-at").value; }
 
 async function chooseFile(file) {
   const allowed = new Set(["image/jpeg","image/png","video/mp4","video/webm","video/quicktime"]);
@@ -98,7 +99,7 @@ async function scheduleStory() {
     progress.querySelector("span").style.width = "20%"; progress.querySelector("b").textContent = "Создаю защищённое задание…";
     const draft = await VkrServerClient.request("/scheduled-stories", { method:"POST", json:{
       idempotencyKey:`story_${group.id}:${fingerprint}`, groupId:group.id, groupName:group.name,
-      publishAt:publishAt.toISOString(), groupToken:group.token, linkUrl, linkText, previewDataUrl,
+      publishAt:publishAt.toISOString(), userToken: userToken, linkUrl, linkText, previewDataUrl,
     } });
     progress.querySelector("span").style.width = "55%"; progress.querySelector("b").textContent = "Загружаю файл на ваш сервер…";
     if (draft.job.status === "uploading") {
@@ -122,10 +123,11 @@ async function scheduleStory() {
 
 async function init() {
   $("publish-at").value = defaultSchedule();
-  const data = await chrome.storage.local.get("vkr_group_tokens");
-  groupEntries = Object.entries(data.vkr_group_tokens || {}).map(([id, value]) => ({ id:Number(id), name:typeof value === "object" ? value.label || `Сообщество ${id}` : `Сообщество ${id}`, token:typeof value === "object" ? value.token : value })).filter((entry) => entry.token);
+  const data = await chrome.storage.local.get(["vk_token", "vkr_user_groups"]);
+  userToken = String(data.vk_token || "").trim();
+  groupEntries = (Array.isArray(data.vkr_user_groups) ? data.vkr_user_groups : []).map((group) => ({ id:Number(group.id), name:String(group.name || `Сообщество ${group.id}`) })).filter((entry) => Number.isSafeInteger(entry.id) && entry.id > 0);
   $("group").replaceChildren();
-  const placeholder = document.createElement("option"); placeholder.value = ""; placeholder.textContent = groupEntries.length ? "Выберите сообщество" : "Нет токенов сообществ"; $("group").appendChild(placeholder);
+  const placeholder = document.createElement("option"); placeholder.value = ""; placeholder.textContent = !userToken ? "Подключите пользовательский токен" : groupEntries.length ? "Выберите сообщество" : "Обновите сообщества в настройках"; $("group").appendChild(placeholder);
   for (const group of groupEntries) { const option = document.createElement("option"); option.value = String(group.id); option.textContent = `${group.name} · club${group.id}`; $("group").appendChild(option); }
   $("file").onchange = (event) => void chooseFile(event.target.files[0]); $("group").onchange = updateReady; $("publish-at").onchange = updateReady; $("schedule").onclick = scheduleStory; $("refresh").onclick = loadJobs;
   $("open-scheduled").onclick = () => chrome.tabs.create({ url:chrome.runtime.getURL("scheduled.html") }); $("open-clips").onclick = () => chrome.tabs.create({ url:chrome.runtime.getURL("clips.html") });

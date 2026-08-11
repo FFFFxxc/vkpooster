@@ -6,7 +6,10 @@ const { createApp } = require("./app.js");
 const { createCommentService } = require("./comment-service.js");
 const { loadConfig } = require("./config.js");
 const ScheduledComment = require("./models/scheduled-comment.js");
+const ScheduledPost = require("./models/scheduled-post.js");
 const ScheduledStory = require("./models/scheduled-story.js");
+const { createPostService } = require("./post-service.js");
+const { createPostWorker } = require("./post-worker.js");
 const { createStoryMediaStore } = require("./story-media-store.js");
 const { createStoryService } = require("./story-service.js");
 const { createStoryWorker } = require("./story-worker.js");
@@ -30,6 +33,10 @@ async function main() {
     CommentModel: ScheduledComment,
     tokenVault,
   });
+  const postService = createPostService({
+    PostModel: ScheduledPost,
+    tokenVault,
+  });
   const vkClient = createVkClient({ apiVersion: config.vkApiVersion });
   const worker = createCommentWorker({
     CommentModel: ScheduledComment,
@@ -37,6 +44,15 @@ async function main() {
     vkClient,
     intervalMs: config.workerIntervalMs,
     staleLockMs: config.staleLockMs,
+  });
+  const postWorker = createPostWorker({
+    PostModel: ScheduledPost,
+    tokenVault,
+    vkClient,
+    commentService,
+    intervalMs: config.workerIntervalMs,
+    staleLockMs: config.staleLockMs,
+    minGroupIntervalMs: config.postGroupIntervalMs,
   });
   const storyService = createStoryService({
     StoryModel: ScheduledStory,
@@ -52,11 +68,12 @@ async function main() {
     intervalMs: config.workerIntervalMs,
     staleLockMs: config.staleLockMs,
   });
-  const app = createApp({ config, commentService, storyService });
+  const app = createApp({ config, commentService, postService, storyService });
   const server = http.createServer(app);
 
   await new Promise((resolve) => server.listen(config.port, resolve));
   worker.start();
+  postWorker.start();
   storyWorker.start();
   const mediaCleanupTimer = setInterval(() => {
     void storyService.cleanupExpiredMedia().catch((error) => {
@@ -69,6 +86,7 @@ async function main() {
   async function shutdown(signal) {
     console.log(`[server] ${signal}: shutting down`);
     worker.stop();
+    postWorker.stop();
     storyWorker.stop();
     clearInterval(mediaCleanupTimer);
     await new Promise((resolve) => server.close(resolve));

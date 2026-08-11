@@ -17,8 +17,8 @@ test("story worker pauses on CAPTCHA without attempting an upload twice", async 
   const captcha = Object.assign(new Error("Captcha needed"), { code: 14 });
   const worker = createStoryWorker({
     StoryModel: modelFor({ _id:"1", lockId:"lock", attempts:1, groupId:42, kind:"photo", mediaId:"m", publishAt:new Date(), fileName:"x.jpg", mimeType:"image/jpeg" }, updates),
-    tokenVault: { decrypt: () => "secret" }, mediaStore: { read: async () => Buffer.from("x"), remove: async () => {} },
-    vkClient: { createStoryUploadServer: async () => { uploadCalls += 1; throw captcha; } },
+    tokenVault: { decrypt: () => "user-secret" }, mediaStore: { read: async () => Buffer.from("x"), remove: async () => {} },
+    vkClient: { createStoryUploadServer: async (input) => { assert.equal(input.userToken, "user-secret"); uploadCalls += 1; throw captcha; } },
     logger: { warn() {}, error() {} },
   });
   await worker.runOnce();
@@ -30,8 +30,8 @@ test("story worker completes its lease and removes media after VK save", async (
   const updates = []; const removed = [];
   const worker = createStoryWorker({
     StoryModel: modelFor({ _id:"1", lockId:"lock", attempts:1, groupId:42, kind:"photo", mediaId:"m", publishAt:new Date(), fileName:"x.jpg", mimeType:"image/jpeg" }, updates),
-    tokenVault: { decrypt: () => "secret" }, mediaStore: { read: async () => Buffer.from("x"), remove: async (id) => removed.push(id) },
-    vkClient: { createStoryUploadServer: async () => ({ upload_url:"https://upload" }), uploadStoryMedia: async () => ({ response:"r" }), saveCommunityStory: async () => ({ items:[{ id:7 }] }) },
+    tokenVault: { decrypt: () => "user-secret" }, mediaStore: { read: async () => Buffer.from("x"), remove: async (id) => removed.push(id) },
+    vkClient: { createStoryUploadServer: async (input) => { assert.equal(input.userToken, "user-secret"); return { upload_url:"https://upload" }; }, uploadStoryMedia: async () => ({ response:"r" }), saveCommunityStory: async (input) => { assert.equal(input.userToken, "user-secret"); return { items:[{ id:7 }] }; } },
     logger: { warn() {}, error() {} },
   });
   await worker.runOnce();
@@ -46,7 +46,7 @@ test("published story remains completed when immediate media cleanup fails", asy
   const updates = []; const warnings = [];
   const worker = createStoryWorker({
     StoryModel: modelFor({ _id:"1", lockId:"lock", attempts:1, groupId:42, kind:"photo", mediaId:"m", publishAt:new Date(), fileName:"x.jpg", mimeType:"image/jpeg" }, updates),
-    tokenVault: { decrypt: () => "secret" },
+    tokenVault: { decrypt: () => "user-secret" },
     mediaStore: { read: async () => Buffer.from("x"), remove: async () => { throw new Error("temporary GridFS error"); } },
     vkClient: { createStoryUploadServer: async () => ({ upload_url:"https://upload" }), uploadStoryMedia: async () => ({ response:"r" }), saveCommunityStory: async () => ({ items:[{ id:7 }] }) },
     logger: { warn(message) { warnings.push(message); }, error() {} },

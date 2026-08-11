@@ -17,15 +17,16 @@ test("managed communities are discovered locally with the user token", () => {
   assert.match(background, /type === "list_managed_communities"/);
 });
 
-test("normal delayed comments stay local and server mode sends only a community token", () => {
-  assert.match(background, /executionMode = "local_user"/);
-  assert.match(background, /executionMode === "community_24_7" && groupToken/);
+test("delayed comments use an encrypted server-side user token with local fallback", () => {
+  assert.match(background, /userToken/);
   const serverBlock = background.slice(
     background.indexOf('serverRequest("/api/scheduled-comments"'),
     background.indexOf("await scheduleLocalComment", background.indexOf('serverRequest("/api/scheduled-comments"')),
   );
-  assert.match(serverBlock, /groupToken/);
-  assert.doesNotMatch(serverBlock, /userToken|vk_token/);
+  assert.match(serverBlock, /userToken/);
+  assert.doesNotMatch(serverBlock, /groupToken/);
+  assert.match(background, /serverRequest\("\/api\/scheduled-posts"/);
+  assert.match(background, /scheduleMode:\s*"server_user"/);
 });
 
 test("comments are staggered between communities", () => {

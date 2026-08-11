@@ -19,7 +19,6 @@
     .action-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
     .section > .field-stack, .section > .action-grid { margin: 16px; }
     .section > .status-line { margin: 0; padding: 0 16px 16px; }
-    #group-token-list { padding: 0 16px; }
     #queue-message { padding-top: 14px; }
     #resume-queue { width: calc(100% - 32px); margin: 0 16px 16px; }
     .user-profile-card { margin: 16px; padding: 14px; }
@@ -43,7 +42,7 @@
         <div class="logo">
           <div id="logo-lottie" class="logo__lottie"></div>
         </div>
-        <div class="version">v4.4.2</div>
+        <div class="version">v4.5.0</div>
       </div>
     </header>
 
@@ -98,7 +97,7 @@
           </select>
           <label class="backup-check">
             <input type="checkbox" id="backup-include-secrets" checked>
-            <span>Включить пользовательский токен, токены сообществ, API_SECRET Render и ключ TwiBoost</span>
+            <span>Включить пользовательский токен, API_SECRET Render и ключ TwiBoost</span>
           </label>
           <div class="action-grid">
             <button class="btn btn--primary" id="export-backup">
@@ -128,33 +127,7 @@
           Обновить список из VK
         </button>
         <div class="status-line">
-          Публикации, загрузка фото, аналитика и локальные комментарии выполняются одним пользовательским токеном. Он остаётся только в браузере.
-        </div>
-      </section>
-
-      <section class="section">
-        <div class="section__header">
-          <h2 class="section__title">
-            <i class="ti ti-building-community section__icon-img"></i>
-            Токены сообществ 24/7 (необязательно)
-          </h2>
-          <span class="section__badge" id="group-token-count">0</span>
-        </div>
-        <div class="field-stack">
-          <input type="number" id="group-id" class="input" min="1"
-                 placeholder="ID сообщества, например 123456">
-          <input type="text" id="group-label" class="input"
-                 placeholder="Название для себя (необязательно)">
-          <input type="password" id="group-token" class="input" autocomplete="off"
-                 placeholder="Токен этого сообщества">
-          <button class="btn btn--primary btn--full" id="save-group-token">
-            Добавить токен сообщества
-          </button>
-        </div>
-        <div id="group-token-list"></div>
-        <div class="status-line">
-          Для обычного постинга эти токены не нужны. Они используются только
-          для серверных комментариев 24/7 и серверных историй, когда браузер закрыт.
+          Публикации, загрузка фото, аналитика, истории и комментарии выполняются одним пользовательским токеном. Для автоматизации 24/7 задания передаются на ваш Render в зашифрованном виде.
         </div>
       </section>
 
@@ -162,7 +135,7 @@
         <div class="section__header">
           <h2 class="section__title">
             <i class="ti ti-server section__icon-img"></i>
-            Сервер и комментарии
+            Серверная автоматизация 24/7
           </h2>
           <span class="server-status" id="server-status">Не настроен</span>
         </div>
@@ -179,11 +152,7 @@
             Задержка комментария, секунд (минимум 15)
           </label>
           <input type="number" id="comment-delay" class="input" min="15" max="86400" value="60">
-          <label class="status-line" for="comment-mode">Где выполнять комментарии</label>
-          <select id="comment-mode" class="input">
-            <option value="local_user">В браузере — пользовательский токен</option>
-            <option value="community_24_7">На сервере 24/7 — токен сообщества</option>
-          </select>
+          <div class="backup-note">Комментарии 24/7, отложенные посты и истории выполняются сервером с пользовательским токеном, даже когда Chrome закрыт.</div>
           <label class="status-line" for="comment-group-interval">Интервал между пабликами, секунд</label>
           <input type="number" id="comment-group-interval" class="input" min="15" max="3600" value="30">
         </div>

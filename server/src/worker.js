@@ -62,12 +62,12 @@ function createCommentWorker({
       if (!job) return false;
 
       try {
-        const groupToken = tokenVault.decrypt(job);
-        await vkClient.createGroupComment({
+        const userToken = tokenVault.decrypt(job);
+        await vkClient.createUserComment({
           groupId: job.groupId,
           postId: job.postId,
           commentText: job.commentText,
-          groupToken,
+          userToken,
           guid: job.idempotencyKey,
         });
         await CommentModel.updateOne(

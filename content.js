@@ -1,14 +1,14 @@
 /**
  * VK Reposter Pro - Content Script
  * Modern UI with Glassmorphism Design
- * @version 4.3.3
+ * @version 4.5.0
  * @updated 2026-08-09
  */
 
 // ========== CONSTANTS ==========
 const BUTTON_CLASS = "vkr-btn";
 const PROCESSED_ATTR = "data-vkr-checked";
-const VKR_VERSION = "4.3.3";
+const VKR_VERSION = "4.5.0";
 const GROUP_SETS_STORAGE_KEY = "vkr_group_sets_v1";
 const groupSetsCore = globalThis.VkrGroupSetsCore;
 const POST_SELECTORS = '[data-post-id], div[id^="post-"], article[data-post-id], .post, .wall_item, .feed_row, .Post, [data-testid="post-root"], [data-testid="post"]';
@@ -3115,7 +3115,7 @@ async function sendToGroups() {
         return;
       }
       intervalMinutes = parseInt($("vkr-interval")?.value || "0") || 0;
-      scheduleMode = $("vkr-schedule-mode")?.value || "native_vk";
+      scheduleMode = "server_user";
     }
 
     // Autodelete
@@ -3160,7 +3160,8 @@ async function sendToGroups() {
       mode: mode,
       text: txt || "",
       pubDate: pubDate,
-      scheduleMode: scheduleMode,
+      scheduleMode: "server_user",
+      intervalMinutes: intervalMinutes,
       processedPhotos: processedPhotos,
       token: tok,
       label: label,

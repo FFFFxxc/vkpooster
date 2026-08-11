@@ -13,10 +13,9 @@ const content = fs.readFileSync(path.join(root, "content.js"), "utf8");
 const shadow = fs.readFileSync(path.join(root, "content-shadow-dom.js"), "utf8");
 
 test("scheduled comments use saved community labels", () => {
-  assert.match(scheduled, /vkr_group_tokens/);
   assert.match(scheduled, /vkr_user_groups/);
   assert.match(scheduled, /groupName\(groupId\)/);
-  assert.match(scheduled, /entry\.label/);
+  assert.doesNotMatch(scheduled, /vkr_group_tokens|entry\.label/);
 });
 
 test("partial post failures are visible per community", () => {
@@ -45,15 +44,17 @@ test("post queue exposes live publication and photo-upload progress", () => {
   assert.match(css, /\.publish-progress-head/);
 });
 
-test("scheduled posts can run in VK without Chrome and can be cancelled", () => {
-  assert.match(background, /scheduleMode = pubDate/);
-  assert.match(background, /params\.publish_date/);
+test("scheduled posts run on the server at photo time and can be cancelled", () => {
+  assert.match(background, /serverRequest\("\/api\/scheduled-posts"/);
+  assert.match(background, /scheduleMode:\s*"server_user"/);
+  assert.doesNotMatch(background, /params\.publish_date/);
   assert.match(background, /async function cancelPublishJob/);
   assert.match(background, /cancel_publish_job/);
   assert.match(background, /publishCancellationRequested/);
-  assert.match(scheduled, /Запланировано в VK/);
+  assert.match(scheduled, /list_scheduled_posts/);
+  assert.match(scheduled, /cancel_scheduled_post/);
   assert.match(scheduled, /cancel_publish_job/);
-  assert.match(content, /scheduleMode: scheduleMode/);
+  assert.match(content, /scheduleMode:\s*"server_user"/);
   assert.match(shadow, /id="vkr-schedule-mode"/);
   assert.match(css, /\.status\.scheduled/);
 });

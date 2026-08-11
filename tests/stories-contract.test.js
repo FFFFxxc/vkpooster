@@ -17,8 +17,9 @@ test("story media is uploaded raw and scheduled cards use captured previews", ()
   assert.doesNotMatch(scheduled, /wall\.getById|stories\.getById|analyze_activity/);
 });
 
-test("story UI requires a locally configured community token", () => {
-  assert.match(stories, /vkr_group_tokens/);
-  assert.match(stories, /groupToken\s*:\s*group\.token/);
-  assert.doesNotMatch(stories, /vk_token/);
+test("story UI uses the connected user token and managed community directory", () => {
+  assert.match(stories, /vkr_user_groups/);
+  assert.match(stories, /userToken\s*:\s*userToken/);
+  assert.match(stories, /vk_token/);
+  assert.doesNotMatch(stories, /vkr_group_tokens|groupToken/);
 });

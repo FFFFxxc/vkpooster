@@ -229,14 +229,13 @@ function getModalHTML() {
                 <input type="number" id="vkr-interval" value="0" min="0" max="1440">
               </div>
               <label style="display: grid; gap: 6px; width: 100%;">
-                <span style="font-size: 13px; color: var(--vkr-text-secondary);">Как подготовить отложенный пост:</span>
+                <span style="font-size: 13px; color: var(--vkr-text-secondary);">Как выполнить отложенный пост:</span>
                 <select id="vkr-schedule-mode" style="width: 100%; padding: 10px; color: var(--vkr-text-primary); background: var(--vkr-bg-tertiary); border: 1px solid var(--vkr-border); border-radius: var(--vkr-radius-md);">
-                  <option value="native_vk">Надёжно: передать в отложку VK сейчас</option>
-                  <option value="exact_photo_time">Точная дата фото: загрузить в момент выхода</option>
+                  <option value="server_user">Автоматически 24/7 через мой Render</option>
                 </select>
               </label>
               <div id="vkr-schedule-mode-note" style="padding: 10px 12px; border: 1px solid rgba(56, 189, 248, .28); border-radius: var(--vkr-radius-md); background: rgba(56, 189, 248, .08); color: var(--vkr-text-secondary); font-size: 12px; line-height: 1.45;">
-                Фото загрузятся сейчас, запись попадёт в отложку VK. После завершения подготовки Chrome можно закрыть.
+                Сервер загрузит фото и опубликует запись только в указанное время. Chrome и компьютер можно выключить; дата фото совпадёт с фактическим выходом поста.
               </div>
             </div>
 

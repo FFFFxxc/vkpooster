@@ -39,9 +39,17 @@ async function withServer(callback) {
     async retry() { throw new Error("Story job cannot be retried"); },
     async purge() { return { removedJobs: 2, removedMedia: 1, retainedJobs: 0, hasMore: false }; },
   };
+  const postService = {
+    async enqueue() { return { created: true, job: { id: "post-job", status: "queued", groups: [42] } }; },
+    async list() { return [{ id: "post-job", status: "queued", groups: [42] }]; },
+    async cancel(id) { return { id, status: "cancelled", groups: [42] }; },
+    async retry(id) { return { id, status: "queued", groups: [42] }; },
+    async purge() { return { removedJobs: 5 }; },
+  };
   const app = createApp({
     config: { apiSecret: "s".repeat(40), storyMaxBytes: 25 * 1024 * 1024 },
     commentService,
+    postService,
     storyService,
     databaseReady: () => true,
   });
@@ -106,6 +114,34 @@ test("scheduled comment response contains no credential fields", async () => {
   });
 });
 
+test("scheduled post endpoints are authenticated and never echo the user token", async () => {
+  await withServer(async (baseUrl) => {
+    const headers = {
+      Authorization: `Bearer ${"s".repeat(40)}`,
+      "Content-Type": "application/json",
+    };
+    const created = await fetch(`${baseUrl}/api/scheduled-posts`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ userToken: "must-not-return" }),
+    });
+    assert.equal(created.status, 201);
+    assert.doesNotMatch(await created.text(), /token|cipher|secret/i);
+
+    const listed = await fetch(`${baseUrl}/api/scheduled-posts?limit=100`, { headers });
+    assert.equal(listed.status, 200);
+    assert.equal((await listed.json()).jobs[0].id, "post-job");
+
+    const cancelled = await fetch(`${baseUrl}/api/scheduled-posts/post-job`, { method: "DELETE", headers });
+    assert.equal(cancelled.status, 200);
+    assert.equal((await cancelled.json()).job.status, "cancelled");
+
+    const retried = await fetch(`${baseUrl}/api/scheduled-posts/post-job/retry`, { method: "POST", headers });
+    assert.equal(retried.status, 200);
+    assert.equal((await retried.json()).job.status, "queued");
+  });
+});
+
 test("authenticated comment retry returns the requeued public job", async () => {
   await withServer(async (baseUrl) => {
     const response = await fetch(
@@ -143,5 +179,9 @@ test("authenticated maintenance endpoints return actual MongoDB cleanup counts",
       retainedJobs: 0,
       hasMore: false,
     });
+
+    const posts = await fetch(`${baseUrl}/api/scheduled-posts?scope=all`, { method: "DELETE", headers });
+    assert.equal(posts.status, 200);
+    assert.deepEqual(await posts.json(), { ok: true, removedJobs: 5 });
   });
 });
