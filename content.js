@@ -1,14 +1,14 @@
 /**
  * VK Reposter Pro - Content Script
  * Modern UI with Glassmorphism Design
- * @version 4.5.0
+ * @version 4.6.0
  * @updated 2026-08-09
  */
 
 // ========== CONSTANTS ==========
 const BUTTON_CLASS = "vkr-btn";
 const PROCESSED_ATTR = "data-vkr-checked";
-const VKR_VERSION = "4.5.0";
+const VKR_VERSION = "4.6.0";
 const GROUP_SETS_STORAGE_KEY = "vkr_group_sets_v1";
 const groupSetsCore = globalThis.VkrGroupSetsCore;
 const POST_SELECTORS = '[data-post-id], div[id^="post-"], article[data-post-id], .post, .wall_item, .feed_row, .Post, [data-testid="post-root"], [data-testid="post"]';
@@ -137,31 +137,106 @@ function randomDelay(min = 3000, max = 7000) {
   return sleep(delay);
 }
 
-async function fetchClipSourcesById(clipId) {
-  return null;
-  void clipId;
+const clipSourcesCache = new Map();
+const clipSourcesSessionCache = new Map();
+
+function parseQualitiesFromText(text) {
+  const regex = /"url(\d{3,4})"\s*:\s*"([^"]+)"/g;
+  const qualities = {};
+  let match;
+  while ((match = regex.exec(String(text || ""))) !== null) {
+    qualities[match[1]] = match[2].replace(/\\\//g, "/").replace(/\\u0026/g, "&");
+  }
+  return qualities;
 }
 
-// Слушаем сообщения от инъектированного скрипта
+async function fetchClipSourcesById(clipId) {
+  if (!/^-?\d+_\d+$/.test(String(clipId || ""))) return null;
+  if (clipSourcesSessionCache.has(clipId)) return clipSourcesSessionCache.get(clipId);
+  try {
+    const endpoint = new URL("/al_video.php", location.origin);
+    endpoint.searchParams.set("act", "show");
+    endpoint.searchParams.set("al", "1");
+    endpoint.searchParams.set("video", clipId);
+    const response = await fetch(endpoint.toString());
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const qualities = parseQualitiesFromText(await response.text());
+    if (Object.keys(qualities).length) {
+      clipSourcesSessionCache.set(clipId, qualities);
+      return qualities;
+    }
+  } catch (error) {
+    console.debug("[VKR] VK page did not expose progressive clip sources", error?.message || error);
+  }
+  clipSourcesSessionCache.set(clipId, null);
+  return null;
+}
+
+function hasVideoQualities(files) {
+  if (!files || typeof files !== "object") return false;
+  return Object.entries(files).some(([key, value]) => /^(?:mp4_|url)\d{3,4}$/.test(key) && typeof value === "string");
+}
+
+document.addEventListener("click", (event) => {
+  const link = event.target.closest?.('a[href*="clip"]');
+  const match = link?.getAttribute("href")?.match(/clip(-?\d+)_(\d+)/);
+  if (match) window.postMessage({ type: "VKR_LAST_CLICKED_CLIP", id: `${match[1]}_${match[2]}`, ts: Date.now() }, "*");
+}, true);
+
 window.addEventListener("message", async function (event) {
   if (event.source !== window) return;
-
   const { type } = event.data || {};
 
-  // Прокси-запрос качеств видео через API в background
-  if (type === "VKR_REQUEST_VIDEO_QUALITIES") {
-    window.postMessage(
-      {
-        type: "VKR_RESPONSE_VIDEO_QUALITIES",
-        videoId: event.data.videoId,
-        ok: false,
-        files: null,
-        title: null,
-        error: "Скачивание видео отключено в безопасной версии.",
-      },
-      "*",
-    );
+  if (type === "VKR_CLIP_SOURCES") {
+    const entry = event.data.entry;
+    if (entry?.key) {
+      clipSourcesCache.set(entry.key, entry);
+      if (clipSourcesCache.size > 20) clipSourcesCache.delete(clipSourcesCache.keys().next().value);
+    }
     return;
+  }
+
+  if (type === "VKR_REQUEST_VIDEO_QUALITIES") {
+    const videoId = String(event.data.videoId || "");
+    chrome.runtime.sendMessage({ type: "vkr_get_video_qualities", videoId }, async (response) => {
+      let { ok, files, title, error } = response || {};
+      if (!ok || !hasVideoQualities(files)) {
+        const sources = await fetchClipSourcesById(videoId);
+        if (sources) {
+          files = Object.fromEntries(Object.entries(sources).map(([quality, url]) => [`url${quality}`, url]));
+          ok = true;
+          title ||= "clip";
+          error = null;
+        }
+      }
+      window.postMessage({ type: "VKR_RESPONSE_VIDEO_QUALITIES", videoId, ok: Boolean(ok), files: files || null, title: title || null, error: error || null }, "*");
+    });
+    return;
+  }
+
+  if (type === "VKR_GET_VIDEO_DOWNLOAD_SETTING") {
+    const data = await chrome.storage.local.get("vkr_video_download");
+    window.postMessage({ type: "VKR_VIDEO_DOWNLOAD_SETTING", videoDownload: data.vkr_video_download !== false }, "*");
+    return;
+  }
+
+  if (type === "VKR_DOWNLOAD_VIDEO") {
+    const { url, quality, title } = event.data;
+    showToast("⬇️ Запускаю скачивание…", "info");
+    chrome.runtime.sendMessage({
+      type: "download_video_direct",
+      url,
+      filename: `${String(title || "clip")}_${String(quality || "video")}`,
+    }, (response) => {
+      if (chrome.runtime.lastError || !response?.ok) showToast(`❌ ${response?.error || chrome.runtime.lastError?.message || "Скачивание не запущено"}`, "error");
+      else showToast("✅ Скачивание клипа запущено", "success");
+    });
+  }
+});
+
+chrome.runtime.onMessage.addListener((message) => {
+  if (message?.type === "VKR_VIDEO_DOWNLOAD_SETTING_CHANGED") {
+    window.postMessage({ type: "VKR_VIDEO_DOWNLOAD_SETTING", videoDownload: message.enabled === true }, "*");
   }
 });
 

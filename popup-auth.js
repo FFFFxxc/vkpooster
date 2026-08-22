@@ -111,6 +111,7 @@ async function readSettings() {
     "vkr_server_api_secret",
     "vkr_comment_delay_seconds",
     "vkr_comment_group_interval_seconds",
+    "vkr_video_download",
   ]);
 }
 
@@ -420,6 +421,7 @@ async function init() {
   $("comment-delay").value =
     settings.vkr_comment_delay_seconds || 60;
   $("comment-group-interval").value = settings.vkr_comment_group_interval_seconds || 30;
+  $("video-download-toggle").checked = settings.vkr_video_download !== false;
   await refreshQueue();
 
   if (settings.vkr_server_url && settings.vkr_server_api_secret) {
@@ -463,6 +465,16 @@ document.addEventListener("DOMContentLoaded", () => {
   $("refresh-managed-groups").addEventListener("click", () => void refreshManagedGroups());
   $("comment-delay").addEventListener("change", () => void persistCommentSettings());
   $("comment-group-interval").addEventListener("change", () => void persistCommentSettings());
+  $("video-download-toggle").addEventListener("change", async () => {
+    const enabled = $("video-download-toggle").checked;
+    await chrome.storage.local.set({ vkr_video_download: enabled });
+    const tabs = await chrome.tabs.query({ url: ["*://vk.com/*", "*://*.vk.com/*", "*://vk.ru/*", "*://*.vk.ru/*"] });
+    for (const tab of tabs) {
+      if (!Number.isSafeInteger(tab.id)) continue;
+      chrome.tabs.sendMessage(tab.id, { type: "VKR_VIDEO_DOWNLOAD_SETTING_CHANGED", enabled }, () => void chrome.runtime.lastError);
+    }
+    notify(enabled ? "Скачивание клипов включено." : "Скачивание клипов выключено.", "success");
+  });
   $("save-server").addEventListener("click", saveServer);
   $("export-backup").addEventListener("click", () => void exportBackup());
   $("import-backup").addEventListener("click", () => $("backup-file").click());

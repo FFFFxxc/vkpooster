@@ -1,0 +1,186 @@
+
+> vk-reposter-pro@4.6.0 verify
+> npm test && npm run check:js
+
+
+> vk-reposter-pro@4.6.0 test
+> node --test tests/*.test.js && npm --prefix server test
+
+✔ settings export keeps configuration and optional secrets but skips activity (17.125ms)
+✔ export can omit every token and secret (0.3631ms)
+✔ full export carries queues and import can independently exclude secrets (20.018ms)
+✔ import rejects unrelated JSON and ignores non-extension keys (6.065ms)
+✔ popup exposes export and import without an extra browser permission (0.4442ms)
+✔ cleanup uses ticketed sequential messages and never VK execute (15.8032ms)
+✔ photo cleanup has a persisted per-community rolling budget and VK cooldown (0.9521ms)
+✔ wall preview keeps pinned posts and photos owned by another community (16.9363ms)
+✔ wall preview supports skipping attached photos (3.5557ms)
+✔ album preview emits only selected community-owned photos (34.2082ms)
+✔ range normalisation is inclusive and rejects inverted dates (4.6863ms)
+✔ preview tickets expire after ten minutes and never hold a token (0.6603ms)
+✔ photo budget is rolling, discards expired entries and exposes the next slot (0.4763ms)
+✔ an explicit VK cooldown blocks only the supplied community budget (0.4682ms)
+✔ album cleanup is capped to the available photo slots (1.8277ms)
+✔ a 2205-photo cleanup becomes one 950-photo batch without losing the remainder count (5.8935ms)
+✔ wall cleanup keeps every post while deferring photos beyond the budget (2.2865ms)
+✔ runner deletes one item at a time and reports progress (38.677ms)
+✔ runner pauses without touching later items on VK protection (0.6087ms)
+✔ runner retries only twice and records a safe item error (4.7034ms)
+✔ runner stops before a later deletion when cancellation is requested (0.674ms)
+✔ both cleanup buttons use the ticketed safe cleanup dialog (1.648ms)
+✔ safe cleanup dialog has preview, live progress, stop and finished states (2.7307ms)
+✔ clip quality panel is packaged and bridged to validated direct downloads (6.3689ms)
+✔ popup restores the clip download switch (0.2458ms)
+✔ clip timeline exposes every exact publish time before starting (5.6976ms)
+✔ jobs are flattened by file then group and only one can become active (10.1309ms)
+✔ clip interval advances once per video and keeps communities synchronized (0.6897ms)
+✔ source disconnection pauses unfinished jobs and history contains no file data (2.5885ms)
+✔ invalid transitions throw instead of starting a parallel job (30.295ms)
+✔ clip interval rejects malformed values (0.4907ms)
+✔ clips coordinator uses one active normal tab and no cookie automation (9.308ms)
+✔ clip files remain in memory and are transferred in bounded chunks (0.654ms)
+✔ clip uploader preserves the community route and verifies the author (0.3269ms)
+✔ clip interval and long filenames are visible in the UI (0.2779ms)
+✔ ready clip queue gets a lightweight accessible flame action (0.3287ms)
+✔ clip title has a progressive WebGL mesh hover with a text fallback (2.7496ms)
+✔ clip results can be cleared without deleting current queue files (0.7939ms)
+✔ stale automation state cannot hide controls on a community page (3.5375ms)
+✔ community IDs are normalised, deduplicated and bounded (6.7054ms)
+✔ stored sets recover safely from malformed local storage (5.5605ms)
+✔ creating a set requires both a name and selected communities (9.6698ms)
+✔ editing preserves identity and original creation time (0.3959ms)
+✔ applying a set separates visible and unavailable communities (0.3632ms)
+✔ group-set core loads before the modal content script (10.5008ms)
+✔ post modal exposes create, apply, edit and delete controls (0.7838ms)
+✔ saved names render as text and unavailable communities are reported (2.9857ms)
+✔ group sets have active, editor and narrow-layout styles (0.6098ms)
+✔ maintenance scopes reject ambiguous destructive requests (10.3462ms)
+✔ error cleanup removes terminal failures and partial results only (6.301ms)
+✔ completed cleanup preserves active and failed records (0.5462ms)
+✔ all-history cleanup never removes active records (5.6399ms)
+✔ stored history arrays can be treated as terminal even without a legacy status (10.6967ms)
+✔ manifest has no cookie interception, OAuth impersonation, or global hosts (1.1803ms)
+✔ active service worker contains no legacy account sync or like automation (0.6171ms)
+✔ clip download uses no cookie automation and queue cleanup goes through worker (2.8406ms)
+✔ copy mode uploads photos into every target community before wall.post (4.504ms)
+✔ local user token uploads copied photos before the final wall.post (0.5661ms)
+✔ posts with copied photos use local user auth through the final wall.post (0.285ms)
+✔ VK group-auth photo error is explained as a local user-token problem (1.2729ms)
+✔ photo preparation is restart-safe and never falls back after upload validation failure (0.3191ms)
+✔ manifest grants only narrow VK CDN access needed to download source photos (1.4518ms)
+✔ connected user token is represented by a VK profile card (4.801ms)
+✔ popup omits temporary safe-mode warnings and labels (0.4107ms)
+✔ popup exposes user-only communities and server automation without group-token menus (4.5197ms)
+✔ classifyVkError pauses on VK protection and rate-limit errors (5.8051ms)
+✔ classifyVkError fails invalid credentials without retrying (1.0249ms)
+✔ classifyVkError retries only transient transport and VK server errors (0.2198ms)
+✔ selectCredential always uses the local user token for copy posting (0.2942ms)
+✔ selectCredential requires a local user token for a repost (3.6125ms)
+✔ selectCredential always uses a local user token for photo uploads (0.3595ms)
+✔ selectCredential never uses a community token for wall analytics (0.444ms)
+✔ selectCredential never falls back to another community token (0.2768ms)
+✔ selectCredential uses one user token without a community token (0.2491ms)
+✔ selectCredential prefers the user token for comments and keeps group fallback (0.3516ms)
+✔ buildReusableAttachments preserves supported IDs and access keys (0.7932ms)
+✔ largestPhotoUrl selects the actual largest image instead of relying on VK order (0.2754ms)
+✔ copied photo attachment uses the fresh saveWallPhoto owner returned by VK (0.5802ms)
+✔ normalizeQueueJobs recovers stale processing jobs only (1.1082ms)
+✔ scheduled photo copies wait locally while other queued jobs remain runnable (2.5955ms)
+✔ createSerialScheduler never overlaps work and enforces the interval (1.9237ms)
+✔ post queue uses deterministic time ordering (39.0083ms)
+✔ history restores period analytics and per-group activity ranking (5.3767ms)
+✔ scheduled post cards render every photo as an accessible carousel (2.8029ms)
+✔ queue pause always explains the safety stop and exposes the right action (1.7701ms)
+✔ data maintenance exposes scoped cleanup without deleting active jobs (0.4272ms)
+✔ scheduled photo copies explain server due-time upload and failed comments can retry (0.3317ms)
+✔ waiting cards persist drafts and expose their original VK wall post (0.3317ms)
+✔ scheduled comments use saved community labels (3.1018ms)
+✔ partial post failures are visible per community (0.9036ms)
+✔ extension action menu exposes schedules, clips and stories (0.6134ms)
+✔ post queue exposes live publication and photo-upload progress (2.3606ms)
+✔ scheduled posts run on the server at photo time and can be cancelled (1.2907ms)
+✔ scheduled server posts and comments expose editing and per-community cancellation (0.389ms)
+✔ service-worker lifecycle shutdowns do not become unhandled errors (11.1125ms)
+✔ every alarm creation is awaited so runtime.lastError is consumed (4.9756ms)
+✔ story media is uploaded raw and scheduled cards use captured previews (1.337ms)
+✔ story UI uses the connected user token and managed community directory (0.6974ms)
+✔ TwiBoost is available through a narrowly scoped background integration (5.8257ms)
+✔ TwiBoost key stays local and is never embedded in tracked source (1.0084ms)
+✔ TwiBoost service labels are rendered as text instead of API HTML (1.2678ms)
+✔ managed communities are discovered locally with the user token (5.8259ms)
+✔ delayed comments use an encrypted server-side user token with local fallback (0.4564ms)
+✔ comments are staggered between communities (3.9491ms)
+✔ waiting draft normalizes groups and keeps every form field (11.8802ms)
+✔ legacy waiting item receives readable defaults and a group summary (152.0493ms)
+ℹ tests 106
+ℹ suites 0
+ℹ pass 106
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 4996.1984
+
+> vk-reposter-safe-server@4.4.0 test
+> node --test test/*.test.js
+
+✔ health is public but API status requires bearer authentication (581.1066ms)
+✔ story draft and raw media responses expose no credential fields (368.2965ms)
+✔ scheduled comment response contains no credential fields (93.3387ms)
+✔ scheduled post endpoints are authenticated and never echo the user token (145.2532ms)
+✔ authenticated comment retry returns the requeued public job (44.0285ms)
+✔ authenticated edit and per-community cancellation routes return public jobs (332.8582ms)
+✔ authenticated maintenance endpoints return actual MongoDB cleanup counts (204.4772ms)
+✔ bearer auth accepts only the configured full secret (4.5637ms)
+✔ comment expiration stays 30 days beyond a future schedule (6.7624ms)
+✔ comment maintenance deletes terminal scopes but never queued or paused jobs (5.5809ms)
+✔ manual comment retry keeps the idempotency key and clears the failed attempt (0.4194ms)
+✔ queued comment text and time can be edited (4.7645ms)
+✔ token vault encrypts and decrypts without storing plaintext (5.0465ms)
+✔ token vault rejects a modified authentication tag (0.936ms)
+✔ token vault requires exactly 32 decoded key bytes (0.6605ms)
+✔ post service encrypts the user token and initializes one batch (65.5559ms)
+✔ post service can cancel, retry and purge terminal jobs only (10.9824ms)
+✔ post service edits only mutable fields of a non-processing job (4.8675ms)
+✔ post service cancels one pending community without cancelling the batch (1.1535ms)
+✔ scheduled post validation normalizes a future user-authorized batch (7.5328ms)
+✔ scheduled post rejects a past date, empty groups and group token payloads (1.1017ms)
+✔ public scheduled post never exposes encrypted credentials (0.4282ms)
+✔ post worker publishes one community per lease and waits before the next (8.1913ms)
+✔ post worker pauses the full batch when VK requests verification (0.6837ms)
+✔ post worker records a cancelled target and never calls VK for it (0.3705ms)
+✔ story maintenance removes GridFS media before deleting terminal documents (16.6818ms)
+✔ story maintenance retains the document when GridFS deletion fails (0.7753ms)
+✔ story draft accepts a future community story with an internal VK link (4.5189ms)
+✔ story rejects external CTA links and oversized media (0.8971ms)
+✔ story normalizes the visible vk.ru host to the API-supported vk.com host (0.2374ms)
+✔ public story serializer never exposes token or GridFS internals (0.2944ms)
+✔ story worker pauses on CAPTCHA without attempting an upload twice (20.4699ms)
+✔ story worker completes its lease and removes media after VK save (3.84ms)
+✔ published story remains completed when immediate media cleanup fails (1.6126ms)
+✔ scheduled comment validation normalizes a valid payload (29.5481ms)
+✔ scheduled comment validation rejects bad IDs and oversized text (5.3721ms)
+✔ public job serializer never exposes encrypted credential fields (0.5496ms)
+✔ VK client posts the token in the body and sends a stable guid (5.6812ms)
+✔ story upload server uses community fields and save sends upload result only (0.8266ms)
+✔ server copy publishes only at execution time and never sends publish_date (12.5437ms)
+✔ worker pauses a job on CAPTCHA instead of retrying it (9.2217ms)
+✔ worker retries a transient failure with bounded backoff (11.5595ms)
+✔ worker gives a transient VK error six attempts before marking it failed (10.6011ms)
+✔ worker uses VK guid and completes only its own lease (17.0573ms)
+ℹ tests 44
+ℹ suites 0
+ℹ pass 44
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 6095.39
+
+> vk-reposter-pro@4.6.0 check:js
+> node --check safety-core.js && node --check cleanup-core.js && node --check cleanup-runner.js && node --check clip-queue-core.js && node --check maintenance-core.js && node --check group-sets-core.js && node --check backup-core.js && node --check waiting-draft-core.js && node --check background.js && node --check popup-auth.js && node --check content.js && node --check clips.js && node --check mesh-text.js && node --check clip-upload-content.js && node --check extension-server-client.js && node --check stories.js && node --check scheduled.js && npm --prefix server run check
+
+
+> vk-reposter-safe-server@4.4.0 check
+> node --check src/server.js && node --check src/app.js && node --check src/worker.js && node --check src/post-validation.js && node --check src/models/scheduled-post.js && node --check src/post-service.js && node --check src/post-worker.js && node --check src/story-validation.js && node --check src/story-media-store.js && node --check src/story-service.js && node --check src/story-worker.js
+

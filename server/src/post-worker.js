@@ -50,7 +50,9 @@ function createPostWorker({
   }
 
   function completionState(results) {
-    return results.some((item) => item.ok) ? "completed" : "failed";
+    if (results.some((item) => item.ok)) return "completed";
+    if (results.length && results.every((item) => item.cancelled === true)) return "cancelled";
+    return "failed";
   }
 
   async function runOnce() {
@@ -65,6 +67,27 @@ function createPostWorker({
       const results = Array.isArray(job.results) ? [...job.results] : [];
       try {
         if (!Number.isSafeInteger(groupId) || groupId <= 0) throw new Error("Post job has no remaining community");
+        if ((Array.isArray(job.cancelledGroupIds) ? job.cancelledGroupIds : []).map(Number).includes(groupId)) {
+          results.push({ gid: groupId, ok: false, cancelled: true, error: "Отменено пользователем" });
+          const nextGroupIndex = groupIndex + 1;
+          const finished = nextGroupIndex >= job.groups.length;
+          await PostModel.updateOne(
+            { _id: job._id, status: "processing", lockId: job.lockId },
+            { $set: {
+              status: finished ? completionState(results) : "queued",
+              nextGroupIndex,
+              nextRunAt: finished ? current : new Date(current.getTime() + Math.max(15_000, minGroupIntervalMs, (Number(job.groupIntervalSeconds) || 15) * 1000)),
+              results,
+              attempts: 0,
+              completedAt: finished ? current : null,
+              lockedAt: null,
+              lockId: null,
+              lastError: null,
+              lastErrorCode: null,
+            } },
+          );
+          return true;
+        }
         const userToken = tokenVault.decrypt(job);
         const input = {
           sourceOwnerId: job.sourceOwnerId,

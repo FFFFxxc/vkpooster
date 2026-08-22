@@ -67,6 +67,22 @@
       <button id="publish-submit" class="primary" type="submit">Поставить в очередь</button>
     </form>
   </dialog>
+  <dialog id="edit-dialog">
+    <form id="edit-form" class="dialog-body edit-dialog-body">
+      <div class="dialog-head"><div><span id="edit-kicker">Отложенное задание</span><h2 id="edit-title">Редактирование</h2></div><button type="button" id="edit-close" aria-label="Закрыть">×</button></div>
+      <div id="edit-post-fields">
+        <div class="form-grid"><label><span>Режим</span><select id="edit-post-mode"><option value="copy">Копировать пост</option><option value="repost">Оригинальный репост</option></select></label><label><span>Время публикации</span><input id="edit-post-time" type="datetime-local"></label></div>
+        <label><span>Текст поста</span><textarea id="edit-post-text" rows="5" maxlength="16384"></textarea></label>
+        <label><span>Комментарий после публикации</span><textarea id="edit-auto-comment" rows="4" maxlength="4096" placeholder="Оставьте пустым, чтобы не публиковать комментарий"></textarea></label>
+      </div>
+      <div id="edit-comment-fields" hidden>
+        <label><span>Время комментария</span><input id="edit-comment-time" type="datetime-local"></label>
+        <label><span>Текст комментария</span><textarea id="edit-comment-text" rows="6" maxlength="4096" required></textarea></label>
+      </div>
+      <div id="edit-note" class="edit-note">Сохранение перезапускает только ещё не выполненную часть задания. Уже опубликованные паблики не изменяются.</div>
+      <button id="edit-submit" class="primary" type="submit">Сохранить изменения</button>
+    </form>
+  </dialog>
   <dialog id="maintenance-dialog">
     <section class="dialog-body maintenance-dialog-body">
       <div class="dialog-head"><div><span>Локальное хранилище и MongoDB</span><h2>Очистка данных</h2></div><button type="button" id="maintenance-close" aria-label="Закрыть">×</button></div>

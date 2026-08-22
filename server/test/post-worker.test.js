@@ -63,3 +63,30 @@ test("post worker pauses the full batch when VK requests verification", async ()
   assert.equal(model.updates[0].update.$set.status, "paused");
   assert.equal(model.updates[0].update.$set.lastErrorCode, 14);
 });
+
+test("post worker records a cancelled target and never calls VK for it", async () => {
+  const now = new Date("2026-08-23T12:00:00.000Z");
+  const model = modelFor({
+    _id: "job", lockId: "lease", attempts: 1, idempotencyKey: "post-job-cancelled-target",
+    sourceOwnerId: -100, sourcePostId: 55, groups: [42, 43], cancelledGroupIds: [42],
+    nextGroupIndex: 0, results: [], mode: "copy", text: "Текст", publishAt: now,
+    groupIntervalSeconds: 15,
+  });
+  let calls = 0;
+  const worker = createPostWorker({
+    PostModel: model,
+    tokenVault: { decrypt: () => "user-token" },
+    vkClient: { async publishCopiedPost() { calls += 1; return { postId: 77 }; } },
+    commentService: { async enqueue() {} },
+    now: () => new Date(now),
+    logger: { warn() {}, error() {} },
+  });
+
+  await worker.runOnce();
+  assert.equal(calls, 0);
+  const update = model.updates[0].update.$set;
+  assert.equal(update.nextGroupIndex, 1);
+  assert.equal(update.results[0].gid, 42);
+  assert.equal(update.results[0].cancelled, true);
+  assert.equal(update.status, "queued");
+});

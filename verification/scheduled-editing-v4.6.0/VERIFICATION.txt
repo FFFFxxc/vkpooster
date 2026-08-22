@@ -1,0 +1,59 @@
+TARGET=VK Reposter Pro 4.6.0 + server 4.4.0
+RESULT=Редактирование отложенных постов и комментариев, отмена по одному паблику, восстановленное скачивание клипов
+NEXT=Перезагрузить распакованное расширение и задеплоить safe-v4 на Render
+
+BRANCH=safe-v4
+BASE_COMMIT=85c19d8a63963488951cf00ca40a46c8575a23f0
+CHANGED_FIELDS=scheduled post text/mode/publishAt/autoCommentText; scheduled comment commentText/commentAt; cancelledGroupIds/result.cancelled; VK clip quality/direct download
+
+FOUR_ARTIFACTS
+MODIFIED_FILE=C:\Users\USER\Desktop\Новая папка (5)\verification\scheduled-editing-v4.6.0\MODIFIED_FILE.scheduled.js
+DIFF_FILE=C:\Users\USER\Desktop\Новая папка (5)\verification\scheduled-editing-v4.6.0\changes.diff
+VERIFICATION=C:\Users\USER\Desktop\Новая папка (5)\verification\scheduled-editing-v4.6.0\VERIFICATION.txt
+ROLLBACK=C:\Users\USER\Desktop\Новая папка (5)\verification\scheduled-editing-v4.6.0\ROLLBACK.sh
+
+HASHES
+PRE_CHANGE_LIVE_FILE_SHA256=ECDB194EE2ABECF39AB98D306643BAAABC995C0E6A3B2B445D9F397BA66C503B
+BASE_GIT_BLOB_SHA1=33b120ab78d8aba21dcfd56802377a1525f5bfc6
+MODIFIED_FILE_SHA256=E257B119943E705F4996DB1D82FD74F26BA4C32FBF96712D7ADBD86C2DC8B24D
+ROLLBACK_CHECKOUT_SHA256=9F4167964F9945E86F4C0DD1971787F76CC54A691203194375D2022CC39ED60B
+NOTE=Rollback checkout uses Git's Windows line-ending normalization; BASE_GIT_BLOB_SHA1 is the stable source identity.
+
+BASELINE
+COMMAND=npm test
+INPUT=CWD C:\Users\USER\Desktop\vkpooster-v460-rollback-20260823-1; detached HEAD 85c19d8a63963488951cf00ca40a46c8575a23f0; server dependencies installed with npm ci --ignore-scripts
+LITERAL_OUTPUT_RESULT=extension: tests 103, pass 103, fail 0; server: tests 39, pass 39, fail 0
+EXIT_STATUS=0
+LOG=C:\Users\USER\Desktop\Новая папка (5)\verification\scheduled-editing-v4.6.0\BASELINE.log
+
+MODIFIED
+COMMAND=npm run verify
+INPUT=CWD C:\Users\USER\Desktop\Новая папка (5); manifest 4.6.0; server package 4.4.0; current feature worktree
+LITERAL_OUTPUT_RESULT=extension: tests 106, pass 106, fail 0; server: tests 44, pass 44, fail 0; vk-reposter-pro@4.6.0 check:js; vk-reposter-safe-server@4.4.0 check
+EXIT_STATUS=0
+LOG=C:\Users\USER\Desktop\Новая папка (5)\verification\scheduled-editing-v4.6.0\MODIFIED.log
+
+PATCHED_COPY
+COMMAND=npm test
+INPUT=CWD C:\Users\USER\Desktop\vkpooster-v460-rollback-20260823-1 after git apply --binary changes.diff
+LITERAL_OUTPUT_RESULT=extension: tests 106, pass 106, fail 0; server: tests 44, pass 44, fail 0
+EXIT_STATUS=0
+LOG=C:\Users\USER\Desktop\Новая папка (5)\verification\scheduled-editing-v4.6.0\PATCHED_COPY.log
+
+ROLLBACK
+COMMAND="C:\Program Files\Git\bin\bash.exe" "C:/Users/USER/Desktop/Новая папка (5)/verification/scheduled-editing-v4.6.0/ROLLBACK.sh" "C:/Users/USER/Desktop/vkpooster-v460-rollback-20260823-1" "C:/Users/USER/Desktop/Новая папка (5)/verification/scheduled-editing-v4.6.0/changes.diff"
+INPUT=Separate detached worktree at BASE_COMMIT with DIFF_FILE applied and patched-copy tests already green
+LITERAL_OUTPUT_RESULT=ROLLBACK_OK base=85c19d8a63963488951cf00ca40a46c8575a23f0 target=C:/Users/USER/Desktop/vkpooster-v460-rollback-20260823-1
+EXIT_STATUS=0
+LOG=C:\Users\USER\Desktop\Новая папка (5)\verification\scheduled-editing-v4.6.0\ROLLBACK.log
+
+ROLLBACK_TEST
+COMMAND=npm test
+INPUT=CWD C:\Users\USER\Desktop\vkpooster-v460-rollback-20260823-1 immediately after ROLLBACK.sh
+LITERAL_OUTPUT_RESULT=extension: tests 103, pass 103, fail 0; server: tests 39, pass 39, fail 0
+EXIT_STATUS=0
+GIT_DIFF_COMMAND=git diff --exit-code
+GIT_DIFF_LITERAL_RESULT=no output
+GIT_DIFF_EXIT_STATUS=0
+RESTORED_BEHAVIOR_STATUS=Baseline source and tests restored; editing/cancel-by-community/download additions removed from the rollback copy; main MODIFIED_FILE remains changed.
+LOG=C:\Users\USER\Desktop\Новая папка (5)\verification\scheduled-editing-v4.6.0\ROLLBACK_TEST.log

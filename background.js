@@ -177,6 +177,23 @@ async function vkApi(method, params = {}, token) {
   });
 }
 
+function isAllowedVkVideoUrl(rawUrl) {
+  try {
+    const url = new URL(String(rawUrl || ""));
+    if (url.protocol !== "https:") return false;
+    const host = url.hostname.toLowerCase();
+    const suffixes = ["vk.com", "vk.ru", "vkvideo.ru", "vk-cdn.net", "vkuseraudio.net", "vkuserlive.net", "vkuser.net", "userapi.com", "mycdn.me"];
+    return suffixes.some((suffix) => host === suffix || host.endsWith(`.${suffix}`));
+  } catch {
+    return false;
+  }
+}
+
+function safeDownloadFileName(value) {
+  const stem = String(value || "clip").replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_").trim().slice(0, 160) || "clip";
+  return stem.toLowerCase().endsWith(".mp4") ? stem : `${stem}.mp4`;
+}
+
 function nonRetryableError(message) {
   const error = new Error(message);
   error.nonRetryable = true;
@@ -2743,6 +2760,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return { jobs: result.jobs || [] };
     });
   }
+  if (type === "update_scheduled_comment") {
+    return respond(async () => {
+      const result = await serverRequest(`/api/scheduled-comments/${encodeURIComponent(message.id)}`, { method: "PATCH", body: message.patch || {} });
+      return { updated: true, job: result.job };
+    });
+  }
   if (type === "list_scheduled_posts") {
     return respond(async () => {
       const result = await serverRequest("/api/scheduled-posts?limit=100");
@@ -2753,6 +2776,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return respond(async () => {
       await serverRequest(`/api/scheduled-posts/${encodeURIComponent(message.id)}`, { method: "DELETE" });
       return { removed: true };
+    });
+  }
+  if (type === "update_scheduled_post") {
+    return respond(async () => {
+      const result = await serverRequest(`/api/scheduled-posts/${encodeURIComponent(message.id)}`, { method: "PATCH", body: message.patch || {} });
+      return { updated: true, job: result.job };
+    });
+  }
+  if (type === "cancel_scheduled_post_group") {
+    return respond(async () => {
+      const result = await serverRequest(`/api/scheduled-posts/${encodeURIComponent(message.id)}/groups/${encodeURIComponent(message.groupId)}`, { method: "DELETE" });
+      return { cancelled: true, job: result.job };
     });
   }
   if (type === "retry_scheduled_post") {
@@ -2777,6 +2812,27 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         { method: "POST" },
       );
       return { retried: true, job: result.job };
+    });
+  }
+  if (type === "vkr_get_video_qualities") {
+    return respond(async () => {
+      const data = await chrome.storage.local.get("vk_token");
+      const videoId = String(message.videoId || "").trim();
+      if (!/^-?\d+_\d+$/.test(videoId)) throw new Error("Некорректный ID видео.");
+      const result = await vkApi("video.get", { videos: videoId, count: 1 }, data.vk_token);
+      const item = Array.isArray(result?.items) ? result.items[0] : null;
+      return { files: item?.files || null, title: item?.title || "clip" };
+    });
+  }
+  if (type === "download_video_direct") {
+    return respond(async () => {
+      if (!isAllowedVkVideoUrl(message.url)) throw new Error("VK вернул неподдерживаемую ссылку на видео.");
+      const downloadId = await chrome.downloads.download({
+        url: String(message.url),
+        filename: `VK Reposter/${safeDownloadFileName(message.filename)}`,
+        saveAs: false,
+      });
+      return { downloadId };
     });
   }
   if (type === "get_queue_status") {
@@ -3030,8 +3086,11 @@ async function handleInstalled(details) {
     "vkr_autolike_log",
     "vkr_account_errors",
     "vkr_last_sync_ts",
-    "vkr_video_download",
   ]);
+  const videoSetting = await chrome.storage.local.get("vkr_video_download");
+  if (videoSetting.vkr_video_download === undefined) {
+    await chrome.storage.local.set({ vkr_video_download: true });
+  }
   await chrome.alarms.create("vkr_safe_jobs", { periodInMinutes: 1 });
   await setupContextMenus();
   await recoverQueue();

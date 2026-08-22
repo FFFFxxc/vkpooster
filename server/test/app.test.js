@@ -23,6 +23,9 @@ async function withServer(callback) {
     async remove() {
       return false;
     },
+    async update(id, patch) {
+      return { id, status: "queued", commentText: patch.commentText, commentAt: patch.commentAt };
+    },
     async purge() {
       return { removedJobs: 3 };
     },
@@ -43,6 +46,8 @@ async function withServer(callback) {
     async enqueue() { return { created: true, job: { id: "post-job", status: "queued", groups: [42] } }; },
     async list() { return [{ id: "post-job", status: "queued", groups: [42] }]; },
     async cancel(id) { return { id, status: "cancelled", groups: [42] }; },
+    async update(id, patch) { return { id, status: "queued", groups: [42], ...patch }; },
+    async cancelGroup(id, groupId) { return { id, status: "queued", groups: [42], cancelledGroupIds: [Number(groupId)] }; },
     async retry(id) { return { id, status: "queued", groups: [42] }; },
     async purge() { return { removedJobs: 5 }; },
   };
@@ -160,6 +165,32 @@ test("authenticated comment retry returns the requeued public job", async () => 
         status: "queued",
       },
     });
+  });
+});
+
+test("authenticated edit and per-community cancellation routes return public jobs", async () => {
+  await withServer(async (baseUrl) => {
+    const headers = {
+      Authorization: `Bearer ${"s".repeat(40)}`,
+      "Content-Type": "application/json",
+    };
+    const editedPost = await fetch(`${baseUrl}/api/scheduled-posts/post-job`, {
+      method: "PATCH", headers, body: JSON.stringify({ text: "Исправлено" }),
+    });
+    assert.equal(editedPost.status, 200);
+    assert.equal((await editedPost.json()).job.text, "Исправлено");
+
+    const cancelledGroup = await fetch(`${baseUrl}/api/scheduled-posts/post-job/groups/42`, {
+      method: "DELETE", headers,
+    });
+    assert.equal(cancelledGroup.status, 200);
+    assert.deepEqual((await cancelledGroup.json()).job.cancelledGroupIds, [42]);
+
+    const editedComment = await fetch(`${baseUrl}/api/scheduled-comments/comment-id`, {
+      method: "PATCH", headers, body: JSON.stringify({ commentText: "Исправленный комментарий" }),
+    });
+    assert.equal(editedComment.status, 200);
+    assert.equal((await editedComment.json()).job.commentText, "Исправленный комментарий");
   });
 });
 

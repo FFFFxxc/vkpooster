@@ -1,6 +1,6 @@
 "use strict";
 
-const { publicPostJob, validateScheduledPostInput } = require("./post-validation.js");
+const { publicPostJob, validateScheduledPostInput, validateScheduledPostUpdate } = require("./post-validation.js");
 
 function postPurgeStatuses(scope) {
   if (scope === "errors") return ["failed"];
@@ -54,6 +54,64 @@ function createPostService({ PostModel, tokenVault, now = () => new Date() }) {
         .sort({ publishAt: 1 })
         .limit(Math.min(200, Math.max(1, Number(limit) || 100)));
       return documents.map(publicPostJob);
+    },
+
+    async update(id, rawInput) {
+      const current = await PostModel.findById(id);
+      if (!current || !["queued", "paused", "failed"].includes(current.status)) {
+        throw new Error("Post job cannot be edited");
+      }
+      const fields = validateScheduledPostUpdate(rawInput, { now: now(), current });
+      const next = {
+        ...fields,
+        status: "queued",
+        attempts: 0,
+        lockedAt: null,
+        lockId: null,
+        completedAt: null,
+        lastError: null,
+        lastErrorCode: null,
+        cancelRequested: false,
+      };
+      if (fields.publishAt) {
+        next.nextRunAt = fields.publishAt;
+        next.expiresAt = new Date(Math.max(now().getTime(), fields.publishAt.getTime()) + 30 * 24 * 60 * 60_000);
+      }
+      const document = await PostModel.findOneAndUpdate(
+        { _id: id, status: { $in: ["queued", "paused", "failed"] } },
+        { $set: next },
+        { new: true },
+      );
+      if (!document) throw new Error("Post job cannot be edited");
+      return publicPostJob(document);
+    },
+
+    async cancelGroup(id, rawGroupId) {
+      const groupId = Math.abs(Number(rawGroupId));
+      if (!Number.isSafeInteger(groupId) || groupId <= 0) throw new Error("groupId must be a positive integer");
+      const current = await PostModel.findById(id);
+      if (!current || !["queued", "paused", "failed"].includes(current.status)) {
+        throw new Error("Post target cannot be cancelled");
+      }
+      const groups = Array.isArray(current.groups) ? current.groups.map(Number) : [];
+      const index = groups.indexOf(groupId);
+      if (index < 0) throw new Error("Post target was not found in this job");
+      const processedIds = new Set((Array.isArray(current.results) ? current.results : []).map((item) => Number(item?.gid)));
+      if (index < (Number(current.nextGroupIndex) || 0) || processedIds.has(groupId)) {
+        throw new Error("Post target was already processed");
+      }
+      const existing = [...new Set((Array.isArray(current.cancelledGroupIds) ? current.cancelledGroupIds : []).map(Number))];
+      if (existing.includes(groupId)) return publicPostJob(current);
+      const document = await PostModel.findOneAndUpdate(
+        { _id: id, status: { $in: ["queued", "paused", "failed"] } },
+        { $addToSet: { cancelledGroupIds: groupId } },
+        { new: true },
+      );
+      if (!document) throw new Error("Post target cannot be cancelled");
+      if (!Array.isArray(document.cancelledGroupIds) || !document.cancelledGroupIds.includes(groupId)) {
+        document.cancelledGroupIds = [...existing, groupId];
+      }
+      return publicPostJob(document);
     },
 
     async cancel(id) {

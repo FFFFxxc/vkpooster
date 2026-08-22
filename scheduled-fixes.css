@@ -2163,3 +2163,16 @@ a:focus-visible {
     border: 1px solid #ccc;
   }
 }
+.edit-dialog-body { width: min(660px, calc(100vw - 32px)); }
+.edit-dialog-body label { display: grid; gap: 7px; color: #c4b5fd; font-size: 13px; }
+.edit-dialog-body textarea, .edit-dialog-body input, .edit-dialog-body select { width: 100%; box-sizing: border-box; border: 1px solid rgba(139,92,246,.3); border-radius: 12px; background: rgba(5,7,22,.72); color: #f8fafc; padding: 11px 12px; font: inherit; }
+.edit-note { padding: 11px 13px; border: 1px solid rgba(56,189,248,.2); border-radius: 12px; background: rgba(56,189,248,.07); color: #bae6fd; font-size: 12px; line-height: 1.5; }
+.pending-targets { margin-top: 12px; border: 1px solid rgba(139,92,246,.2); border-radius: 13px; overflow: hidden; }
+.pending-targets summary { cursor: pointer; padding: 11px 13px; color: #c4b5fd; font-size: 12px; font-weight: 700; }
+.pending-target-list { display: grid; border-top: 1px solid rgba(139,92,246,.15); }
+.pending-target { display: flex; gap: 10px; align-items: center; justify-content: space-between; padding: 9px 12px; }
+.pending-target + .pending-target { border-top: 1px solid rgba(139,92,246,.12); }
+.pending-target span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pending-target button { flex: none; padding: 6px 9px; border-color: rgba(251,113,133,.45); color: #fecdd3; }
+.result-item.cancelled { background: rgba(100,116,139,.08); }
+.result-item.cancelled .result-badge { color: #cbd5e1; }

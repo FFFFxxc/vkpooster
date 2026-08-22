@@ -26,7 +26,7 @@ function createApp({
     const connected = databaseReady();
     response.status(connected ? 200 : 503).json({
       status: connected ? "ok" : "degraded",
-      version: "4.3.0",
+      version: "4.4.0",
       database: connected ? "connected" : "disconnected",
     });
   });
@@ -48,7 +48,7 @@ function createApp({
     response.json({
       ok: true,
       status: connected ? "ready" : "degraded",
-      version: "4.3.0",
+      version: "4.4.0",
       database: connected ? "connected" : "disconnected",
     });
   });
@@ -71,6 +71,22 @@ function createApp({
       const jobs = await postService.list({ status: request.query.status, limit: request.query.limit });
       response.json({ ok: true, jobs });
     } catch (error) { next(error); }
+  });
+
+  api.patch("/scheduled-posts/:id", async (request, response, next) => {
+    try { response.json({ ok: true, job: await postService.update(request.params.id, request.body) }); }
+    catch (error) {
+      if (/required|must|cannot be edited|editable|publishAt|mode|text/i.test(error.message)) { response.status(400).json({ ok: false, error: error.message }); return; }
+      next(error);
+    }
+  });
+
+  api.delete("/scheduled-posts/:id/groups/:groupId", async (request, response, next) => {
+    try { response.json({ ok: true, job: await postService.cancelGroup(request.params.id, request.params.groupId) }); }
+    catch (error) {
+      if (/groupId|target|processed|cancelled|not found/i.test(error.message)) { response.status(400).json({ ok: false, error: error.message }); return; }
+      next(error);
+    }
   });
 
   api.delete("/scheduled-posts", async (request, response, next) => {
@@ -127,6 +143,14 @@ function createApp({
       });
       response.json({ ok: true, jobs });
     } catch (error) {
+      next(error);
+    }
+  });
+
+  api.patch("/scheduled-comments/:id", async (request, response, next) => {
+    try { response.json({ ok: true, job: await commentService.update(request.params.id, request.body) }); }
+    catch (error) {
+      if (/required|must|cannot be edited|editable|commentText|commentAt|future/i.test(error.message)) { response.status(400).json({ ok: false, error: error.message }); return; }
       next(error);
     }
   });

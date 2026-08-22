@@ -10,6 +10,7 @@ const resultSchema = new mongoose.Schema({
   error: { type: String, default: null, maxlength: 1000 },
   code: { type: Number, default: null },
   warning: { type: String, default: null, maxlength: 1000 },
+  cancelled: { type: Boolean, default: false },
 }, { _id: false });
 
 const scheduledPostSchema = new mongoose.Schema({
@@ -31,6 +32,7 @@ const scheduledPostSchema = new mongoose.Schema({
  commentDelaySeconds: { type: Number, default: 60, min: 15, max: 86400 },
   commentGroupIntervalSeconds: { type: Number, default: 30, min: 15, max: 3600 },
   results: { type: [resultSchema], default: [] },
+  cancelledGroupIds: { type: [Number], default: [] },
   tokenCiphertext: { type: String, required: true, select: false },
   tokenIv: { type: String, required: true, select: false },
   tokenTag: { type: String, required: true, select: false },

@@ -20,17 +20,17 @@ const scheduled = fs.readFileSync(
 const content = fs.readFileSync(path.join(root, "content.js"), "utf8");
 
 test("manifest has no cookie interception, OAuth impersonation, or global hosts", () => {
-  assert.equal(manifest.version, "4.5.0");
+  assert.equal(manifest.version, "4.6.0");
   for (const permission of [
     "cookies",
     "declarativeNetRequest",
     "webRequest",
     "webRequestBlocking",
-    "downloads",
     "scripting",
   ]) {
     assert.equal(manifest.permissions.includes(permission), false);
   }
+  assert.equal(manifest.permissions.includes("downloads"), true);
   assert.equal(manifest.permissions.includes("tabs"), true);
   assert.equal(manifest.host_permissions.includes("<all_urls>"), false);
   assert.equal(
@@ -48,8 +48,6 @@ test("active service worker contains no legacy account sync or like automation",
     "login.vk.com",
     "start_cookie_auth",
     "2685278",
-    "vkr_get_video_qualities",
-    "VKR_INJECT_MAIN_SCRIPT",
   ]) {
     assert.equal(
       background.includes(forbidden),
@@ -59,12 +57,10 @@ test("active service worker contains no legacy account sync or like automation",
   }
 });
 
-test("video cookie automation is absent and queue cleanup goes through worker", () => {
+test("clip download uses no cookie automation and queue cleanup goes through worker", () => {
   for (const forbidden of [
     "credentials: 'include'",
     'credentials: "include"',
-    "al_video.php",
-    "download_video_direct",
   ]) {
     assert.equal(content.includes(forbidden), false);
   }

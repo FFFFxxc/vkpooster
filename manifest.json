@@ -1,14 +1,15 @@
 {
   "manifest_version": 3,
   "name": "VK Reposter Pro",
-  "version": "4.5.0",
+  "version": "4.6.0",
   "description": "Безопасная очередь постинга и отложенных комментариев для сообществ ВКонтакте",
   "permissions": [
     "storage",
     "alarms",
     "notifications",
     "contextMenus",
-    "tabs"
+    "tabs",
+    "downloads"
   ],
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'self'"
@@ -42,6 +43,12 @@
       "run_at": "document_start"
     },
     {
+      "matches": ["*://vk.com/*", "*://*.vk.com/*", "*://vk.ru/*", "*://*.vk.ru/*"],
+      "js": ["injection.js"],
+      "world": "MAIN",
+      "run_at": "document_idle"
+    },
+    {
       "matches": ["https://vk.ru/clips/*", "https://vk.com/clips/*"],
       "js": ["clip-upload-content.js"],
       "run_at": "document_idle"
@@ -64,7 +71,7 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["modal.css", "lottie-player.js", "fire-heart.json"],
+      "resources": ["modal.css", "lottie-player.js", "fire-heart.json", "injection.js"],
       "matches": ["*://vk.com/*", "*://*.vk.com/*", "*://vk.ru/*", "*://*.vk.ru/*"]
     }
   ]

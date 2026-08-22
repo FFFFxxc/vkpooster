@@ -45,6 +45,24 @@ function validateScheduledCommentInput(input) {
   };
 }
 
+function validateScheduledCommentUpdate(input, { now = new Date() } = {}) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("JSON body is required");
+  const update = {};
+  if (Object.prototype.hasOwnProperty.call(input, "commentText")) {
+    const commentText = String(input.commentText || "").trim();
+    if (!commentText || commentText.length > 4096) throw new Error("commentText must contain 1-4096 characters");
+    update.commentText = commentText;
+  }
+  if (Object.prototype.hasOwnProperty.call(input, "commentAt")) {
+    const commentAt = new Date(input.commentAt);
+    if (!Number.isFinite(commentAt.getTime())) throw new Error("commentAt must be a valid date");
+    if (commentAt.getTime() < new Date(now).getTime() + 15_000) throw new Error("commentAt must be at least 15 seconds in the future");
+    update.commentAt = commentAt;
+  }
+  if (!Object.keys(update).length) throw new Error("At least one editable field is required");
+  return update;
+}
+
 function publicCommentJob(document) {
   const source =
     document && typeof document.toObject === "function"
@@ -72,4 +90,5 @@ module.exports = {
   publicCommentJob,
   requirePositiveInteger,
   validateScheduledCommentInput,
+  validateScheduledCommentUpdate,
 };

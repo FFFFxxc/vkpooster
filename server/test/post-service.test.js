@@ -60,3 +60,69 @@ test("post service can cancel, retry and purge terminal jobs only", async () => 
   assert.deepEqual(await service.purge({ scope: "all" }), { removedJobs: 4 });
   assert.deepEqual(calls.at(-1).filter, { status: { $in: ["completed", "failed", "cancelled"] } });
 });
+
+test("post service edits only mutable fields of a non-processing job", async () => {
+  let updateCall;
+  const current = {
+    _id: "post-job",
+    status: "queued",
+    groups: [42, 43],
+    nextGroupIndex: 0,
+    results: [],
+    publishAt: new Date(Date.now() + 60_000),
+  };
+  const service = createPostService({
+    PostModel: {
+      async findById() { return current; },
+      async findOneAndUpdate(filter, update) {
+        updateCall = { filter, update };
+        return { ...current, ...update.$set };
+      },
+    },
+    tokenVault: {},
+    now: () => new Date("2026-08-23T10:00:00.000Z"),
+  });
+
+  const publishAt = "2026-08-23T12:00:00.000Z";
+  const job = await service.update("post-job", {
+    text: "Новый текст",
+    autoCommentText: "Новый комментарий",
+    mode: "repost",
+    publishAt,
+  });
+  assert.deepEqual(updateCall.filter, { _id: "post-job", status: { $in: ["queued", "paused", "failed"] } });
+  assert.equal(updateCall.update.$set.text, "Новый текст");
+  assert.equal(updateCall.update.$set.autoCommentText, "Новый комментарий");
+  assert.equal(updateCall.update.$set.mode, "repost");
+  assert.equal(updateCall.update.$set.publishAt.toISOString(), publishAt);
+  assert.equal(updateCall.update.$set.nextRunAt.toISOString(), publishAt);
+  assert.equal(job.text, "Новый текст");
+});
+
+test("post service cancels one pending community without cancelling the batch", async () => {
+  let updateCall;
+  const current = {
+    _id: "post-job",
+    status: "queued",
+    groups: [42, 43, 44],
+    nextGroupIndex: 1,
+    cancelledGroupIds: [],
+    results: [{ gid: 42, ok: true, postId: 7 }],
+    publishAt: new Date(),
+  };
+  const service = createPostService({
+    PostModel: {
+      async findById() { return current; },
+      async findOneAndUpdate(filter, update) {
+        updateCall = { filter, update };
+        return { ...current, ...update.$set };
+      },
+    },
+    tokenVault: {},
+  });
+
+  const job = await service.cancelGroup("post-job", 43);
+  assert.deepEqual(updateCall.update.$addToSet, { cancelledGroupIds: 43 });
+  assert.deepEqual(job.cancelledGroupIds, [43]);
+  await assert.rejects(() => service.cancelGroup("post-job", 42), /already processed/i);
+});

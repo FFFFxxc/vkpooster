@@ -58,3 +58,13 @@ test("scheduled posts run on the server at photo time and can be cancelled", () 
   assert.match(shadow, /id="vkr-schedule-mode"/);
   assert.match(css, /\.status\.scheduled/);
 });
+
+test("scheduled server posts and comments expose editing and per-community cancellation", () => {
+  assert.match(background, /update_scheduled_post/);
+  assert.match(background, /cancel_scheduled_post_group/);
+  assert.match(background, /update_scheduled_comment/);
+  assert.match(scheduled, /openPostEdit/);
+  assert.match(scheduled, /openCommentEdit/);
+  assert.match(scheduled, /Не публиковать/);
+  assert.match(scheduled, /Редактировать/);
+});

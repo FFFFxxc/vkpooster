@@ -92,3 +92,32 @@ test("manual comment retry keeps the idempotency key and clears the failed attem
   assert.equal(update.$set.lastError, null);
   assert.equal(job.idempotencyKey, "same-guid-forever");
 });
+
+test("queued comment text and time can be edited", async () => {
+  let call;
+  const service = createCommentService({
+    CommentModel: {
+      async findOneAndUpdate(filter, update) {
+        call = { filter, update };
+        return {
+          _id: "job-id", groupId: 42, postId: 10,
+          commentText: update.$set.commentText,
+          commentAt: update.$set.commentAt,
+          status: update.$set.status,
+        };
+      },
+    },
+    tokenVault: {},
+    now: () => new Date("2026-08-23T10:00:00.000Z"),
+  });
+
+  const job = await service.update("job-id", {
+    commentText: "Исправленный комментарий",
+    commentAt: "2026-08-23T11:00:00.000Z",
+  });
+  assert.deepEqual(call.filter.status, { $in: ["queued", "paused", "failed"] });
+  assert.equal(call.update.$set.commentText, "Исправленный комментарий");
+  assert.equal(call.update.$set.commentAt.toISOString(), "2026-08-23T11:00:00.000Z");
+  assert.equal(call.update.$set.status, "queued");
+  assert.equal(job.commentText, "Исправленный комментарий");
+});

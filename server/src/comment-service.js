@@ -3,6 +3,7 @@
 const {
   publicCommentJob,
   validateScheduledCommentInput,
+  validateScheduledCommentUpdate,
 } = require("./validation.js");
 
 function commentPurgeStatuses(scope) {
@@ -12,7 +13,7 @@ function commentPurgeStatuses(scope) {
   throw new Error("scope must be errors, completed, or all");
 }
 
-function createCommentService({ CommentModel, tokenVault }) {
+function createCommentService({ CommentModel, tokenVault, now = () => new Date() }) {
   return Object.freeze({
     async enqueue(rawInput) {
       const input = validateScheduledCommentInput(rawInput);
@@ -54,6 +55,30 @@ function createCommentService({ CommentModel, tokenVault }) {
         .sort({ commentAt: 1 })
         .limit(Math.min(200, Math.max(1, Number(limit) || 100)));
       return documents.map(publicCommentJob);
+    },
+
+    async update(id, rawInput) {
+      const fields = validateScheduledCommentUpdate(rawInput, { now: now() });
+      const next = {
+        ...fields,
+        status: "queued",
+        attempts: 0,
+        lockedAt: null,
+        lockId: null,
+        completedAt: null,
+        lastError: null,
+        lastErrorCode: null,
+      };
+      if (fields.commentAt) {
+        next.expiresAt = new Date(Math.max(now().getTime(), fields.commentAt.getTime()) + 30 * 24 * 60 * 60 * 1000);
+      }
+      const document = await CommentModel.findOneAndUpdate(
+        { _id: id, status: { $in: ["queued", "paused", "failed"] } },
+        { $set: next },
+        { new: true },
+      );
+      if (!document) throw new Error("Comment job cannot be edited");
+      return publicCommentJob(document);
     },
 
     async retry(id) {

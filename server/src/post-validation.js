@@ -104,12 +104,52 @@ function validateScheduledPostInput(input, { now = new Date() } = {}) {
   };
 }
 
+function validateScheduledPostUpdate(input, { now = new Date(), current } = {}) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    throw new Error("JSON body is required");
+  }
+  const allowed = ["text", "autoCommentText", "mode", "publishAt"];
+  if (!allowed.some((field) => Object.prototype.hasOwnProperty.call(input, field))) {
+    throw new Error("At least one editable field is required");
+  }
+  const update = {};
+  if (Object.prototype.hasOwnProperty.call(input, "text")) {
+    update.text = cleanText(input.text, 16_384);
+  }
+  if (Object.prototype.hasOwnProperty.call(input, "autoCommentText")) {
+    update.autoCommentText = cleanText(input.autoCommentText, 4096);
+  }
+  if (Object.prototype.hasOwnProperty.call(input, "mode")) {
+    if (!['copy', 'repost'].includes(input.mode)) throw new Error("mode must be copy or repost");
+    update.mode = input.mode;
+  }
+  if (Object.prototype.hasOwnProperty.call(input, "publishAt")) {
+    const publishAt = new Date(input.publishAt);
+    const currentTime = new Date(now);
+    if (!Number.isFinite(publishAt.getTime())) throw new Error("publishAt must be a valid date");
+    if (publishAt.getTime() < currentTime.getTime() + 15_000) {
+      throw new Error("publishAt must be at least 15 seconds in the future");
+    }
+    if (publishAt.getTime() > currentTime.getTime() + 180 * 24 * 60 * 60_000) {
+      throw new Error("publishAt must be within 180 days");
+    }
+    if ((Number(current?.nextGroupIndex) || 0) > 0 || (Array.isArray(current?.results) && current.results.length > 0)) {
+      throw new Error("publishAt cannot be changed after publishing has started");
+    }
+    update.publishAt = publishAt;
+  }
+  return update;
+}
+
 function publicPostJob(document) {
   const source = document && typeof document.toObject === "function" ? document.toObject() : { ...(document || {}) };
   const groups = Array.isArray(source.groups) ? source.groups : [];
   const results = Array.isArray(source.results) ? source.results : [];
+  const cancelledGroupIds = [...new Set((Array.isArray(source.cancelledGroupIds) ? source.cancelledGroupIds : [])
+    .map(Number).filter((id) => Number.isSafeInteger(id) && id > 0))];
   const ok = results.filter((item) => item?.ok === true).length;
-  const fail = results.filter((item) => item?.ok === false).length;
+  const cancelled = results.filter((item) => item?.cancelled === true).length;
+  const fail = results.filter((item) => item?.ok === false && item?.cancelled !== true).length;
   return {
     id: String(source._id || source.id || ""),
     idempotencyKey: source.idempotencyKey,
@@ -118,6 +158,7 @@ function publicPostJob(document) {
     sourcePostId: source.sourcePostId,
     sourceUrl: source.sourceUrl,
     groups,
+    cancelledGroupIds,
     groupLabels: source.groupLabels || {},
     mode: source.mode,
     text: source.text || "",
@@ -133,10 +174,11 @@ function publicPostJob(document) {
     results,
     progress: {
       total: groups.length,
-      current: Math.min(groups.length, ok + fail),
+      current: Math.min(groups.length, ok + fail + cancelled),
       ok,
       fail,
-      percent: groups.length ? Math.round(((ok + fail) / groups.length) * 100) : 0,
+      cancelled,
+      percent: groups.length ? Math.round(((ok + fail + cancelled) / groups.length) * 100) : 0,
     },
     attempts: Number(source.attempts) || 0,
     lastError: source.lastError || null,
@@ -151,4 +193,5 @@ function publicPostJob(document) {
 module.exports = {
   publicPostJob,
   validateScheduledPostInput,
+  validateScheduledPostUpdate,
 };

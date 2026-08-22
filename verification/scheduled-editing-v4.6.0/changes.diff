@@ -1,0 +1,2396 @@
+diff --git a/README.md b/README.md
+index a4ed986..0ccf904 100644
+--- a/README.md
++++ b/README.md
+@@ -1,9 +1,17 @@
+-# VK Reposter Pro 4.5.0
++# VK Reposter Pro 4.6.0
+ 
+ Расширение для последовательной публикации в сообщества VK, отложенных постов,
+ комментариев и Историй, загрузки Клипов, аналитики и управляемой очистки данных.
+ 
+-## Главное в 4.5.0
++## Главное в 4.6.0
++
++- серверные посты можно редактировать до выполнения: менять текст, режим,
++  автокомментарий и время старта очереди;
++- у каждого ещё не обработанного паблика появилась отдельная кнопка
++  **Не публиковать**, не отменяющая весь пакет;
++- серверные отложенные комментарии можно редактировать вместе со временем;
++- в открытом клипе снова доступна панель выбора качества и скачивание MP4;
++  прямые ссылки проверяются фоновым процессом перед передачей Chrome Downloads;
+ 
+ - один подключённый пользовательский токен используется для постов, фото,
+   репостов, комментариев, Историй и аналитики;
+@@ -21,13 +29,14 @@
+ - защитные ответы VK (CAPTCHA, validation, flood-control и suspicious activity)
+   ставят задание на паузу вместо быстрого повторения;
+ - серверные посты, комментарии и Истории видны в общей отложке, их можно
+-  отменить, повторить после ошибки и очистить из MongoDB;
++  редактировать, отменить, повторить после ошибки и очистить из MongoDB;
+ - карточка «Ожидания» хранит черновик: паблики, время, режим, текст и комментарий;
+   исходная запись открывается отдельной кнопкой прямо на стене VK;
+ - выбор пабликов можно сохранять локальными наборами («Группа 1», «Группа 2»);
+ - копирование фото использует только свежие `owner_id`/`id`, возвращённые
+   `photos.saveWallPhoto`, поэтому просмотрщик не ведёт к паблику-источнику;
+-- Клипы остаются локальным процессом в одной обычной видимой вкладке VK;
++- загрузка Клипов остаётся локальным процессом в одной обычной видимой вкладке
++  VK, а скачивание открытых клипов включается отдельным переключателем;
+ - TwiBoost, экспорт/импорт настроек, очистка стен/альбомов и аналитика сохранены.
+ 
+ ## Установка расширения
+@@ -65,7 +74,7 @@ Blueprint использует план `starter`: засыпающий web serv
+ Blueprint: [render.yaml](render.yaml).
+ 
+ Коллекции создаются автоматически. Завершённые задания имеют TTL, а кнопка
+-**Очистка данных** удаляет ошибки, успешную историю либо всю завершённую историю,
++  **Очистка данных** удаляет ошибки, успешную историю либо всю завершённую историю,
+ не затрагивая активные задания.
+ 
+ ## Проверка
+@@ -75,5 +84,5 @@ npm run verify
+ ```
+ 
+ Тесты не обращаются к VK и не используют настоящие токены. После деплоя сделайте
+-smoke test на одном тестовом сообществе: текст, одно фото, отложенный пост и
+-комментарий. В `/health` должна отображаться версия сервера `4.3.0`.
++  smoke test на одном тестовом сообществе: текст, одно фото, отложенный пост и
++комментарий. В `/health` должна отображаться версия сервера `4.4.0`.
+diff --git a/background.js b/background.js
+index e844dbf..901d456 100644
+--- a/background.js
++++ b/background.js
+@@ -177,6 +177,23 @@ async function vkApi(method, params = {}, token) {
+   });
+ }
+ 
++function isAllowedVkVideoUrl(rawUrl) {
++  try {
++    const url = new URL(String(rawUrl || ""));
++    if (url.protocol !== "https:") return false;
++    const host = url.hostname.toLowerCase();
++    const suffixes = ["vk.com", "vk.ru", "vkvideo.ru", "vk-cdn.net", "vkuseraudio.net", "vkuserlive.net", "vkuser.net", "userapi.com", "mycdn.me"];
++    return suffixes.some((suffix) => host === suffix || host.endsWith(`.${suffix}`));
++  } catch {
++    return false;
++  }
++}
++
++function safeDownloadFileName(value) {
++  const stem = String(value || "clip").replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_").trim().slice(0, 160) || "clip";
++  return stem.toLowerCase().endsWith(".mp4") ? stem : `${stem}.mp4`;
++}
++
+ function nonRetryableError(message) {
+   const error = new Error(message);
+   error.nonRetryable = true;
+@@ -2743,6 +2760,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+       return { jobs: result.jobs || [] };
+     });
+   }
++  if (type === "update_scheduled_comment") {
++    return respond(async () => {
++      const result = await serverRequest(`/api/scheduled-comments/${encodeURIComponent(message.id)}`, { method: "PATCH", body: message.patch || {} });
++      return { updated: true, job: result.job };
++    });
++  }
+   if (type === "list_scheduled_posts") {
+     return respond(async () => {
+       const result = await serverRequest("/api/scheduled-posts?limit=100");
+@@ -2755,6 +2778,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+       return { removed: true };
+     });
+   }
++  if (type === "update_scheduled_post") {
++    return respond(async () => {
++      const result = await serverRequest(`/api/scheduled-posts/${encodeURIComponent(message.id)}`, { method: "PATCH", body: message.patch || {} });
++      return { updated: true, job: result.job };
++    });
++  }
++  if (type === "cancel_scheduled_post_group") {
++    return respond(async () => {
++      const result = await serverRequest(`/api/scheduled-posts/${encodeURIComponent(message.id)}/groups/${encodeURIComponent(message.groupId)}`, { method: "DELETE" });
++      return { cancelled: true, job: result.job };
++    });
++  }
+   if (type === "retry_scheduled_post") {
+     return respond(async () => {
+       const result = await serverRequest(`/api/scheduled-posts/${encodeURIComponent(message.id)}/retry`, { method: "POST" });
+@@ -2779,6 +2814,27 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+       return { retried: true, job: result.job };
+     });
+   }
++  if (type === "vkr_get_video_qualities") {
++    return respond(async () => {
++      const data = await chrome.storage.local.get("vk_token");
++      const videoId = String(message.videoId || "").trim();
++      if (!/^-?\d+_\d+$/.test(videoId)) throw new Error("Некорректный ID видео.");
++      const result = await vkApi("video.get", { videos: videoId, count: 1 }, data.vk_token);
++      const item = Array.isArray(result?.items) ? result.items[0] : null;
++      return { files: item?.files || null, title: item?.title || "clip" };
++    });
++  }
++  if (type === "download_video_direct") {
++    return respond(async () => {
++      if (!isAllowedVkVideoUrl(message.url)) throw new Error("VK вернул неподдерживаемую ссылку на видео.");
++      const downloadId = await chrome.downloads.download({
++        url: String(message.url),
++        filename: `VK Reposter/${safeDownloadFileName(message.filename)}`,
++        saveAs: false,
++      });
++      return { downloadId };
++    });
++  }
+   if (type === "get_queue_status") {
+     return respond(async () => {
+       const data = await chrome.storage.local.get([
+@@ -3030,8 +3086,11 @@ async function handleInstalled(details) {
+     "vkr_autolike_log",
+     "vkr_account_errors",
+     "vkr_last_sync_ts",
+-    "vkr_video_download",
+   ]);
++  const videoSetting = await chrome.storage.local.get("vkr_video_download");
++  if (videoSetting.vkr_video_download === undefined) {
++    await chrome.storage.local.set({ vkr_video_download: true });
++  }
+   await chrome.alarms.create("vkr_safe_jobs", { periodInMinutes: 1 });
+   await setupContextMenus();
+   await recoverQueue();
+diff --git a/content.js b/content.js
+index 4a134a6..1ba51c1 100644
+--- a/content.js
++++ b/content.js
+@@ -1,14 +1,14 @@
+ /**
+  * VK Reposter Pro - Content Script
+  * Modern UI with Glassmorphism Design
+- * @version 4.5.0
++ * @version 4.6.0
+  * @updated 2026-08-09
+  */
+ 
+ // ========== CONSTANTS ==========
+ const BUTTON_CLASS = "vkr-btn";
+ const PROCESSED_ATTR = "data-vkr-checked";
+-const VKR_VERSION = "4.5.0";
++const VKR_VERSION = "4.6.0";
+ const GROUP_SETS_STORAGE_KEY = "vkr_group_sets_v1";
+ const groupSetsCore = globalThis.VkrGroupSetsCore;
+ const POST_SELECTORS = '[data-post-id], div[id^="post-"], article[data-post-id], .post, .wall_item, .feed_row, .Post, [data-testid="post-root"], [data-testid="post"]';
+@@ -137,32 +137,107 @@ function randomDelay(min = 3000, max = 7000) {
+   return sleep(delay);
+ }
+ 
++const clipSourcesCache = new Map();
++const clipSourcesSessionCache = new Map();
++
++function parseQualitiesFromText(text) {
++  const regex = /"url(\d{3,4})"\s*:\s*"([^"]+)"/g;
++  const qualities = {};
++  let match;
++  while ((match = regex.exec(String(text || ""))) !== null) {
++    qualities[match[1]] = match[2].replace(/\\\//g, "/").replace(/\\u0026/g, "&");
++  }
++  return qualities;
++}
++
+ async function fetchClipSourcesById(clipId) {
++  if (!/^-?\d+_\d+$/.test(String(clipId || ""))) return null;
++  if (clipSourcesSessionCache.has(clipId)) return clipSourcesSessionCache.get(clipId);
++  try {
++    const endpoint = new URL("/al_video.php", location.origin);
++    endpoint.searchParams.set("act", "show");
++    endpoint.searchParams.set("al", "1");
++    endpoint.searchParams.set("video", clipId);
++    const response = await fetch(endpoint.toString());
++    if (!response.ok) throw new Error(`HTTP ${response.status}`);
++    const qualities = parseQualitiesFromText(await response.text());
++    if (Object.keys(qualities).length) {
++      clipSourcesSessionCache.set(clipId, qualities);
++      return qualities;
++    }
++  } catch (error) {
++    console.debug("[VKR] VK page did not expose progressive clip sources", error?.message || error);
++  }
++  clipSourcesSessionCache.set(clipId, null);
+   return null;
+-  void clipId;
+ }
+ 
+-// Слушаем сообщения от инъектированного скрипта
++function hasVideoQualities(files) {
++  if (!files || typeof files !== "object") return false;
++  return Object.entries(files).some(([key, value]) => /^(?:mp4_|url)\d{3,4}$/.test(key) && typeof value === "string");
++}
++
++document.addEventListener("click", (event) => {
++  const link = event.target.closest?.('a[href*="clip"]');
++  const match = link?.getAttribute("href")?.match(/clip(-?\d+)_(\d+)/);
++  if (match) window.postMessage({ type: "VKR_LAST_CLICKED_CLIP", id: `${match[1]}_${match[2]}`, ts: Date.now() }, "*");
++}, true);
++
+ window.addEventListener("message", async function (event) {
+   if (event.source !== window) return;
+-
+   const { type } = event.data || {};
+ 
+-  // Прокси-запрос качеств видео через API в background
++  if (type === "VKR_CLIP_SOURCES") {
++    const entry = event.data.entry;
++    if (entry?.key) {
++      clipSourcesCache.set(entry.key, entry);
++      if (clipSourcesCache.size > 20) clipSourcesCache.delete(clipSourcesCache.keys().next().value);
++    }
++    return;
++  }
++
+   if (type === "VKR_REQUEST_VIDEO_QUALITIES") {
+-    window.postMessage(
+-      {
+-        type: "VKR_RESPONSE_VIDEO_QUALITIES",
+-        videoId: event.data.videoId,
+-        ok: false,
+-        files: null,
+-        title: null,
+-        error: "Скачивание видео отключено в безопасной версии.",
+-      },
+-      "*",
+-    );
++    const videoId = String(event.data.videoId || "");
++    chrome.runtime.sendMessage({ type: "vkr_get_video_qualities", videoId }, async (response) => {
++      let { ok, files, title, error } = response || {};
++      if (!ok || !hasVideoQualities(files)) {
++        const sources = await fetchClipSourcesById(videoId);
++        if (sources) {
++          files = Object.fromEntries(Object.entries(sources).map(([quality, url]) => [`url${quality}`, url]));
++          ok = true;
++          title ||= "clip";
++          error = null;
++        }
++      }
++      window.postMessage({ type: "VKR_RESPONSE_VIDEO_QUALITIES", videoId, ok: Boolean(ok), files: files || null, title: title || null, error: error || null }, "*");
++    });
+     return;
+   }
++
++  if (type === "VKR_GET_VIDEO_DOWNLOAD_SETTING") {
++    const data = await chrome.storage.local.get("vkr_video_download");
++    window.postMessage({ type: "VKR_VIDEO_DOWNLOAD_SETTING", videoDownload: data.vkr_video_download !== false }, "*");
++    return;
++  }
++
++  if (type === "VKR_DOWNLOAD_VIDEO") {
++    const { url, quality, title } = event.data;
++    showToast("⬇️ Запускаю скачивание…", "info");
++    chrome.runtime.sendMessage({
++      type: "download_video_direct",
++      url,
++      filename: `${String(title || "clip")}_${String(quality || "video")}`,
++    }, (response) => {
++      if (chrome.runtime.lastError || !response?.ok) showToast(`❌ ${response?.error || chrome.runtime.lastError?.message || "Скачивание не запущено"}`, "error");
++      else showToast("✅ Скачивание клипа запущено", "success");
++    });
++  }
++});
++
++chrome.runtime.onMessage.addListener((message) => {
++  if (message?.type === "VKR_VIDEO_DOWNLOAD_SETTING_CHANGED") {
++    window.postMessage({ type: "VKR_VIDEO_DOWNLOAD_SETTING", videoDownload: message.enabled === true }, "*");
++  }
+ });
+ 
+ // ========== POST DETECTION ==========
+diff --git a/docs/superpowers/plans/2026-08-23-scheduled-editing-and-clip-download.md b/docs/superpowers/plans/2026-08-23-scheduled-editing-and-clip-download.md
+new file mode 100644
+index 0000000..39c6672
+--- /dev/null
++++ b/docs/superpowers/plans/2026-08-23-scheduled-editing-and-clip-download.md
+@@ -0,0 +1,100 @@
++# Scheduled Editing and Clip Download Implementation Plan
++
++> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
++
++**Goal:** Редактировать серверную отложку и отдельные комментарии, отменять публикацию по одному паблику и скачивать клипы через перенесённую панель качества.
++
++**Architecture:** Сервер получает узкие PATCH/target-cancel endpoints и сохраняет отменённые цели отдельно от ошибок. Extension вызывает их из новых диалогов; скачивание клипа остаётся локальным browser flow между MAIN-world injection, content bridge и background downloads API.
++
++**Tech Stack:** Chrome Manifest V3, vanilla JS, Node.js, Express, MongoDB/Mongoose, `node:test`.
++
++**Spec:** `docs/superpowers/specs/2026-08-23-scheduled-editing-and-clip-download-design.md`
++
++## Global Constraints
++
++- Не изменять уже опубликованные цели.
++- Не разрешать изменение документа во время `processing`.
++- Не возвращать user token или его зашифрованные поля в API.
++- Не возвращать старые cookie/Kate Mobile контуры.
++- Скачивать только валидированные HTTPS URL разрешённых VK CDN-хостов.
++
++---
++
++### Task 1: Server edit and per-group cancellation
++
++**Files:**
++- Modify: `server/src/post-validation.js`
++- Modify: `server/src/models/scheduled-post.js`
++- Modify: `server/src/post-service.js`
++- Modify: `server/src/post-worker.js`
++- Modify: `server/src/app.js`
++- Test: `server/test/post-validation.test.js`
++- Test: `server/test/post-service.test.js`
++- Test: `server/test/post-worker.test.js`
++- Test: `server/test/app.test.js`
++
++- [ ] Write failing tests for patch validation, edit status rules, target cancellation and worker skip.
++- [ ] Run focused server tests and record the expected failures.
++- [ ] Implement update/cancel-target services and routes.
++- [ ] Run focused server tests to green.
++
++### Task 2: Comment editing
++
++**Files:**
++- Modify: `server/src/validation.js`
++- Modify: `server/src/comment-service.js`
++- Modify: `server/src/app.js`
++- Test: `server/test/comment-service.test.js`
++- Test: `server/test/app.test.js`
++
++- [ ] Write failing tests for text/time editing and `processing` rejection.
++- [ ] Implement validation, service update and PATCH route.
++- [ ] Run focused tests to green.
++
++### Task 3: Extension scheduled UI
++
++**Files:**
++- Modify: `background.js`
++- Modify: `scheduled.html`
++- Modify: `scheduled.css`
++- Modify: `scheduled.js`
++- Test: `tests/scheduled-results-ui.test.js`
++- Test: `tests/user-first-contract.test.js`
++
++- [ ] Write failing contract tests for runtime messages, dialogs and per-group action.
++- [ ] Add background message handlers.
++- [ ] Add post/comment edit dialogs and target cancellation controls.
++- [ ] Run extension focused tests to green.
++
++### Task 4: Clip download restoration
++
++**Files:**
++- Copy/adjust: `injection.js` from the 3.3.0 directory.
++- Modify: `content.js`
++- Modify: `background.js`
++- Modify: `popup.html`
++- Modify: `popup-auth.js`
++- Modify: `manifest.json`
++- Test: `tests/manifest-security.test.js`
++- Create: `tests/clip-download-contract.test.js`
++
++- [ ] Write failing tests for permission, resources, settings and message bridge.
++- [ ] Port the quality panel and content bridge.
++- [ ] Implement validated direct downloads in the service worker.
++- [ ] Restore the popup toggle and run focused tests to green.
++
++### Task 5: Version, verification, rollback and delivery
++
++**Files:**
++- Modify: `manifest.json`
++- Modify: `package.json`
++- Modify: `server/package.json`
++- Create: `verification/scheduled-editing-v4.6.0/MODIFIED_FILE`
++- Create: `verification/scheduled-editing-v4.6.0/DIFF_FILE.patch`
++- Create: `verification/scheduled-editing-v4.6.0/VERIFICATION.txt`
++- Create: `verification/scheduled-editing-v4.6.0/ROLLBACK.sh`
++
++- [ ] Run `npm run verify`.
++- [ ] Apply the patch to a separate rollback copy, run rollback, and rerun baseline tests.
++- [ ] Reopen all four artifacts.
++- [ ] Commit and push `safe-v4`.
+diff --git a/docs/superpowers/specs/2026-08-23-scheduled-editing-and-clip-download-design.md b/docs/superpowers/specs/2026-08-23-scheduled-editing-and-clip-download-design.md
+new file mode 100644
+index 0000000..eb050ff
+--- /dev/null
++++ b/docs/superpowers/specs/2026-08-23-scheduled-editing-and-clip-download-design.md
+@@ -0,0 +1,40 @@
++# Редактирование отложки и скачивание клипов — дизайн
++
++## Цель
++
++Добавить в текущую server-user отложку редактирование текста поста, автоматического комментария, режима и времени публикации; разрешить исключать отдельные ещё не обработанные сообщества; вернуть панель скачивания клипов из версии 3.3.0.
++
++## Серверная отложка
++
++- `PATCH /api/scheduled-posts/:id` принимает только изменяемые поля: `text`, `autoCommentText`, `mode`, `publishAt`.
++- Редактирование разрешено для `queued`, `paused` и `failed`; `processing` блокируется, чтобы не менять документ во время активного запроса VK.
++- Время можно менять только пока не опубликовано ни одного сообщества. После первого результата текст, комментарий и режим влияют только на оставшиеся сообщества.
++- `DELETE /api/scheduled-posts/:id/groups/:groupId` отмечает конкретное ещё не обработанное сообщество отменённым. Уже опубликованное или активно обрабатываемое сообщество не изменяется.
++- `cancelledGroupIds` хранится в документе; worker пропускает такие сообщества и записывает видимый результат `cancelled: true`.
++- Публичная модель возвращает изменяемые поля, список отменённых сообществ и прогресс, учитывающий отмены отдельно от ошибок.
++
++## Отложенные комментарии
++
++- `PATCH /api/scheduled-comments/:id` изменяет `commentText` и `commentAt` у `queued`, `paused` и `failed` заданий.
++- После редактирования задание возвращается в `queued`, очищает старую ошибку и получает новую дату хранения.
++
++## Интерфейс
++
++- На серверной карточке поста появляется кнопка «Редактировать» и список пабликов с отдельной кнопкой «Не публиковать» для ещё не выполненных целей.
++- Диалог редактирования показывает текст, автокомментарий, режим и дату/время.
++- На карточке комментария появляется кнопка «Редактировать» с отдельным диалогом текста и времени.
++- UI обновляет карточку только после подтверждённого ответа сервера.
++
++## Скачивание клипов
++
++- Источник: `C:\Users\USER\Desktop\NEW — копия`, версия 3.3.0.
++- Переносятся `injection.js`, получение доступных качеств через `video.get` и `al_video`, панель выбора качества, прямое скачивание через `chrome.downloads.download` и toggle в popup.
++- Не переносятся cookie-авторизация, Kate Mobile, старые аккаунтные и автолайк-контуры.
++- Прямая ссылка валидируется как HTTPS и допускается только с VK/VK Video CDN-хостов перед передачей в `chrome.downloads`.
++
++## Проверка
++
++- Серверные unit/API тесты: редактирование, запрет гонки с `processing`, точечная отмена, worker skip, редактирование комментария.
++- Extension contract/UI тесты: новые runtime-сообщения и элементы диалогов.
++- Clip contract тесты: permission `downloads`, web-accessible `injection.js`, фоновые handlers, старый мост качеств и безопасная проверка URL.
++- Полный `npm run verify`, затем применение diff к отдельной копии и проверка `ROLLBACK.sh`.
+diff --git a/injection.js b/injection.js
+new file mode 100644
+index 0000000..6cd42f3
+--- /dev/null
++++ b/injection.js
+@@ -0,0 +1,843 @@
++/**
++ * VK Reposter Pro - Page Context Injection Script
++ * Video & Clip Download with Network Interception
++ * @version 4.6.0
++ */
++
++(function () {
++  'use strict';
++
++  if (location.hash && location.hash.includes('vkr_')) {
++    sessionStorage.setItem('vkr_automation_tab', '1');
++  }
++  const isAutomationTab = (location.hash && location.hash.includes('vkr_')) || sessionStorage.getItem('vkr_automation_tab') === '1';
++  if (isAutomationTab) {
++    console.log('[VKR Injection] Automation tab detected, skipping injection.js logic');
++    return;
++  }
++
++  let enabled = false;
++  let activeClipId = null;
++  let observer = null;
++  let lastClickedClip = null;
++  let lastVideoSrc = null;
++  let isFetchingQualities = false;
++  const clipRequestStatuses = new Map();
++
++  // Получаем настройку из storage через content script
++  window.addEventListener('message', function (event) {
++    if (event.source !== window) return;
++
++    const { type, videoDownload, id, ts, videoId, ok, files, title } = event.data || {};
++
++    if (type === 'VKR_DISABLE_BEFOREUNLOAD_MAIN') {
++      window.onbeforeunload = null;
++    }
++
++    if (type === 'VKR_VIDEO_DOWNLOAD_SETTING') {
++      enabled = videoDownload;
++      console.log('[VKR Injection] Setting updated:', enabled);
++
++      if (!enabled) {
++        // Удаляем панель если выключено
++        document.querySelector('#vkr-player-download-panel')?.remove();
++        if (searchTimer) {
++          clearInterval(searchTimer);
++          searchTimer = null;
++        }
++        if (observer) {
++          observer.disconnect();
++          observer = null;
++        }
++        activeClipId = null;
++      } else {
++        setupMutationObserver();
++      }
++    }
++
++    if (type === 'VKR_LAST_CLICKED_CLIP') {
++      lastClickedClip = { id, ts };
++    }
++
++    if (type === 'VKR_RESPONSE_VIDEO_QUALITIES') {
++      if (isFetchingQualities === videoId) {
++        isFetchingQualities = false;
++      }
++
++      if (ok && files) {
++        const qualities = extractStandardQualities(files);
++        if (Object.keys(qualities).length > 0) {
++          clipCache.set(videoId, { qualities, title: title || "clip" });
++          clipRequestStatuses.set(videoId, 'done');
++          if (getCurrentClipId() === videoId) {
++            activeClipId = videoId;
++            createPanel(qualities, title || "clip");
++          }
++        } else {
++          // Различаем причину отсутствия качеств
++          const hasHls = files && (files.hls || files.live_hls || files.hlsMaster);
++          const errMsg = hasHls
++            ? 'Только HLS-поток, progressive MP4 недоступен'
++            : 'Недоступно для скачивания';
++          console.warn('[VKR] No qualities found in files:', files, '| HLS:', hasHls);
++          clipRequestStatuses.set(videoId, 'failed');
++          if (getCurrentClipId() === videoId) {
++            showErrorPanel(errMsg);
++          }
++        }
++      } else {
++        // Нет данных вообще — возможно нет токена или ошибка API
++        const noToken = event.data && event.data.error && /token|auth|access/i.test(event.data.error);
++        const errMsg = noToken
++          ? 'Нужна авторизация VK'
++          : 'Недоступно для скачивания';
++        console.warn('[VKR] No files in response. ok:', ok, 'error:', event.data?.error);
++        clipRequestStatuses.set(videoId, 'failed');
++        if (getCurrentClipId() === videoId) {
++          showErrorPanel(errMsg);
++        }
++      }
++    }
++  });
++
++  // Запрашиваем настройку при загрузке
++  window.postMessage({ type: 'VKR_GET_VIDEO_DOWNLOAD_SETTING' }, '*');
++
++  console.log('[VKR Injection] Script loaded, waiting for setting...');
++
++  let currentUrl = location.href;
++  let searchTimer = null;
++  const clipCache = new Map();
++  const rawClipSources = new Map();
++
++  function checkEnabled() {
++    if (!enabled) {
++      console.log('[VKR Injection] Video download is disabled');
++      return false;
++    }
++    return true;
++  }
++
++  // Задержка инициализации до получения настройки
++  let initCheck = setInterval(() => {
++    if (enabled) {
++      clearInterval(initCheck);
++      setupNetworkInterceptor();
++      setupMutationObserver();
++
++      setInterval(() => {
++        if (location.href !== currentUrl && enabled) {
++          currentUrl = location.href;
++          handleUrlChange();
++        }
++      }, 500);
++
++      handleUrlChange();
++    }
++  }, 100);
++
++  // Таймаут - если настройка не получена за 3 сек, выключаем
++  setTimeout(() => {
++    clearInterval(initCheck);
++    if (!enabled) {
++      console.log('[VKR Injection] No setting received, disabled');
++    }
++  }, 3000);
++
++  function handleUrlChange() {
++    if (!enabled) return;
++
++    document.querySelector('#vkr-player-download-panel')?.remove();
++
++    if (searchTimer) {
++      clearInterval(searchTimer);
++      searchTimer = null;
++    }
++
++    const isClipUrl = isClipPage();
++    const isVideoUrl = !isClipUrl && isVideoPage();
++
++    console.log('[VKR Injection] URL:', location.href,
++      '| isVideo:', isVideoUrl, '| isClip:', isClipUrl);
++
++    if (isClipUrl) {
++      const clipId = getCurrentClipId();
++      if (clipId) {
++        activeClipId = clipId;
++        startPlayerSearch(true);
++      }
++    } else if (isVideoUrl) {
++      startPlayerSearch(false);
++    }
++  }
++
++  function isVideoPage() {
++    return /z=video/.test(location.search)
++      || /^\/video(-?\d+_\d+)?/.test(location.pathname)
++      || /^\/videos/.test(location.pathname);
++  }
++
++  function isClipPage() {
++    return /z=clip/.test(location.search)
++      || /^\/clips/.test(location.pathname)
++      || /^\/clip/.test(location.pathname);
++  }
++
++  function getCurrentClipId() {
++    // а) параметр z=clip-XXX_YYY в location.href
++    let m = location.href.match(/[?&]z=clip(-?\d+_\d+)/);
++    if (m) return m[1];
++
++    // б) lastClickedClip, если ему меньше 30 секунд (случай мессенджера)
++    if (lastClickedClip && (Date.now() - lastClickedClip.ts < 30000)) {
++      return lastClickedClip.id;
++    }
++
++    // в) прежние способы (ссылки вида /clip-XXX_YYY внутри модалки)
++    const modal = document.querySelector('.VideoLayer__container, .ShortsPage, .ShortsPlayer, [class*="ShortsPlayer"], [class*="video_box_wrap"]');
++    if (modal) {
++      const links = modal.querySelectorAll('a[href*="/clip-"], a[href*="z=clip-"]');
++      for (const link of links) {
++        const href = link.getAttribute('href') || '';
++        const lm = href.match(/clip(-?\d+_\d+)/);
++        if (lm) return lm[1];
++      }
++    }
++
++    const video = document.querySelector('.ShortsPlayer video, [class*="ShortsPlayer"] video, .VideoLayer video, video');
++    if (video) {
++      const idAttr = video.getAttribute('id') || '';
++      let vm = idAttr.match(/(-?\d+_\d+)/);
++      if (vm) return vm[1];
++
++      const parent = video.closest('[id*="video"], [data-video-id], [id*="clip"]');
++      if (parent) {
++        const pId = parent.getAttribute('id') || parent.getAttribute('data-video-id') || '';
++        const pm = pId.match(/(-?\d+_\d+)/);
++        if (pm) return pm[1];
++      }
++    }
++
++    // Резервный поиск clip-XXX_YYY в URL
++    m = location.href.match(/clip(-?\d+_\d+)/);
++    if (m) return m[1];
++
++    return null;
++  }
++
++  function isClipPlayerOpen() {
++    const video = document.querySelector('video');
++    if (!video) return false;
++
++    if (document.querySelector('.ShortsPlayer, [class*="ShortsPlayer"], .ShortsPage, [class*="ShortsPage"]')) {
++      return true;
++    }
++    if (document.querySelector('[class*="ShortsPlayer__actions"], [class*="actions"], [class*="Actions"]')) {
++      return true;
++    }
++    if (/[?&]z=clip/.test(location.href)) {
++      return true;
++    }
++    return false;
++  }
++
++  let mutationTimeout = null;
++
++  function setupMutationObserver() {
++    if (observer) return;
++
++    observer = new MutationObserver(() => {
++      if (!enabled) return;
++
++      clearTimeout(mutationTimeout);
++      mutationTimeout = setTimeout(() => {
++        handleMutations();
++      }, 1000);
++    });
++
++    observer.observe(document.body, {
++      childList: true,
++      subtree: true
++    });
++  }
++
++  const originalQuerySelector = document.querySelector;
++  const originalQuerySelectorAll = document.querySelectorAll;
++
++  function handleMutations() {
++    if (!enabled) return;
++
++    // Временный кэш на время выполнения одного handleMutations
++    const qsCache = new Map();
++    const qsaCache = new Map();
++
++    document.querySelector = function (selector) {
++      if (qsCache.has(selector)) return qsCache.get(selector);
++      const res = originalQuerySelector.call(document, selector);
++      qsCache.set(selector, res);
++      return res;
++    };
++
++    document.querySelectorAll = function (selector) {
++      if (qsaCache.has(selector)) return qsaCache.get(selector);
++      const res = originalQuerySelectorAll.call(document, selector);
++      qsaCache.set(selector, res);
++      return res;
++    };
++
++    try {
++      const isOpen = isClipPlayerOpen();
++      if (isOpen) {
++        const video = document.querySelector('video');
++        const currentSrc = video ? (video.currentSrc || video.src || '') : '';
++
++        // Ранний выход для предотвращения лишних вызовов getCurrentClipId
++        if (activeClipId &&
++          clipRequestStatuses.get(activeClipId) === 'done' &&
++          document.querySelector('#vkr-player-download-panel') &&
++          lastVideoSrc === currentSrc) {
++          return;
++        }
++
++        if (video && lastVideoSrc !== currentSrc) {
++          if (currentSrc || lastVideoSrc) {
++            console.log("[VKR] Video src changed from", lastVideoSrc, "to", currentSrc);
++          }
++          document.querySelector('#vkr-player-download-panel')?.remove();
++          // Сбрасываем failed статус при смене src — позволяем повторный запрос
++          if (activeClipId) {
++            clipRequestStatuses.delete(activeClipId);
++          }
++          activeClipId = null;
++          lastVideoSrc = currentSrc;
++          isFetchingQualities = false;
++        }
++
++        const clipId = getCurrentClipId();
++        if (!clipId) {
++          console.warn("[VKR] Clip player open but clip ID not resolved.");
++          document.querySelector('#vkr-player-download-panel')?.remove();
++          activeClipId = null;
++          return;
++        }
++
++        if (activeClipId !== clipId) {
++          console.log('[VKR] Clip resolved:', clipId);
++          document.querySelector('#vkr-player-download-panel')?.remove();
++          // Сбрасываем failed статус при смене clipId — повторный запрос
++          const prevStatus = clipRequestStatuses.get(clipId);
++          if (prevStatus === 'failed') {
++            console.log('[VKR] Clearing failed status for new clip:', clipId);
++            clipRequestStatuses.delete(clipId);
++          }
++          activeClipId = clipId;
++        }
++
++        const status = clipRequestStatuses.get(clipId);
++        if (status === 'loading') {
++          return;
++        }
++        if (status === 'failed') {
++          return;
++        }
++        if (status === 'done') {
++          if (!document.querySelector('#vkr-player-download-panel')) {
++            if (clipCache.has(clipId)) {
++              const { qualities, title } = clipCache.get(clipId);
++              createPanel(qualities, title);
++            }
++          }
++          return;
++        }
++
++        console.log('[VKR] Clip player detected in modal. ID:', clipId);
++
++        if (clipCache.has(clipId)) {
++          const { qualities, title } = clipCache.get(clipId);
++          createPanel(qualities, title);
++          clipRequestStatuses.set(clipId, 'done');
++        } else {
++          if (isFetchingQualities !== clipId) {
++            isFetchingQualities = clipId;
++            clipRequestStatuses.set(clipId, 'loading');
++            window.postMessage({ type: "VKR_REQUEST_VIDEO_QUALITIES", videoId: clipId }, "*");
++          }
++        }
++      } else {
++        if (activeClipId !== null) {
++          console.log('[VKR] Clip player closed.');
++          document.querySelector('#vkr-player-download-panel')?.remove();
++          activeClipId = null;
++          lastVideoSrc = null;
++          isFetchingQualities = false;
++        }
++      }
++    } finally {
++      // Восстанавливаем оригинальные методы после завершения выполнения
++      document.querySelector = originalQuerySelector;
++      document.querySelectorAll = originalQuerySelectorAll;
++    }
++  }
++
++  function startPlayerSearch(isClip = false) {
++    if (!enabled) return;
++
++    let attempts = 0;
++    const maxAttempts = 60;
++
++    searchTimer = setInterval(() => {
++      if (!enabled) {
++        clearInterval(searchTimer);
++        searchTimer = null;
++        return;
++      }
++
++      attempts++;
++      if (location.href !== currentUrl) {
++        clearInterval(searchTimer); searchTimer = null; return;
++      }
++      if (attempts > maxAttempts) {
++        clearInterval(searchTimer); searchTimer = null; return;
++      }
++      const found = isClip ? tryFindClip() : tryFindVideo();
++      if (found) { clearInterval(searchTimer); searchTimer = null; }
++    }, 500);
++  }
++
++  function tryFindVideo() {
++    const playerVars = window.mvcur?.player?.vars || window.cur?.videoInlinePlayer?.vars;
++    if (playerVars && hasVideoUrls(playerVars)) {
++      createPanel(extractStandardQualities(playerVars), playerVars.md_title || 'video');
++      return true;
++    }
++    const videoEl = document.querySelector('#video_player video[src]');
++    if (videoEl) {
++      const src = videoEl.currentSrc || videoEl.src;
++      if (src && !src.startsWith('blob:')) { createPanel({ 'auto': src }, 'video'); return true; }
++    }
++    const iframe = document.querySelector('#video_player iframe');
++    if (iframe) { showErrorPanel('Видео со стороннего сайта'); return true; }
++    return false;
++  }
++
++  function tryFindClip() {
++    const clipId = getCurrentClipId();
++    if (!clipId) {
++      console.warn("[VKR] Clip ID not resolved cascade-wise.");
++      return false;
++    }
++    if (clipCache.has(clipId)) {
++      const { qualities, title } = clipCache.get(clipId);
++      createPanel(qualities, title);
++      return true;
++    }
++    return false;
++  }
++
++  // ===== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ КЭШИРОВАНИЯ И МАТЧИНГА =====
++  function saveRawClipSource(key, qualities) {
++    if (rawClipSources.size >= 20) {
++      const oldestKey = rawClipSources.keys().next().value;
++      rawClipSources.delete(oldestKey);
++    }
++    const entry = { key, qualities, ts: Date.now() };
++    rawClipSources.set(key, entry);
++
++    // Шлем в content.js
++    window.postMessage({ type: "VKR_CLIP_SOURCES", entry }, "*");
++  }
++
++  function cleanUrl(url) {
++    if (!url) return '';
++    try {
++      const u = new URL(url);
++      return u.host + u.pathname;
++    } catch (e) {
++      return url.split('?')[0];
++    }
++  }
++
++  async function matchClipFromCache(video) {
++    const maxTime = 3000;
++    const interval = 500;
++    let elapsed = 0;
++
++    while (elapsed <= maxTime) {
++      const currentSrc = video?.currentSrc || video?.src || '';
++      const cleanCurrent = cleanUrl(currentSrc);
++
++      if (cleanCurrent) {
++        // а) сматчи video.currentSrc с URL из кэша (сравнение по хосту и пути)
++        for (const entry of rawClipSources.values()) {
++          for (const qUrl of Object.values(entry.qualities)) {
++            if (cleanUrl(qUrl) === cleanCurrent) {
++              return entry;
++            }
++          }
++        }
++      }
++
++      // б) если не сматчилось — возьми самую свежую запись с ts моложе 15 секунд
++      let newestEntry = null;
++      const now = Date.now();
++      for (const entry of rawClipSources.values()) {
++        if (now - entry.ts < 15000) {
++          if (!newestEntry || entry.ts > newestEntry.ts) {
++            newestEntry = entry;
++          }
++        }
++      }
++      if (newestEntry) {
++        return newestEntry;
++      }
++
++      // в) если кэш пуст — повторяй проверку каждые 500 мс
++      await new Promise(r => setTimeout(r, interval));
++      elapsed += interval;
++    }
++
++    return null;
++  }
++
++  function scanTextForVideoQualities(text) {
++    if (!text || typeof text !== 'string') return null;
++
++    const videoIds = [];
++    let match;
++
++    // Паттерн 1: "oid": -123, "vid": 456
++    const oidVidRegex = /"oid"\s*:\s*(-?\d+)\s*,\s*"vid"\s*:\s*(\d+)/g;
++    while ((match = oidVidRegex.exec(text)) !== null) {
++      videoIds.push(`${match[1]}_${match[2]}`);
++    }
++
++    // Паттерн 2: "video_id": "owner_id_video_id"
++    const vidIdRegex = /"video_id"\s*:\s*"?(-?\d+_\d+)"?/g;
++    while ((match = vidIdRegex.exec(text)) !== null) {
++      videoIds.push(match[1]);
++    }
++
++    // Паттерн 3: clip-XXX_YYY
++    const clipUrlRegex = /clip(-?\d+_\d+)/g;
++    while ((match = clipUrlRegex.exec(text)) !== null) {
++      videoIds.push(match[1]);
++    }
++
++    const uniqueIds = [...new Set(videoIds)];
++    if (uniqueIds.length === 0) {
++      const generalIdRegex = /(-?\d+_\d+)/g;
++      while ((match = generalIdRegex.exec(text)) !== null) {
++        const parts = match[1].split('_');
++        if (parts[1] && parts[1].length >= 5) {
++          uniqueIds.push(match[1]);
++        }
++      }
++    }
++
++    if (uniqueIds.length === 0) return null;
++
++    const qualities = {};
++    const qualPatterns = {
++      '144p': /(?:url144|mp4_144|144)\b[^"']*?["'](https?:[^"']+?)["']/gi,
++      '240p': /(?:url240|mp4_240|240)\b[^"']*?["'](https?:[^"']+?)["']/gi,
++      '360p': /(?:url360|mp4_360|360)\b[^"']*?["'](https?:[^"']+?)["']/gi,
++      '480p': /(?:url480|mp4_480|480)\b[^"']*?["'](https?:[^"']+?)["']/gi,
++      '540p': /(?:url540|mp4_540|540)\b[^"']*?["'](https?:[^"']+?)["']/gi,
++      '720p': /(?:url720|mp4_720|720)\b[^"']*?["'](https?:[^"']+?)["']/gi,
++      '1080p': /(?:url1080|mp4_1080|1080)\b[^"']*?["'](https?:[^"']+?)["']/gi,
++      '1440p': /(?:url1440|mp4_1440|1440)\b[^"']*?["'](https?:[^"']+?)["']/gi,
++      '2160p': /(?:url2160|mp4_2160|2160)\b[^"']*?["'](https?:[^"']+?)["']/gi
++    };
++
++    for (const [label, regex] of Object.entries(qualPatterns)) {
++      const qMatch = regex.exec(text);
++      if (qMatch && qMatch[1]) {
++        qualities[label] = qMatch[1].replace(/\\/g, '');
++      }
++    }
++
++    if (Object.keys(qualities).length === 0) return null;
++
++    return {
++      ids: uniqueIds,
++      qualities
++    };
++  }
++
++  // ===== ПЕРЕХВАТ СЕТИ =====
++  function setupNetworkInterceptor() {
++    const originalFetch = window.fetch;
++    window.fetch = async function (...args) {
++      const url = args[0]?.toString() || '';
++      const response = await originalFetch.apply(this, args);
++
++      try {
++        const isTarget = url.includes('al_video.php') || url.includes('api.vk.com/method/video');
++        if (isTarget) {
++          const contentLength = response.headers.get('content-length');
++          const size = contentLength ? parseInt(contentLength, 10) : 0;
++
++          if (!contentLength || size <= 2 * 1024 * 1024) {
++            response.clone().text().then(text => {
++              if (text.length <= 2 * 1024 * 1024) {
++                const result = scanTextForVideoQualities(text);
++                if (result) {
++                  for (const id of result.ids) {
++                    saveRawClipSource(id, result.qualities);
++                  }
++                }
++              }
++            }).catch(() => { });
++          }
++        }
++      } catch (err) {
++        console.error('[VKR] Fetch interception error:', err);
++      }
++
++      if (url.includes('api.vk.com/method/video')) {
++        try {
++          const contentLength = response.headers.get('content-length');
++          const size = contentLength ? parseInt(contentLength, 10) : 0;
++          if (!contentLength || size <= 2 * 1024 * 1024) {
++            const clipIdAtRequest = getCurrentClipId();
++            response.clone().json().then(data => {
++              processApiData(data, clipIdAtRequest);
++            }).catch(() => { });
++          }
++        } catch (err) { }
++      }
++
++      return response;
++    };
++
++    const origOpen = XMLHttpRequest.prototype.open;
++    const origSend = XMLHttpRequest.prototype.send;
++    XMLHttpRequest.prototype.open = function (method, url, ...rest) {
++      this._vkrUrl = url || '';
++      return origOpen.call(this, method, url, ...rest);
++    };
++    XMLHttpRequest.prototype.send = function (...args) {
++      this.addEventListener('load', function () {
++        try {
++          const url = this._vkrUrl || '';
++          const isTarget = url.includes('al_video.php') || url.includes('api.vk.com/method/video');
++          if (isTarget) {
++            const responseText = this.responseText || '';
++            if (responseText.length <= 2 * 1024 * 1024) {
++              const result = scanTextForVideoQualities(responseText);
++              if (result) {
++                for (const id of result.ids) {
++                  saveRawClipSource(id, result.qualities);
++                }
++              }
++            }
++          }
++
++          if (url.includes('api.vk.com/method/video')) {
++            const responseText = this.responseText || '';
++            if (responseText.length <= 2 * 1024 * 1024) {
++              const clipId = getCurrentClipId();
++              if (clipId) {
++                processApiData(JSON.parse(responseText), clipId);
++              }
++            }
++          }
++        } catch (e) {
++          // Silent catch
++        }
++      });
++      return origSend.apply(this, args);
++    };
++
++    console.log('[VKR Injection] Network interceptor ready');
++  }
++
++  function processApiData(data, clipId) {
++    if (!clipId) return;
++    if (clipCache.has(clipId)) return;
++
++    try {
++      const resp = data?.response;
++      if (resp === undefined || resp === null) return;
++
++      // resp может быть массивом (execute возвращает массив результатов)
++      // или объектом с items
++      const toSearch = Array.isArray(resp) ? resp : [resp];
++
++      for (const chunk of toSearch) {
++        if (!chunk || typeof chunk !== 'object') continue;
++
++        // Ищем объект с полем items[] где items[0].files содержит mp4_*
++        const items = chunk.items;
++        if (Array.isArray(items) && items.length > 0) {
++          for (const item of items) {
++            // Проверяем direct_url — там есть ID клипа!
++            const directUrl = item.direct_url || item.share_url || '';
++            const urlClipId = extractClipIdFromUrl(directUrl);
++
++            const files = item.files;
++            if (!files || typeof files !== 'object') continue;
++
++            // Есть mp4 файлы
++            const qualities = parseMp4Files(files);
++            if (Object.keys(qualities).length === 0) continue;
++
++            // Если нашли clipId в direct_url — матчим точно
++            if (urlClipId && urlClipId === clipId) {
++              console.log('[VKR] EXACT MATCH by direct_url:', clipId);
++              saveAndShow(clipId, qualities, item.title || item.description || 'clip');
++              return;
++            }
++
++            // Если direct_url нет — сохраняем в "pending" и покажем для текущего клипа
++            if (!urlClipId) {
++              console.log('[VKR] No direct_url, using for current clip:', clipId);
++              saveAndShow(clipId, qualities, item.title || item.description || 'clip');
++              return;
++            }
++          }
++        }
++      }
++    } catch (e) {
++      console.log('[VKR] processApiData error:', e.message);
++    }
++  }
++
++  // Извлекаем clip ID из direct_url типа https://vkvideo.ru/clip-149478522_456259448
++  function extractClipIdFromUrl(url) {
++    if (!url) return null;
++    const m = url.match(/clip(-?\d+_\d+)/);
++    return m ? m[1] : null;
++  }
++
++  function parseMp4Files(files) {
++    const qualities = {};
++    const map = {
++      'mp4_144': '144p', 'mp4_240': '240p', 'mp4_360': '360p',
++      'mp4_480': '480p', 'mp4_540': '540p', 'mp4_720': '720p',
++      'mp4_1080': '1080p', 'mp4_1440': '1440p', 'mp4_2160': '2160p'
++    };
++    for (const [key, label] of Object.entries(map)) {
++      if (files[key] && typeof files[key] === 'string') {
++        qualities[label] = files[key];
++      }
++    }
++    return qualities;
++  }
++
++  function saveAndShow(clipId, qualities, title) {
++    clipCache.set(clipId, { qualities, title });
++    console.log('[VKR] Saved to cache:', clipId, Object.keys(qualities));
++    if (getCurrentClipId() === clipId) {
++      createPanel(qualities, title);
++      if (searchTimer) { clearInterval(searchTimer); searchTimer = null; }
++    }
++  }
++
++  function extractStandardQualities(obj) {
++    if (!obj || typeof obj !== 'object') return {};
++    const qualities = {};
++    // Принимаем оба формата: url* (al_video) и mp4_* (video.get API)
++    const map = {
++      'url144': '144p',  'mp4_144': '144p',
++      'url240': '240p',  'mp4_240': '240p',
++      'url360': '360p',  'mp4_360': '360p',
++      'url480': '480p',  'mp4_480': '480p',
++      'url540': '540p',  'mp4_540': '540p',
++      'url720': '720p',  'mp4_720': '720p',
++      'url1080': '1080p','mp4_1080': '1080p',
++      'url1440': '1440p','mp4_1440': '1440p',
++      'url2160': '2160p','mp4_2160': '2160p',
++    };
++    for (const [key, label] of Object.entries(map)) {
++      const v = obj[key];
++      if (typeof v === 'string' && v.startsWith('http') && !qualities[label]) {
++        qualities[label] = v.replace(/&amp;/g, '&');
++      }
++    }
++    return qualities;
++  }
++
++  function hasVideoUrls(obj) {
++    if (!obj) return false;
++    // Проверяем оба формата ключей
++    return !!(obj.url360 || obj.url480 || obj.url720 || obj.url240
++      || obj.mp4_360 || obj.mp4_480 || obj.mp4_720 || obj.mp4_240);
++  }
++
++  function createPanel(qualities, title) {
++    if (!enabled) return;
++
++    document.querySelector('#vkr-player-download-panel')?.remove();
++    if (!qualities || Object.keys(qualities).length === 0) return;
++
++    const panel = document.createElement('div');
++    panel.id = 'vkr-player-download-panel';
++    panel.className = 'vkr-dl-panel';
++
++    // SVG-иконка download
++    const iconContainer = document.createElement('span');
++    iconContainer.className = 'vkr-dl-icon';
++    iconContainer.innerHTML = `
++      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#c084fc" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
++        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
++        <polyline points="7 10 12 15 17 10"/>
++        <line x1="12" y1="15" x2="12" y2="3"/>
++      </svg>
++    `;
++    panel.appendChild(iconContainer);
++
++    const label = document.createElement('span');
++    label.className = 'vkr-dl-label';
++    label.textContent = 'Скачать';
++    panel.appendChild(label);
++
++    const sorted = Object.entries(qualities).sort((a, b) =>
++      (parseInt(b[0]) || 0) - (parseInt(a[0]) || 0)
++    );
++
++    sorted.forEach(([quality, url], index) => {
++      const btn = document.createElement('a');
++      btn.href = url;
++      btn.textContent = quality;
++      btn.className = index === 0 ? 'vkr-dl-btn vkr-dl-btn--primary' : 'vkr-dl-btn vkr-dl-btn--secondary';
++
++      btn.addEventListener('click', (e) => {
++        e.preventDefault();
++        window.postMessage({
++          type: 'VKR_DOWNLOAD_VIDEO',
++          url, quality,
++          title: (title || 'clip').replace(/[^\wа-яёА-ЯЁ\- ]/gi, '_')
++        }, '*');
++      });
++      panel.appendChild(btn);
++    });
++
++    const closeBtn = document.createElement('button');
++    closeBtn.className = 'vkr-dl-close';
++    closeBtn.textContent = '✕';
++    closeBtn.onclick = () => panel.remove();
++    panel.appendChild(closeBtn);
++
++    document.body.appendChild(panel);
++    console.log('[VKR] Panel created:', Object.keys(qualities));
++  }
++
++  function showErrorPanel(message) {
++    document.querySelector('#vkr-player-download-panel')?.remove();
++    const panel = document.createElement('div');
++    panel.id = 'vkr-player-download-panel';
++    panel.className = 'vkr-dl-panel vkr-dl-panel--error';
++    panel.textContent = '⚠️ ' + message;
++
++    const closeBtn = document.createElement('button');
++    closeBtn.className = 'vkr-dl-close';
++    closeBtn.textContent = '✕';
++    closeBtn.onclick = () => panel.remove();
++    panel.appendChild(closeBtn);
++
++    document.body.appendChild(panel);
++  }
++
++  console.log('[VKR Injection] Ready');
++})();
+diff --git a/manifest.json b/manifest.json
+index 885fe58..c2cd418 100644
+--- a/manifest.json
++++ b/manifest.json
+@@ -1,14 +1,15 @@
+ {
+   "manifest_version": 3,
+   "name": "VK Reposter Pro",
+-  "version": "4.5.0",
++  "version": "4.6.0",
+   "description": "Безопасная очередь постинга и отложенных комментариев для сообществ ВКонтакте",
+   "permissions": [
+     "storage",
+     "alarms",
+     "notifications",
+     "contextMenus",
+-    "tabs"
++    "tabs",
++    "downloads"
+   ],
+   "content_security_policy": {
+     "extension_pages": "script-src 'self'; object-src 'self'"
+@@ -41,6 +42,12 @@
+       "world": "MAIN",
+       "run_at": "document_start"
+     },
++    {
++      "matches": ["*://vk.com/*", "*://*.vk.com/*", "*://vk.ru/*", "*://*.vk.ru/*"],
++      "js": ["injection.js"],
++      "world": "MAIN",
++      "run_at": "document_idle"
++    },
+     {
+       "matches": ["https://vk.ru/clips/*", "https://vk.com/clips/*"],
+       "js": ["clip-upload-content.js"],
+@@ -64,7 +71,7 @@
+   },
+   "web_accessible_resources": [
+     {
+-      "resources": ["modal.css", "lottie-player.js", "fire-heart.json"],
++      "resources": ["modal.css", "lottie-player.js", "fire-heart.json", "injection.js"],
+       "matches": ["*://vk.com/*", "*://*.vk.com/*", "*://vk.ru/*", "*://*.vk.ru/*"]
+     }
+   ]
+diff --git a/package.json b/package.json
+index 88ac642..d2f62f2 100644
+--- a/package.json
++++ b/package.json
+@@ -1,6 +1,6 @@
+ {
+   "name": "vk-reposter-pro",
+-  "version": "4.5.0",
++  "version": "4.6.0",
+   "description": "VK Reposter Pro — расширение для репоста в ВКонтакте",
+   "private": true,
+   "scripts": {
+diff --git a/popup-auth.js b/popup-auth.js
+index e6e3033..5f7791d 100644
+--- a/popup-auth.js
++++ b/popup-auth.js
+@@ -111,6 +111,7 @@ async function readSettings() {
+     "vkr_server_api_secret",
+     "vkr_comment_delay_seconds",
+     "vkr_comment_group_interval_seconds",
++    "vkr_video_download",
+   ]);
+ }
+ 
+@@ -420,6 +421,7 @@ async function init() {
+   $("comment-delay").value =
+     settings.vkr_comment_delay_seconds || 60;
+   $("comment-group-interval").value = settings.vkr_comment_group_interval_seconds || 30;
++  $("video-download-toggle").checked = settings.vkr_video_download !== false;
+   await refreshQueue();
+ 
+   if (settings.vkr_server_url && settings.vkr_server_api_secret) {
+@@ -463,6 +465,16 @@ document.addEventListener("DOMContentLoaded", () => {
+   $("refresh-managed-groups").addEventListener("click", () => void refreshManagedGroups());
+   $("comment-delay").addEventListener("change", () => void persistCommentSettings());
+   $("comment-group-interval").addEventListener("change", () => void persistCommentSettings());
++  $("video-download-toggle").addEventListener("change", async () => {
++    const enabled = $("video-download-toggle").checked;
++    await chrome.storage.local.set({ vkr_video_download: enabled });
++    const tabs = await chrome.tabs.query({ url: ["*://vk.com/*", "*://*.vk.com/*", "*://vk.ru/*", "*://*.vk.ru/*"] });
++    for (const tab of tabs) {
++      if (!Number.isSafeInteger(tab.id)) continue;
++      chrome.tabs.sendMessage(tab.id, { type: "VKR_VIDEO_DOWNLOAD_SETTING_CHANGED", enabled }, () => void chrome.runtime.lastError);
++    }
++    notify(enabled ? "Скачивание клипов включено." : "Скачивание клипов выключено.", "success");
++  });
+   $("save-server").addEventListener("click", saveServer);
+   $("export-backup").addEventListener("click", () => void exportBackup());
+   $("import-backup").addEventListener("click", () => $("backup-file").click());
+diff --git a/popup.html b/popup.html
+index aaffae2..4b43dc2 100644
+--- a/popup.html
++++ b/popup.html
+@@ -32,6 +32,13 @@
+     .backup-check { display: flex; gap: 9px; align-items: flex-start; color: var(--color-text-secondary); font-size: 12px; line-height: 1.45; }
+     .backup-check input { margin-top: 2px; accent-color: var(--color-accent); }
+     .backup-note { padding: 10px 12px; border: 1px solid rgba(56, 189, 248, .2); border-radius: 10px; background: rgba(56, 189, 248, .06); color: var(--color-text-secondary); font-size: 11px; line-height: 1.5; }
++    .switch { position: relative; width: 46px; height: 26px; flex: none; cursor: pointer; }
++    .switch input { position: absolute; opacity: 0; pointer-events: none; }
++    .switch__slider { position: absolute; inset: 0; border-radius: 999px; background: rgba(148,163,184,.25); border: 1px solid var(--color-border); transition: .2s ease; }
++    .switch__slider::after { content: ""; position: absolute; width: 18px; height: 18px; left: 3px; top: 3px; border-radius: 50%; background: #e2e8f0; transition: .2s ease; box-shadow: 0 2px 8px rgba(0,0,0,.35); }
++    .switch input:checked + .switch__slider { background: linear-gradient(135deg,#7c3aed,#38bdf8); border-color: transparent; }
++    .switch input:checked + .switch__slider::after { transform: translateX(20px); background: #fff; }
++    .switch input:focus-visible + .switch__slider { outline: 2px solid #38bdf8; outline-offset: 3px; }
+   </style>
+ </head>
+ <body>
+@@ -42,11 +49,22 @@
+         <div class="logo">
+           <div id="logo-lottie" class="logo__lottie"></div>
+         </div>
+-        <div class="version">v4.5.0</div>
++        <div class="version">v4.6.0</div>
+       </div>
+     </header>
+ 
+     <main class="main">
++      <section class="section">
++        <div class="section__header">
++          <h2 class="section__title"><i class="ti ti-download section__icon-img"></i> Скачивание клипов</h2>
++          <label class="switch" title="Показывать выбор качества в плеере VK">
++            <input type="checkbox" id="video-download-toggle">
++            <span class="switch__slider"></span>
++          </label>
++        </div>
++        <div class="status-line" style="padding:0 16px 16px">Показывает в открытом клипе кнопку «Скачать» и доступные MP4-качества.</div>
++      </section>
++
+       <section class="section">
+         <div class="section__header">
+           <h2 class="section__title">
+diff --git a/scheduled-fixes.css b/scheduled-fixes.css
+index 4dc0133..d71e228 100644
+--- a/scheduled-fixes.css
++++ b/scheduled-fixes.css
+@@ -2163,3 +2163,16 @@ a:focus-visible {
+     border: 1px solid #ccc;
+   }
+ }
++.edit-dialog-body { width: min(660px, calc(100vw - 32px)); }
++.edit-dialog-body label { display: grid; gap: 7px; color: #c4b5fd; font-size: 13px; }
++.edit-dialog-body textarea, .edit-dialog-body input, .edit-dialog-body select { width: 100%; box-sizing: border-box; border: 1px solid rgba(139,92,246,.3); border-radius: 12px; background: rgba(5,7,22,.72); color: #f8fafc; padding: 11px 12px; font: inherit; }
++.edit-note { padding: 11px 13px; border: 1px solid rgba(56,189,248,.2); border-radius: 12px; background: rgba(56,189,248,.07); color: #bae6fd; font-size: 12px; line-height: 1.5; }
++.pending-targets { margin-top: 12px; border: 1px solid rgba(139,92,246,.2); border-radius: 13px; overflow: hidden; }
++.pending-targets summary { cursor: pointer; padding: 11px 13px; color: #c4b5fd; font-size: 12px; font-weight: 700; }
++.pending-target-list { display: grid; border-top: 1px solid rgba(139,92,246,.15); }
++.pending-target { display: flex; gap: 10px; align-items: center; justify-content: space-between; padding: 9px 12px; }
++.pending-target + .pending-target { border-top: 1px solid rgba(139,92,246,.12); }
++.pending-target span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
++.pending-target button { flex: none; padding: 6px 9px; border-color: rgba(251,113,133,.45); color: #fecdd3; }
++.result-item.cancelled { background: rgba(100,116,139,.08); }
++.result-item.cancelled .result-badge { color: #cbd5e1; }
+diff --git a/scheduled.html b/scheduled.html
+index ec993c5..af79f43 100644
+--- a/scheduled.html
++++ b/scheduled.html
+@@ -67,6 +67,22 @@
+       <button id="publish-submit" class="primary" type="submit">Поставить в очередь</button>
+     </form>
+   </dialog>
++  <dialog id="edit-dialog">
++    <form id="edit-form" class="dialog-body edit-dialog-body">
++      <div class="dialog-head"><div><span id="edit-kicker">Отложенное задание</span><h2 id="edit-title">Редактирование</h2></div><button type="button" id="edit-close" aria-label="Закрыть">×</button></div>
++      <div id="edit-post-fields">
++        <div class="form-grid"><label><span>Режим</span><select id="edit-post-mode"><option value="copy">Копировать пост</option><option value="repost">Оригинальный репост</option></select></label><label><span>Время публикации</span><input id="edit-post-time" type="datetime-local"></label></div>
++        <label><span>Текст поста</span><textarea id="edit-post-text" rows="5" maxlength="16384"></textarea></label>
++        <label><span>Комментарий после публикации</span><textarea id="edit-auto-comment" rows="4" maxlength="4096" placeholder="Оставьте пустым, чтобы не публиковать комментарий"></textarea></label>
++      </div>
++      <div id="edit-comment-fields" hidden>
++        <label><span>Время комментария</span><input id="edit-comment-time" type="datetime-local"></label>
++        <label><span>Текст комментария</span><textarea id="edit-comment-text" rows="6" maxlength="4096" required></textarea></label>
++      </div>
++      <div id="edit-note" class="edit-note">Сохранение перезапускает только ещё не выполненную часть задания. Уже опубликованные паблики не изменяются.</div>
++      <button id="edit-submit" class="primary" type="submit">Сохранить изменения</button>
++    </form>
++  </dialog>
+   <dialog id="maintenance-dialog">
+     <section class="dialog-body maintenance-dialog-body">
+       <div class="dialog-head"><div><span>Локальное хранилище и MongoDB</span><h2>Очистка данных</h2></div><button type="button" id="maintenance-close" aria-label="Закрыть">×</button></div>
+diff --git a/scheduled.js b/scheduled.js
+index 33b120a..e754a0c 100644
+--- a/scheduled.js
++++ b/scheduled.js
+@@ -17,6 +17,7 @@ const state = {
+   analytics:{days:7,loading:false,loaded:false,groups:[],postLimit:100,error:""},
+ };
+ let selectedWaitingId = null;
++let selectedEdit = null;
+ let toastTimer = null;
+ let groupDirectoryLoaded = false;
+ let groupDirectorySignature = "";
+@@ -68,7 +69,7 @@ function active(items) { return items.filter((item)=>!["completed","done","faile
+ function terminal(item) { return ["completed","done","failed","cancelled"].includes(String(item?.status||"")); }
+ function hasRecordError(item) {
+   if(String(item?.status||"")==="cancelled")return false;
+-  return String(item?.status||"")==="failed"||Number(item?.fail)>0||Number(item?.progress?.fail)>0||(Array.isArray(item?.results)&&item.results.some((result)=>result?.ok===false))||Boolean(String(item?.error||item?.lastError||"").trim());
++  return String(item?.status||"")==="failed"||Number(item?.fail)>0||Number(item?.progress?.fail)>0||(Array.isArray(item?.results)&&item.results.some((result)=>result?.ok===false&&result?.cancelled!==true))||Boolean(String(item?.error||item?.lastError||"").trim());
+ }
+ function timestamp(value) { const direct=Number(value);if(Number.isFinite(direct)&&direct>0)return direct;const parsed=new Date(value).getTime();return Number.isFinite(parsed)?parsed:0; }
+ function postJobTime(job) { return timestamp(job.pubDate||job.publishAt||job.completedAt||job.createdAt); }
+@@ -275,17 +276,18 @@ function appendPublishResults(body, results) {
+   const items=Array.isArray(results)?results:[];
+   if(!items.length)return;
+   const ok=items.filter((item)=>item.ok).length;
+-  const fail=items.length-ok;
++  const cancelled=items.filter((item)=>item.cancelled===true).length;
++  const fail=items.length-ok-cancelled;
+   const details=make("details","result-details");
+   details.open=fail>0;
+-  details.appendChild(make("summary","result-summary",`По сообществам: ${ok} успешно · ${fail} ошибок`));
++  details.appendChild(make("summary","result-summary",`По сообществам: ${ok} успешно · ${fail} ошибок${cancelled?` · ${cancelled} отменено`:""}`));
+   const list=make("div","result-list");
+   for(const result of items){
+-    const row=make("div",`result-item ${result.ok?"success":"failure"}`);
++    const row=make("div",`result-item ${result.cancelled?"cancelled":result.ok?"success":"failure"}`);
+     const head=make("div","result-head");
+     const title=make("strong","",groupName(result.gid));
+     title.title=`club${Math.abs(Number(result.gid))}`;
+-    head.append(title,make("span","result-badge",result.ok?"Опубликовано":"Ошибка"));
++    head.append(title,make("span","result-badge",result.cancelled?"Отменено":result.ok?"Опубликовано":"Ошибка"));
+     row.appendChild(head);
+     if(result.postId){
+       const link=make("a","result-link",`Открыть пост #${result.postId}`);
+@@ -299,6 +301,82 @@ function appendPublishResults(body, results) {
+   details.appendChild(list);body.appendChild(details);
+ }
+ 
++function toDateTimeLocal(value) {
++  const date=new Date(value);if(!Number.isFinite(date.getTime()))return "";
++  const shifted=new Date(date.getTime()-date.getTimezoneOffset()*60_000);
++  return shifted.toISOString().slice(0,16);
++}
++
++function openPostEdit(job) {
++  const originalTime=toDateTimeLocal(job.publishAt||job.pubDate);
++  const canEditSchedule=(Number(job.nextGroupIndex)||0)===0&&!(job.results||[]).length;
++  selectedEdit={kind:"post",job,originalTime,canEditSchedule};
++  $("edit-kicker").textContent="Серверная публикация";
++  $("edit-title").textContent="Редактировать пост и комментарий";
++  $("edit-post-fields").hidden=false;$("edit-comment-fields").hidden=true;
++  $("edit-post-mode").value=job.mode||"copy";
++  $("edit-post-time").value=originalTime;$("edit-post-time").disabled=!canEditSchedule;
++  $("edit-post-text").value=job.text||"";
++  $("edit-auto-comment").value=job.autoCommentText||"";
++  $("edit-note").textContent=canEditSchedule?"Можно изменить время, текст, режим и комментарий. Уже опубликованные цели не затрагиваются.":"Часть пабликов уже обработана: текст, режим и комментарий изменятся только для оставшихся; исходное время заблокировано.";
++  $("edit-dialog").showModal();
++}
++
++function openCommentEdit(job) {
++  const originalTime=toDateTimeLocal(job.commentAt);
++  selectedEdit={kind:"comment",job,originalTime};
++  $("edit-kicker").textContent="Отложенный комментарий";
++  $("edit-title").textContent=`Редактировать комментарий для ${groupName(job.groupId)}`;
++  $("edit-post-fields").hidden=true;$("edit-comment-fields").hidden=false;
++  $("edit-comment-time").value=originalTime;
++  $("edit-comment-text").value=job.commentText||"";
++  $("edit-note").textContent="Можно изменить текст и время ещё не опубликованного комментария.";
++  $("edit-dialog").showModal();
++}
++
++async function submitEdit(event) {
++  event.preventDefault();if(!selectedEdit)return;
++  const button=$("edit-submit");button.disabled=true;
++  try{
++    if(selectedEdit.kind==="post"){
++      const local=$("edit-post-time").value;const timeChanged=selectedEdit.canEditSchedule&&local!==selectedEdit.originalTime;
++      await runtimeMessage({type:"update_scheduled_post",id:selectedEdit.job.id,patch:{
++        mode:$("edit-post-mode").value,text:$("edit-post-text").value,
++        autoCommentText:$("edit-auto-comment").value,
++        ...(timeChanged&&local?{publishAt:new Date(local).toISOString()}:{})
++      }});
++      toast("Пост и его отложенный комментарий обновлены.");
++    }else{
++      const local=$("edit-comment-time").value;const timeChanged=local!==selectedEdit.originalTime;
++      await runtimeMessage({type:"update_scheduled_comment",id:selectedEdit.job.id,patch:{
++        commentText:$("edit-comment-text").value,
++        ...(timeChanged&&local?{commentAt:new Date(local).toISOString()}:{})
++      }});
++      toast("Отложенный комментарий обновлён.");
++    }
++    $("edit-dialog").close();selectedEdit=null;await loadAll();
++  }finally{button.disabled=false;}
++}
++
++function appendPendingPostTargets(body,job) {
++  if(job.source!=="server"||!["queued","paused","failed"].includes(job.status))return;
++  const groups=Array.isArray(job.groups)?job.groups.map((id)=>Math.abs(Number(id))):[];
++  const cancelled=new Set((job.cancelledGroupIds||[]).map((id)=>Math.abs(Number(id))));
++  const processed=new Set((job.results||[]).map((item)=>Math.abs(Number(item.gid))));
++  groups.slice(0,Number(job.nextGroupIndex)||0).forEach((id)=>processed.add(id));
++  const pending=groups.filter((id)=>!processed.has(id)&&!cancelled.has(id));
++  if(!pending.length)return;
++  const details=make("details","pending-targets");
++  details.appendChild(make("summary","",`Ещё не опубликовано: ${pending.length} · отменить отдельный паблик`));
++  const list=make("div","pending-target-list");
++  for(const groupId of pending){
++    const row=make("div","pending-target");row.appendChild(make("span","",groupName(groupId)));
++    addButton(row,"Не публиковать",async()=>{if(confirm(`Не публиковать этот пост в «${groupName(groupId)}»?`)){await runtimeMessage({type:"cancel_scheduled_post_group",id:job.id,groupId});toast(`Публикация в «${groupName(groupId)}» отменена.`);await loadAll();}},"danger");
++    list.appendChild(row);
++  }
++  details.appendChild(list);body.appendChild(details);
++}
++
+ function formatCompactNumber(value) {
+   const number=Math.max(0,Number(value)||0);
+   if(number>=1_000_000)return `${(number/1_000_000).toFixed(number>=10_000_000?0:1).replace(".0","")} млн`;
+@@ -453,9 +531,10 @@ function renderPosts() {
+     card.dataset.jobId=job.id;
+     if(state.pause?.jobId===job.id)card.classList.add("paused-target");
+     appendPublishResults(body,job.results);
++    appendPendingPostTargets(body,job);
+     if(job.source==="server"&&job.status==="queued"){body.appendChild(make("div","media-schedule-note native-schedule-note",`Render загрузит фотографии в фактическое время ${formatDate(job.publishAt||job.pubDate)} и сразу опубликует пост. Компьютер можно выключить.`));}
+     appendPostProgress(body,job);
+-    if(job.source==="server"&&["queued","processing","paused","failed"].includes(job.status)){const root=actions(body);if(["paused","failed"].includes(job.status))addButton(root,"Повторить",async()=>{await runtimeMessage({type:"retry_scheduled_post",id:job.id});await loadAll();},"primary");addButton(root,job.status==="processing"?"Остановить":"Отменить",async()=>{if(confirm("Отменить эту серверную публикацию? Текущий запрос VK может успеть завершиться.")){await runtimeMessage({type:"cancel_scheduled_post",id:job.id});toast("Серверная публикация отменена.");await loadAll();}},"danger");if(job.sourceUrl)addButton(root,"Исходный пост",()=>chrome.tabs.create({url:job.sourceUrl}));}
++    if(job.source==="server"&&["queued","processing","paused","failed"].includes(job.status)){const root=actions(body);if(["queued","paused","failed"].includes(job.status))addButton(root,"Редактировать",()=>openPostEdit(job),"primary");if(["paused","failed"].includes(job.status))addButton(root,"Повторить",async()=>{await runtimeMessage({type:"retry_scheduled_post",id:job.id});await loadAll();});addButton(root,job.status==="processing"?"Остановить":"Отменить",async()=>{if(confirm("Отменить эту серверную публикацию? Текущий запрос VK может успеть завершиться.")){await runtimeMessage({type:"cancel_scheduled_post",id:job.id});toast("Серверная публикация отменена.");await loadAll();}},"danger");if(job.sourceUrl)addButton(root,"Исходный пост",()=>chrome.tabs.create({url:job.sourceUrl}));}
+     else if(["queued","processing","paused"].includes(job.status)&&job.pauseReason!=="ambiguous_repost"&&!job.cancelRequested){const root=actions(body);addButton(root,job.status==="processing"?"Остановить":"Отменить",async()=>{if(confirm("Отменить эту публикацию?")){const result=await runtimeMessage({type:"cancel_publish_job",jobId:job.id});toast(result.requested?"Остановка запрошена. Текущий запрос завершится, затем очередь остановится.":"Публикация отменена.","info");await loadAll();}},"danger");}
+     if(job.status==="paused"&&job.pauseReason==="ambiguous_repost"){
+       const root=actions(body);addButton(root,"Уже есть — пропустить",async()=>{await runtimeMessage({type:"resolve_ambiguous_repost",jobId:job.id,action:"skip"});await loadAll();},"primary");addButton(root,"Нет — повторить",async()=>{if(confirm("Вы проверили стену и репоста точно нет?")){await runtimeMessage({type:"resolve_ambiguous_repost",jobId:job.id,action:"retry"});await loadAll();}});addButton(root,"Отменить",async()=>{await runtimeMessage({type:"resolve_ambiguous_repost",jobId:job.id,action:"cancel"});await loadAll();},"danger");
+@@ -466,7 +545,7 @@ function renderPosts() {
+ 
+ function renderComments() {
+   if(!state.comments.length)return empty("Нет отложенных комментариев.");
+-  for(const job of state.comments){const groupId=Math.abs(Number(job.groupId));const error=job.lastError?`${job.lastErrorCode?`VK ${job.lastErrorCode}: `:""}${job.lastError}`:null;const {card,body}=baseCard({title:`${groupName(groupId)} · пост ${job.postId}`,status:job.status,text:job.commentText,meta:`club${groupId} · выполнить ${formatDate(job.commentAt)}${job.attempts?` · попыток ${job.attempts}`:""}`,error});if(!job.local&&["queued","paused","failed"].includes(job.status)){const root=actions(body);if(["paused","failed"].includes(job.status))addButton(root,"Повторить",async()=>{await runtimeMessage({type:"retry_scheduled_comment",id:job.id});toast("Комментарий снова поставлен в очередь.");await loadAll();},"primary");addButton(root,"Удалить",async()=>{if(confirm("Удалить отложенный комментарий?")){await runtimeMessage({type:"delete_scheduled_comment",id:job.id});await loadAll();}},"danger");}$("cards").appendChild(card);}
++  for(const job of state.comments){const groupId=Math.abs(Number(job.groupId));const error=job.lastError?`${job.lastErrorCode?`VK ${job.lastErrorCode}: `:""}${job.lastError}`:null;const {card,body}=baseCard({title:`${groupName(groupId)} · пост ${job.postId}`,status:job.status,text:job.commentText,meta:`club${groupId} · выполнить ${formatDate(job.commentAt)}${job.attempts?` · попыток ${job.attempts}`:""}`,error});if(!job.local&&["queued","paused","failed"].includes(job.status)){const root=actions(body);addButton(root,"Редактировать",()=>openCommentEdit(job),"primary");if(["paused","failed"].includes(job.status))addButton(root,"Повторить",async()=>{await runtimeMessage({type:"retry_scheduled_comment",id:job.id});toast("Комментарий снова поставлен в очередь.");await loadAll();});addButton(root,"Удалить",async()=>{if(confirm("Удалить отложенный комментарий?")){await runtimeMessage({type:"delete_scheduled_comment",id:job.id});await loadAll();}},"danger");}$("cards").appendChild(card);}
+ }
+ 
+ function renderStories() {
+@@ -555,6 +634,8 @@ async function init(){
+   $("new-clips").onclick=()=>chrome.tabs.create({url:chrome.runtime.getURL("clips.html")});
+   $("cleanup-data").onclick=openMaintenanceDialog;
+   $("maintenance-close").onclick=()=>$("maintenance-dialog").close();
++  $("edit-close").onclick=()=>{$("edit-dialog").close();selectedEdit=null;};
++  $("edit-form").onsubmit=submitEdit;
+   $("maintenance-errors").onclick=()=>runMaintenance("errors");
+   $("maintenance-completed").onclick=()=>runMaintenance("completed");
+   $("maintenance-all").onclick=()=>runMaintenance("all");
+diff --git a/server/README.md b/server/README.md
+index a76b82a..1b00999 100644
+--- a/server/README.md
++++ b/server/README.md
+@@ -1,4 +1,4 @@
+-# VK Reposter Server 4.3.0
++# VK Reposter Server 4.4.0
+ 
+ Сервер выполняет отложенные посты, комментарии и Истории с одним
+ пользовательским токеном. Токен принимается только через защищённый API и
+@@ -62,7 +62,7 @@ STORY_MAX_BYTES=26214400
+ После деплоя:
+ 
+ ```json
+-{"status":"ok","version":"4.3.0","database":"connected"}
++{"status":"ok","version":"4.4.0","database":"connected"}
+ ```
+ 
+ Корневой URL намеренно возвращает `{"ok":false,"error":"Not found"}`; это не
+@@ -75,7 +75,7 @@ STORY_MAX_BYTES=26214400
+ 3. Укажите Render URL и `API_SECRET`.
+ 4. Нажмите **Сохранить и проверить**.
+ 
+-Отдельные токены сообществ в версии 4.5.0 не настраиваются. Пост, комментарий и
++Отдельные токены сообществ в версии 4.6.0 не настраиваются. Пост, комментарий и
+ История получают пользовательский токен при создании задания; MongoDB видит
+ только его шифротекст.
+ 
+@@ -91,6 +91,15 @@ STORY_MAX_BYTES=26214400
+ 5. Следующий паблик обрабатывается после настроенного интервала, минимум 15 с.
+ 6. Комментарий создаётся отдельным серверным заданием с тем же user token.
+ 
++Пока worker не взял соответствующую цель, интерфейс использует:
++
++- `PATCH /api/scheduled-posts/:id` — текст, режим, автокомментарий и время;
++- `DELETE /api/scheduled-posts/:id/groups/:groupId` — пропустить один паблик;
++- `PATCH /api/scheduled-comments/:id` — текст и время комментария.
++
++Уже опубликованные цели остаются неизменными; отменённый паблик worker отмечает
++отдельным результатом и не вызывает для него VK API.
++
+ ## 6. Очистка MongoDB
+ 
+ На странице **Публикации и отложка → Очистка данных** доступны режимы:
+diff --git a/server/package-lock.json b/server/package-lock.json
+index 141404c..9014927 100644
+--- a/server/package-lock.json
++++ b/server/package-lock.json
+@@ -1,12 +1,12 @@
+ {
+   "name": "vk-reposter-safe-server",
+-  "version": "4.3.0",
++  "version": "4.4.0",
+   "lockfileVersion": 3,
+   "requires": true,
+   "packages": {
+     "": {
+       "name": "vk-reposter-safe-server",
+-      "version": "4.3.0",
++      "version": "4.4.0",
+       "dependencies": {
+         "express": "^5.1.0",
+         "express-rate-limit": "^8.0.1",
+diff --git a/server/package.json b/server/package.json
+index 1c6df19..53a0132 100644
+--- a/server/package.json
++++ b/server/package.json
+@@ -1,6 +1,6 @@
+ {
+   "name": "vk-reposter-safe-server",
+-  "version": "4.3.0",
++  "version": "4.4.0",
+   "private": true,
+   "engines": {
+     "node": ">=20"
+diff --git a/server/src/app.js b/server/src/app.js
+index f38ce35..66abac0 100644
+--- a/server/src/app.js
++++ b/server/src/app.js
+@@ -26,7 +26,7 @@ function createApp({
+     const connected = databaseReady();
+     response.status(connected ? 200 : 503).json({
+       status: connected ? "ok" : "degraded",
+-      version: "4.3.0",
++      version: "4.4.0",
+       database: connected ? "connected" : "disconnected",
+     });
+   });
+@@ -48,7 +48,7 @@ function createApp({
+     response.json({
+       ok: true,
+       status: connected ? "ready" : "degraded",
+-      version: "4.3.0",
++      version: "4.4.0",
+       database: connected ? "connected" : "disconnected",
+     });
+   });
+@@ -73,6 +73,22 @@ function createApp({
+     } catch (error) { next(error); }
+   });
+ 
++  api.patch("/scheduled-posts/:id", async (request, response, next) => {
++    try { response.json({ ok: true, job: await postService.update(request.params.id, request.body) }); }
++    catch (error) {
++      if (/required|must|cannot be edited|editable|publishAt|mode|text/i.test(error.message)) { response.status(400).json({ ok: false, error: error.message }); return; }
++      next(error);
++    }
++  });
++
++  api.delete("/scheduled-posts/:id/groups/:groupId", async (request, response, next) => {
++    try { response.json({ ok: true, job: await postService.cancelGroup(request.params.id, request.params.groupId) }); }
++    catch (error) {
++      if (/groupId|target|processed|cancelled|not found/i.test(error.message)) { response.status(400).json({ ok: false, error: error.message }); return; }
++      next(error);
++    }
++  });
++
+   api.delete("/scheduled-posts", async (request, response, next) => {
+     try {
+       response.json({ ok: true, ...(await postService.purge({ scope: request.query.scope })) });
+@@ -131,6 +147,14 @@ function createApp({
+     }
+   });
+ 
++  api.patch("/scheduled-comments/:id", async (request, response, next) => {
++    try { response.json({ ok: true, job: await commentService.update(request.params.id, request.body) }); }
++    catch (error) {
++      if (/required|must|cannot be edited|editable|commentText|commentAt|future/i.test(error.message)) { response.status(400).json({ ok: false, error: error.message }); return; }
++      next(error);
++    }
++  });
++
+   api.delete("/scheduled-comments", async (request, response, next) => {
+     try {
+       const result = await commentService.purge({ scope: request.query.scope });
+diff --git a/server/src/comment-service.js b/server/src/comment-service.js
+index 3ddfc9f..b13f44a 100644
+--- a/server/src/comment-service.js
++++ b/server/src/comment-service.js
+@@ -3,6 +3,7 @@
+ const {
+   publicCommentJob,
+   validateScheduledCommentInput,
++  validateScheduledCommentUpdate,
+ } = require("./validation.js");
+ 
+ function commentPurgeStatuses(scope) {
+@@ -12,7 +13,7 @@ function commentPurgeStatuses(scope) {
+   throw new Error("scope must be errors, completed, or all");
+ }
+ 
+-function createCommentService({ CommentModel, tokenVault }) {
++function createCommentService({ CommentModel, tokenVault, now = () => new Date() }) {
+   return Object.freeze({
+     async enqueue(rawInput) {
+       const input = validateScheduledCommentInput(rawInput);
+@@ -56,6 +57,30 @@ function createCommentService({ CommentModel, tokenVault }) {
+       return documents.map(publicCommentJob);
+     },
+ 
++    async update(id, rawInput) {
++      const fields = validateScheduledCommentUpdate(rawInput, { now: now() });
++      const next = {
++        ...fields,
++        status: "queued",
++        attempts: 0,
++        lockedAt: null,
++        lockId: null,
++        completedAt: null,
++        lastError: null,
++        lastErrorCode: null,
++      };
++      if (fields.commentAt) {
++        next.expiresAt = new Date(Math.max(now().getTime(), fields.commentAt.getTime()) + 30 * 24 * 60 * 60 * 1000);
++      }
++      const document = await CommentModel.findOneAndUpdate(
++        { _id: id, status: { $in: ["queued", "paused", "failed"] } },
++        { $set: next },
++        { new: true },
++      );
++      if (!document) throw new Error("Comment job cannot be edited");
++      return publicCommentJob(document);
++    },
++
+     async retry(id) {
+       const now = new Date();
+       const document = await CommentModel.findOneAndUpdate(
+diff --git a/server/src/models/scheduled-post.js b/server/src/models/scheduled-post.js
+index 1a1debe..b364fcc 100644
+--- a/server/src/models/scheduled-post.js
++++ b/server/src/models/scheduled-post.js
+@@ -10,6 +10,7 @@ const resultSchema = new mongoose.Schema({
+   error: { type: String, default: null, maxlength: 1000 },
+   code: { type: Number, default: null },
+   warning: { type: String, default: null, maxlength: 1000 },
++  cancelled: { type: Boolean, default: false },
+ }, { _id: false });
+ 
+ const scheduledPostSchema = new mongoose.Schema({
+@@ -31,6 +32,7 @@ const scheduledPostSchema = new mongoose.Schema({
+  commentDelaySeconds: { type: Number, default: 60, min: 15, max: 86400 },
+   commentGroupIntervalSeconds: { type: Number, default: 30, min: 15, max: 3600 },
+   results: { type: [resultSchema], default: [] },
++  cancelledGroupIds: { type: [Number], default: [] },
+   tokenCiphertext: { type: String, required: true, select: false },
+   tokenIv: { type: String, required: true, select: false },
+   tokenTag: { type: String, required: true, select: false },
+diff --git a/server/src/post-service.js b/server/src/post-service.js
+index 17d0af1..f8fb297 100644
+--- a/server/src/post-service.js
++++ b/server/src/post-service.js
+@@ -1,6 +1,6 @@
+ "use strict";
+ 
+-const { publicPostJob, validateScheduledPostInput } = require("./post-validation.js");
++const { publicPostJob, validateScheduledPostInput, validateScheduledPostUpdate } = require("./post-validation.js");
+ 
+ function postPurgeStatuses(scope) {
+   if (scope === "errors") return ["failed"];
+@@ -56,6 +56,64 @@ function createPostService({ PostModel, tokenVault, now = () => new Date() }) {
+       return documents.map(publicPostJob);
+     },
+ 
++    async update(id, rawInput) {
++      const current = await PostModel.findById(id);
++      if (!current || !["queued", "paused", "failed"].includes(current.status)) {
++        throw new Error("Post job cannot be edited");
++      }
++      const fields = validateScheduledPostUpdate(rawInput, { now: now(), current });
++      const next = {
++        ...fields,
++        status: "queued",
++        attempts: 0,
++        lockedAt: null,
++        lockId: null,
++        completedAt: null,
++        lastError: null,
++        lastErrorCode: null,
++        cancelRequested: false,
++      };
++      if (fields.publishAt) {
++        next.nextRunAt = fields.publishAt;
++        next.expiresAt = new Date(Math.max(now().getTime(), fields.publishAt.getTime()) + 30 * 24 * 60 * 60_000);
++      }
++      const document = await PostModel.findOneAndUpdate(
++        { _id: id, status: { $in: ["queued", "paused", "failed"] } },
++        { $set: next },
++        { new: true },
++      );
++      if (!document) throw new Error("Post job cannot be edited");
++      return publicPostJob(document);
++    },
++
++    async cancelGroup(id, rawGroupId) {
++      const groupId = Math.abs(Number(rawGroupId));
++      if (!Number.isSafeInteger(groupId) || groupId <= 0) throw new Error("groupId must be a positive integer");
++      const current = await PostModel.findById(id);
++      if (!current || !["queued", "paused", "failed"].includes(current.status)) {
++        throw new Error("Post target cannot be cancelled");
++      }
++      const groups = Array.isArray(current.groups) ? current.groups.map(Number) : [];
++      const index = groups.indexOf(groupId);
++      if (index < 0) throw new Error("Post target was not found in this job");
++      const processedIds = new Set((Array.isArray(current.results) ? current.results : []).map((item) => Number(item?.gid)));
++      if (index < (Number(current.nextGroupIndex) || 0) || processedIds.has(groupId)) {
++        throw new Error("Post target was already processed");
++      }
++      const existing = [...new Set((Array.isArray(current.cancelledGroupIds) ? current.cancelledGroupIds : []).map(Number))];
++      if (existing.includes(groupId)) return publicPostJob(current);
++      const document = await PostModel.findOneAndUpdate(
++        { _id: id, status: { $in: ["queued", "paused", "failed"] } },
++        { $addToSet: { cancelledGroupIds: groupId } },
++        { new: true },
++      );
++      if (!document) throw new Error("Post target cannot be cancelled");
++      if (!Array.isArray(document.cancelledGroupIds) || !document.cancelledGroupIds.includes(groupId)) {
++        document.cancelledGroupIds = [...existing, groupId];
++      }
++      return publicPostJob(document);
++    },
++
+     async cancel(id) {
+       const document = await PostModel.findOneAndUpdate(
+         { _id: id, status: { $in: ["queued", "processing", "paused", "failed"] } },
+diff --git a/server/src/post-validation.js b/server/src/post-validation.js
+index 4c5a174..578948b 100644
+--- a/server/src/post-validation.js
++++ b/server/src/post-validation.js
+@@ -104,12 +104,52 @@ function validateScheduledPostInput(input, { now = new Date() } = {}) {
+   };
+ }
+ 
++function validateScheduledPostUpdate(input, { now = new Date(), current } = {}) {
++  if (!input || typeof input !== "object" || Array.isArray(input)) {
++    throw new Error("JSON body is required");
++  }
++  const allowed = ["text", "autoCommentText", "mode", "publishAt"];
++  if (!allowed.some((field) => Object.prototype.hasOwnProperty.call(input, field))) {
++    throw new Error("At least one editable field is required");
++  }
++  const update = {};
++  if (Object.prototype.hasOwnProperty.call(input, "text")) {
++    update.text = cleanText(input.text, 16_384);
++  }
++  if (Object.prototype.hasOwnProperty.call(input, "autoCommentText")) {
++    update.autoCommentText = cleanText(input.autoCommentText, 4096);
++  }
++  if (Object.prototype.hasOwnProperty.call(input, "mode")) {
++    if (!['copy', 'repost'].includes(input.mode)) throw new Error("mode must be copy or repost");
++    update.mode = input.mode;
++  }
++  if (Object.prototype.hasOwnProperty.call(input, "publishAt")) {
++    const publishAt = new Date(input.publishAt);
++    const currentTime = new Date(now);
++    if (!Number.isFinite(publishAt.getTime())) throw new Error("publishAt must be a valid date");
++    if (publishAt.getTime() < currentTime.getTime() + 15_000) {
++      throw new Error("publishAt must be at least 15 seconds in the future");
++    }
++    if (publishAt.getTime() > currentTime.getTime() + 180 * 24 * 60 * 60_000) {
++      throw new Error("publishAt must be within 180 days");
++    }
++    if ((Number(current?.nextGroupIndex) || 0) > 0 || (Array.isArray(current?.results) && current.results.length > 0)) {
++      throw new Error("publishAt cannot be changed after publishing has started");
++    }
++    update.publishAt = publishAt;
++  }
++  return update;
++}
++
+ function publicPostJob(document) {
+   const source = document && typeof document.toObject === "function" ? document.toObject() : { ...(document || {}) };
+   const groups = Array.isArray(source.groups) ? source.groups : [];
+   const results = Array.isArray(source.results) ? source.results : [];
++  const cancelledGroupIds = [...new Set((Array.isArray(source.cancelledGroupIds) ? source.cancelledGroupIds : [])
++    .map(Number).filter((id) => Number.isSafeInteger(id) && id > 0))];
+   const ok = results.filter((item) => item?.ok === true).length;
+-  const fail = results.filter((item) => item?.ok === false).length;
++  const cancelled = results.filter((item) => item?.cancelled === true).length;
++  const fail = results.filter((item) => item?.ok === false && item?.cancelled !== true).length;
+   return {
+     id: String(source._id || source.id || ""),
+     idempotencyKey: source.idempotencyKey,
+@@ -118,6 +158,7 @@ function publicPostJob(document) {
+     sourcePostId: source.sourcePostId,
+     sourceUrl: source.sourceUrl,
+     groups,
++    cancelledGroupIds,
+     groupLabels: source.groupLabels || {},
+     mode: source.mode,
+     text: source.text || "",
+@@ -133,10 +174,11 @@ function publicPostJob(document) {
+     results,
+     progress: {
+       total: groups.length,
+-      current: Math.min(groups.length, ok + fail),
++      current: Math.min(groups.length, ok + fail + cancelled),
+       ok,
+       fail,
+-      percent: groups.length ? Math.round(((ok + fail) / groups.length) * 100) : 0,
++      cancelled,
++      percent: groups.length ? Math.round(((ok + fail + cancelled) / groups.length) * 100) : 0,
+     },
+     attempts: Number(source.attempts) || 0,
+     lastError: source.lastError || null,
+@@ -151,4 +193,5 @@ function publicPostJob(document) {
+ module.exports = {
+   publicPostJob,
+   validateScheduledPostInput,
++  validateScheduledPostUpdate,
+ };
+diff --git a/server/src/post-worker.js b/server/src/post-worker.js
+index 73755ba..861d04d 100644
+--- a/server/src/post-worker.js
++++ b/server/src/post-worker.js
+@@ -50,7 +50,9 @@ function createPostWorker({
+   }
+ 
+   function completionState(results) {
+-    return results.some((item) => item.ok) ? "completed" : "failed";
++    if (results.some((item) => item.ok)) return "completed";
++    if (results.length && results.every((item) => item.cancelled === true)) return "cancelled";
++    return "failed";
+   }
+ 
+   async function runOnce() {
+@@ -65,6 +67,27 @@ function createPostWorker({
+       const results = Array.isArray(job.results) ? [...job.results] : [];
+       try {
+         if (!Number.isSafeInteger(groupId) || groupId <= 0) throw new Error("Post job has no remaining community");
++        if ((Array.isArray(job.cancelledGroupIds) ? job.cancelledGroupIds : []).map(Number).includes(groupId)) {
++          results.push({ gid: groupId, ok: false, cancelled: true, error: "Отменено пользователем" });
++          const nextGroupIndex = groupIndex + 1;
++          const finished = nextGroupIndex >= job.groups.length;
++          await PostModel.updateOne(
++            { _id: job._id, status: "processing", lockId: job.lockId },
++            { $set: {
++              status: finished ? completionState(results) : "queued",
++              nextGroupIndex,
++              nextRunAt: finished ? current : new Date(current.getTime() + Math.max(15_000, minGroupIntervalMs, (Number(job.groupIntervalSeconds) || 15) * 1000)),
++              results,
++              attempts: 0,
++              completedAt: finished ? current : null,
++              lockedAt: null,
++              lockId: null,
++              lastError: null,
++              lastErrorCode: null,
++            } },
++          );
++          return true;
++        }
+         const userToken = tokenVault.decrypt(job);
+         const input = {
+           sourceOwnerId: job.sourceOwnerId,
+diff --git a/server/src/validation.js b/server/src/validation.js
+index 2e4cd27..d5465fc 100644
+--- a/server/src/validation.js
++++ b/server/src/validation.js
+@@ -45,6 +45,24 @@ function validateScheduledCommentInput(input) {
+   };
+ }
+ 
++function validateScheduledCommentUpdate(input, { now = new Date() } = {}) {
++  if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("JSON body is required");
++  const update = {};
++  if (Object.prototype.hasOwnProperty.call(input, "commentText")) {
++    const commentText = String(input.commentText || "").trim();
++    if (!commentText || commentText.length > 4096) throw new Error("commentText must contain 1-4096 characters");
++    update.commentText = commentText;
++  }
++  if (Object.prototype.hasOwnProperty.call(input, "commentAt")) {
++    const commentAt = new Date(input.commentAt);
++    if (!Number.isFinite(commentAt.getTime())) throw new Error("commentAt must be a valid date");
++    if (commentAt.getTime() < new Date(now).getTime() + 15_000) throw new Error("commentAt must be at least 15 seconds in the future");
++    update.commentAt = commentAt;
++  }
++  if (!Object.keys(update).length) throw new Error("At least one editable field is required");
++  return update;
++}
++
+ function publicCommentJob(document) {
+   const source =
+     document && typeof document.toObject === "function"
+@@ -72,4 +90,5 @@ module.exports = {
+   publicCommentJob,
+   requirePositiveInteger,
+   validateScheduledCommentInput,
++  validateScheduledCommentUpdate,
+ };
+diff --git a/server/test/app.test.js b/server/test/app.test.js
+index 75c8e5e..d5f38e5 100644
+--- a/server/test/app.test.js
++++ b/server/test/app.test.js
+@@ -23,6 +23,9 @@ async function withServer(callback) {
+     async remove() {
+       return false;
+     },
++    async update(id, patch) {
++      return { id, status: "queued", commentText: patch.commentText, commentAt: patch.commentAt };
++    },
+     async purge() {
+       return { removedJobs: 3 };
+     },
+@@ -43,6 +46,8 @@ async function withServer(callback) {
+     async enqueue() { return { created: true, job: { id: "post-job", status: "queued", groups: [42] } }; },
+     async list() { return [{ id: "post-job", status: "queued", groups: [42] }]; },
+     async cancel(id) { return { id, status: "cancelled", groups: [42] }; },
++    async update(id, patch) { return { id, status: "queued", groups: [42], ...patch }; },
++    async cancelGroup(id, groupId) { return { id, status: "queued", groups: [42], cancelledGroupIds: [Number(groupId)] }; },
+     async retry(id) { return { id, status: "queued", groups: [42] }; },
+     async purge() { return { removedJobs: 5 }; },
+   };
+@@ -163,6 +168,32 @@ test("authenticated comment retry returns the requeued public job", async () =>
+   });
+ });
+ 
++test("authenticated edit and per-community cancellation routes return public jobs", async () => {
++  await withServer(async (baseUrl) => {
++    const headers = {
++      Authorization: `Bearer ${"s".repeat(40)}`,
++      "Content-Type": "application/json",
++    };
++    const editedPost = await fetch(`${baseUrl}/api/scheduled-posts/post-job`, {
++      method: "PATCH", headers, body: JSON.stringify({ text: "Исправлено" }),
++    });
++    assert.equal(editedPost.status, 200);
++    assert.equal((await editedPost.json()).job.text, "Исправлено");
++
++    const cancelledGroup = await fetch(`${baseUrl}/api/scheduled-posts/post-job/groups/42`, {
++      method: "DELETE", headers,
++    });
++    assert.equal(cancelledGroup.status, 200);
++    assert.deepEqual((await cancelledGroup.json()).job.cancelledGroupIds, [42]);
++
++    const editedComment = await fetch(`${baseUrl}/api/scheduled-comments/comment-id`, {
++      method: "PATCH", headers, body: JSON.stringify({ commentText: "Исправленный комментарий" }),
++    });
++    assert.equal(editedComment.status, 200);
++    assert.equal((await editedComment.json()).job.commentText, "Исправленный комментарий");
++  });
++});
++
+ test("authenticated maintenance endpoints return actual MongoDB cleanup counts", async () => {
+   await withServer(async (baseUrl) => {
+     const headers = { Authorization: `Bearer ${"s".repeat(40)}` };
+diff --git a/server/test/comment-service.test.js b/server/test/comment-service.test.js
+index 9e2f3a4..ee0ad46 100644
+--- a/server/test/comment-service.test.js
++++ b/server/test/comment-service.test.js
+@@ -92,3 +92,32 @@ test("manual comment retry keeps the idempotency key and clears the failed attem
+   assert.equal(update.$set.lastError, null);
+   assert.equal(job.idempotencyKey, "same-guid-forever");
+ });
++
++test("queued comment text and time can be edited", async () => {
++  let call;
++  const service = createCommentService({
++    CommentModel: {
++      async findOneAndUpdate(filter, update) {
++        call = { filter, update };
++        return {
++          _id: "job-id", groupId: 42, postId: 10,
++          commentText: update.$set.commentText,
++          commentAt: update.$set.commentAt,
++          status: update.$set.status,
++        };
++      },
++    },
++    tokenVault: {},
++    now: () => new Date("2026-08-23T10:00:00.000Z"),
++  });
++
++  const job = await service.update("job-id", {
++    commentText: "Исправленный комментарий",
++    commentAt: "2026-08-23T11:00:00.000Z",
++  });
++  assert.deepEqual(call.filter.status, { $in: ["queued", "paused", "failed"] });
++  assert.equal(call.update.$set.commentText, "Исправленный комментарий");
++  assert.equal(call.update.$set.commentAt.toISOString(), "2026-08-23T11:00:00.000Z");
++  assert.equal(call.update.$set.status, "queued");
++  assert.equal(job.commentText, "Исправленный комментарий");
++});
+diff --git a/server/test/post-service.test.js b/server/test/post-service.test.js
+index e282049..54193c3 100644
+--- a/server/test/post-service.test.js
++++ b/server/test/post-service.test.js
+@@ -60,3 +60,69 @@ test("post service can cancel, retry and purge terminal jobs only", async () =>
+   assert.deepEqual(await service.purge({ scope: "all" }), { removedJobs: 4 });
+   assert.deepEqual(calls.at(-1).filter, { status: { $in: ["completed", "failed", "cancelled"] } });
+ });
++
++test("post service edits only mutable fields of a non-processing job", async () => {
++  let updateCall;
++  const current = {
++    _id: "post-job",
++    status: "queued",
++    groups: [42, 43],
++    nextGroupIndex: 0,
++    results: [],
++    publishAt: new Date(Date.now() + 60_000),
++  };
++  const service = createPostService({
++    PostModel: {
++      async findById() { return current; },
++      async findOneAndUpdate(filter, update) {
++        updateCall = { filter, update };
++        return { ...current, ...update.$set };
++      },
++    },
++    tokenVault: {},
++    now: () => new Date("2026-08-23T10:00:00.000Z"),
++  });
++
++  const publishAt = "2026-08-23T12:00:00.000Z";
++  const job = await service.update("post-job", {
++    text: "Новый текст",
++    autoCommentText: "Новый комментарий",
++    mode: "repost",
++    publishAt,
++  });
++  assert.deepEqual(updateCall.filter, { _id: "post-job", status: { $in: ["queued", "paused", "failed"] } });
++  assert.equal(updateCall.update.$set.text, "Новый текст");
++  assert.equal(updateCall.update.$set.autoCommentText, "Новый комментарий");
++  assert.equal(updateCall.update.$set.mode, "repost");
++  assert.equal(updateCall.update.$set.publishAt.toISOString(), publishAt);
++  assert.equal(updateCall.update.$set.nextRunAt.toISOString(), publishAt);
++  assert.equal(job.text, "Новый текст");
++});
++
++test("post service cancels one pending community without cancelling the batch", async () => {
++  let updateCall;
++  const current = {
++    _id: "post-job",
++    status: "queued",
++    groups: [42, 43, 44],
++    nextGroupIndex: 1,
++    cancelledGroupIds: [],
++    results: [{ gid: 42, ok: true, postId: 7 }],
++    publishAt: new Date(),
++  };
++  const service = createPostService({
++    PostModel: {
++      async findById() { return current; },
++      async findOneAndUpdate(filter, update) {
++        updateCall = { filter, update };
++        return { ...current, ...update.$set };
++      },
++    },
++    tokenVault: {},
++  });
++
++  const job = await service.cancelGroup("post-job", 43);
++  assert.deepEqual(updateCall.update.$addToSet, { cancelledGroupIds: 43 });
++  assert.deepEqual(job.cancelledGroupIds, [43]);
++  await assert.rejects(() => service.cancelGroup("post-job", 42), /already processed/i);
++});
+diff --git a/server/test/post-worker.test.js b/server/test/post-worker.test.js
+index 4cb696d..49afb28 100644
+--- a/server/test/post-worker.test.js
++++ b/server/test/post-worker.test.js
+@@ -63,3 +63,30 @@ test("post worker pauses the full batch when VK requests verification", async ()
+   assert.equal(model.updates[0].update.$set.status, "paused");
+   assert.equal(model.updates[0].update.$set.lastErrorCode, 14);
+ });
++
++test("post worker records a cancelled target and never calls VK for it", async () => {
++  const now = new Date("2026-08-23T12:00:00.000Z");
++  const model = modelFor({
++    _id: "job", lockId: "lease", attempts: 1, idempotencyKey: "post-job-cancelled-target",
++    sourceOwnerId: -100, sourcePostId: 55, groups: [42, 43], cancelledGroupIds: [42],
++    nextGroupIndex: 0, results: [], mode: "copy", text: "Текст", publishAt: now,
++    groupIntervalSeconds: 15,
++  });
++  let calls = 0;
++  const worker = createPostWorker({
++    PostModel: model,
++    tokenVault: { decrypt: () => "user-token" },
++    vkClient: { async publishCopiedPost() { calls += 1; return { postId: 77 }; } },
++    commentService: { async enqueue() {} },
++    now: () => new Date(now),
++    logger: { warn() {}, error() {} },
++  });
++
++  await worker.runOnce();
++  assert.equal(calls, 0);
++  const update = model.updates[0].update.$set;
++  assert.equal(update.nextGroupIndex, 1);
++  assert.equal(update.results[0].gid, 42);
++  assert.equal(update.results[0].cancelled, true);
++  assert.equal(update.status, "queued");
++});
+diff --git a/tests/clip-download-contract.test.js b/tests/clip-download-contract.test.js
+new file mode 100644
+index 0000000..ffefed4
+--- /dev/null
++++ b/tests/clip-download-contract.test.js
+@@ -0,0 +1,31 @@
++"use strict";
++
++const test = require("node:test");
++const assert = require("node:assert/strict");
++const fs = require("node:fs");
++const path = require("node:path");
++
++const root = path.resolve(__dirname, "..");
++const manifest = JSON.parse(fs.readFileSync(path.join(root, "manifest.json"), "utf8"));
++const background = fs.readFileSync(path.join(root, "background.js"), "utf8");
++const content = fs.readFileSync(path.join(root, "content.js"), "utf8");
++const popup = fs.readFileSync(path.join(root, "popup.html"), "utf8");
++const popupAuth = fs.readFileSync(path.join(root, "popup-auth.js"), "utf8");
++
++test("clip quality panel is packaged and bridged to validated direct downloads", () => {
++  assert.equal(fs.existsSync(path.join(root, "injection.js")), true);
++  assert.equal(manifest.permissions.includes("downloads"), true);
++  const resources = manifest.web_accessible_resources.flatMap((item) => item.resources || []);
++  assert.equal(resources.includes("injection.js"), true);
++  assert.match(content, /VKR_REQUEST_VIDEO_QUALITIES/);
++  assert.match(content, /VKR_DOWNLOAD_VIDEO/);
++  assert.match(background, /vkr_get_video_qualities/);
++  assert.match(background, /download_video_direct/);
++  assert.match(background, /isAllowedVkVideoUrl/);
++});
++
++test("popup restores the clip download switch", () => {
++  assert.match(popup, /id="video-download-toggle"/);
++  assert.match(popupAuth, /vkr_video_download/);
++  assert.match(popupAuth, /video-download-toggle/);
++});
+diff --git a/tests/manifest-security.test.js b/tests/manifest-security.test.js
+index 76188fb..29fc3cc 100644
+--- a/tests/manifest-security.test.js
++++ b/tests/manifest-security.test.js
+@@ -20,17 +20,17 @@ const scheduled = fs.readFileSync(
+ const content = fs.readFileSync(path.join(root, "content.js"), "utf8");
+ 
+ test("manifest has no cookie interception, OAuth impersonation, or global hosts", () => {
+-  assert.equal(manifest.version, "4.5.0");
++  assert.equal(manifest.version, "4.6.0");
+   for (const permission of [
+     "cookies",
+     "declarativeNetRequest",
+     "webRequest",
+     "webRequestBlocking",
+-    "downloads",
+     "scripting",
+   ]) {
+     assert.equal(manifest.permissions.includes(permission), false);
+   }
++  assert.equal(manifest.permissions.includes("downloads"), true);
+   assert.equal(manifest.permissions.includes("tabs"), true);
+   assert.equal(manifest.host_permissions.includes("<all_urls>"), false);
+   assert.equal(
+@@ -48,8 +48,6 @@ test("active service worker contains no legacy account sync or like automation",
+     "login.vk.com",
+     "start_cookie_auth",
+     "2685278",
+-    "vkr_get_video_qualities",
+-    "VKR_INJECT_MAIN_SCRIPT",
+   ]) {
+     assert.equal(
+       background.includes(forbidden),
+@@ -59,12 +57,10 @@ test("active service worker contains no legacy account sync or like automation",
+   }
+ });
+ 
+-test("video cookie automation is absent and queue cleanup goes through worker", () => {
++test("clip download uses no cookie automation and queue cleanup goes through worker", () => {
+   for (const forbidden of [
+     "credentials: 'include'",
+     'credentials: "include"',
+-    "al_video.php",
+-    "download_video_direct",
+   ]) {
+     assert.equal(content.includes(forbidden), false);
+   }
+diff --git a/tests/scheduled-results-ui.test.js b/tests/scheduled-results-ui.test.js
+index eb33307..4f45390 100644
+--- a/tests/scheduled-results-ui.test.js
++++ b/tests/scheduled-results-ui.test.js
+@@ -58,3 +58,13 @@ test("scheduled posts run on the server at photo time and can be cancelled", ()
+   assert.match(shadow, /id="vkr-schedule-mode"/);
+   assert.match(css, /\.status\.scheduled/);
+ });
++
++test("scheduled server posts and comments expose editing and per-community cancellation", () => {
++  assert.match(background, /update_scheduled_post/);
++  assert.match(background, /cancel_scheduled_post_group/);
++  assert.match(background, /update_scheduled_comment/);
++  assert.match(scheduled, /openPostEdit/);
++  assert.match(scheduled, /openCommentEdit/);
++  assert.match(scheduled, /Не публиковать/);
++  assert.match(scheduled, /Редактировать/);
++});
