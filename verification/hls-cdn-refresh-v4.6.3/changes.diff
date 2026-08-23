@@ -1,0 +1,276 @@
+diff --git a/README.md b/README.md
+index 76f7f62..dd7d469 100644
+--- a/README.md
++++ b/README.md
+@@ -1,9 +1,11 @@
+-# VK Reposter Pro 4.6.2
++# VK Reposter Pro 4.6.3
+ 
+ Расширение для последовательной публикации в сообщества VK, отложенных постов,
+ комментариев и Историй, загрузки Клипов, аналитики и управляемой очистки данных.
+ 
+-## Главное в 4.6.2
++## Главное в 4.6.3
++
++- Если VK отклонил подписанную HLS-ссылку после смены IP или сети, расширение запрашивает свежую ссылку и один раз автоматически продолжает скачивание.
+ 
+ - HLS-ссылки клипов больше не скачиваются как `.txt`: расширение получает плейлист, собирает его видеофрагменты в исходном порядке, показывает прогресс и сохраняет воспроизводимый `.ts` или `.mp4`;
+ 
+diff --git a/content.js b/content.js
+index e7636f6..13ed2d3 100644
+--- a/content.js
++++ b/content.js
+@@ -8,7 +8,7 @@
+ // ========== CONSTANTS ==========
+ const BUTTON_CLASS = "vkr-btn";
+ const PROCESSED_ATTR = "data-vkr-checked";
+-const VKR_VERSION = "4.6.2";
++const VKR_VERSION = "4.6.3";
+ const GROUP_SETS_STORAGE_KEY = "vkr_group_sets_v1";
+ const groupSetsCore = globalThis.VkrGroupSetsCore;
+ const POST_SELECTORS = '[data-post-id], div[id^="post-"], article[data-post-id], .post, .wall_item, .feed_row, .Post, [data-testid="post-root"], [data-testid="post"]';
+@@ -150,15 +150,16 @@ function parseQualitiesFromText(text) {
+   return qualities;
+ }
+ 
+-async function fetchClipSourcesById(clipId) {
++async function fetchClipSourcesById(clipId, { forceRefresh = false } = {}) {
+   if (!/^-?\d+_\d+$/.test(String(clipId || ""))) return null;
+-  if (clipSourcesSessionCache.has(clipId)) return clipSourcesSessionCache.get(clipId);
++  if (!forceRefresh && clipSourcesSessionCache.has(clipId)) return clipSourcesSessionCache.get(clipId);
+   try {
+     const endpoint = new URL("/al_video.php", location.origin);
+     endpoint.searchParams.set("act", "show");
+     endpoint.searchParams.set("al", "1");
+     endpoint.searchParams.set("video", clipId);
+-    const response = await fetch(endpoint.toString());
++    if (forceRefresh) endpoint.searchParams.set("_vkr", String(Date.now()));
++    const response = await fetch(endpoint.toString(), { cache: "no-store" });
+     if (!response.ok) throw new Error(`HTTP ${response.status}`);
+     const qualities = parseQualitiesFromText(await response.text());
+     if (Object.keys(qualities).length) {
+@@ -196,12 +197,14 @@ window.addEventListener("message", async function (event) {
+     return;
+   }
+ 
+-  if (type === "VKR_REQUEST_VIDEO_QUALITIES") {
++  if (type === "VKR_REQUEST_VIDEO_QUALITIES" || type === "VKR_REFRESH_VIDEO_QUALITIES") {
+     const videoId = String(event.data.videoId || "");
++    const forceRefresh = type === "VKR_REFRESH_VIDEO_QUALITIES" || event.data.forceRefresh === true;
++    const requestId = String(event.data.requestId || "");
+     chrome.runtime.sendMessage({ type: "vkr_get_video_qualities", videoId }, async (response) => {
+       let { ok, files, title, error } = response || {};
+       if (!ok || !hasVideoQualities(files)) {
+-        const sources = await fetchClipSourcesById(videoId);
++        const sources = await fetchClipSourcesById(videoId, { forceRefresh });
+         if (sources) {
+           files = Object.fromEntries(Object.entries(sources).map(([quality, url]) => [`url${quality}`, url]));
+           ok = true;
+@@ -209,7 +212,7 @@ window.addEventListener("message", async function (event) {
+           error = null;
+         }
+       }
+-      window.postMessage({ type: "VKR_RESPONSE_VIDEO_QUALITIES", videoId, ok: Boolean(ok), files: files || null, title: title || null, error: error || null }, "*");
++      window.postMessage({ type: "VKR_RESPONSE_VIDEO_QUALITIES", requestId, videoId, ok: Boolean(ok), files: files || null, title: title || null, error: error || null }, "*");
+     });
+     return;
+   }
+@@ -230,6 +233,11 @@ window.addEventListener("message", async function (event) {
+     return;
+   }
+ 
++  if (type === "VKR_HLS_DOWNLOAD_REFRESHING") {
++    showToast(`🔄 VK обновляет ссылку на клип ${String(event.data.quality || "")} после смены сети…`, "info");
++    return;
++  }
++
+   if (type === "VKR_HLS_DOWNLOAD_DONE") {
+     const megabytes = (Number(event.data.bytes) / (1024 * 1024)).toFixed(1);
+     showToast(`✅ Клип сохранён: ${megabytes} МБ (.${String(event.data.extension || "mp4")})`, "success");
+diff --git a/injection.js b/injection.js
+index 81d58a0..d5e9ff1 100644
+--- a/injection.js
++++ b/injection.js
+@@ -1,7 +1,7 @@
+ /**
+  * VK Reposter Pro - Page Context Injection Script
+  * Video & Clip Download with Network Interception
+- * @version 4.6.2
++ * @version 4.6.3
+  */
+ 
+ (function () {
+@@ -23,6 +23,7 @@
+   let lastVideoSrc = null;
+   let isFetchingQualities = false;
+   const clipRequestStatuses = new Map();
++  const pendingQualityRefreshes = new Map();
+   const hlsCore = globalThis.VkrHlsDownloadCore;
+   const HLS_MAX_SEGMENTS = 5000;
+   const HLS_MAX_BYTES = 750 * 1024 * 1024;
+@@ -31,7 +32,7 @@
+   window.addEventListener('message', function (event) {
+     if (event.source !== window) return;
+ 
+-    const { type, videoDownload, id, ts, videoId, ok, files, title } = event.data || {};
++    const { type, videoDownload, id, ts, videoId, ok, files, title, requestId } = event.data || {};
+ 
+     if (type === 'VKR_DISABLE_BEFOREUNLOAD_MAIN') {
+       window.onbeforeunload = null;
+@@ -63,6 +64,13 @@
+     }
+ 
+     if (type === 'VKR_RESPONSE_VIDEO_QUALITIES') {
++      if (requestId && pendingQualityRefreshes.has(requestId)) {
++        const pending = pendingQualityRefreshes.get(requestId);
++        pendingQualityRefreshes.delete(requestId);
++        clearTimeout(pending.timeout);
++        pending.resolve(ok && files ? extractStandardQualities(files) : null);
++      }
++
+       if (isFetchingQualities === videoId) {
+         isFetchingQualities = false;
+       }
+@@ -777,11 +785,34 @@
+       referrerPolicy: 'strict-origin-when-cross-origin',
+     });
+     if (!response.ok) {
+-      throw new Error(`VK не отдал видеофрагмент: HTTP ${response.status}.`);
++      const error = new Error(`VK не отдал видеофрагмент: HTTP ${response.status}.`);
++      error.status = response.status;
++      throw error;
+     }
+     return response;
+   }
+ 
++  function requestFreshQualityUrl(videoId, quality) {
++    if (!/^-?\d+_\d+$/.test(String(videoId || ''))) return Promise.resolve(null);
++    const requestId = `vkr-refresh-${Date.now()}-${Math.random().toString(36).slice(2)}`;
++    return new Promise((resolve) => {
++      const timeout = setTimeout(() => {
++        pendingQualityRefreshes.delete(requestId);
++        resolve(null);
++      }, 12_000);
++      pendingQualityRefreshes.set(requestId, {
++        resolve: (qualities) => resolve(qualities?.[quality] || null),
++        timeout,
++      });
++      window.postMessage({
++        type: 'VKR_REFRESH_VIDEO_QUALITIES',
++        forceRefresh: true,
++        requestId,
++        videoId,
++      }, '*');
++    });
++  }
++
+   async function loadHlsMediaPlaylist(initialUrl) {
+     let playlistUrl = initialUrl;
+     for (let depth = 0; depth < 3; depth += 1) {
+@@ -808,7 +839,7 @@
+     return `${stem}.${extension}`;
+   }
+ 
+-  async function downloadHlsVideo(url, title, quality, button) {
++  async function downloadHlsVideo(url, title, quality, button, videoId = null) {
+     if (!hlsCore) throw new Error('Модуль HLS не загрузился. Перезапустите расширение.');
+     const originalText = button?.textContent || quality || 'video';
+     if (button) {
+@@ -819,7 +850,19 @@
+     postHlsStatus('VKR_HLS_DOWNLOAD_STARTED', { quality });
+ 
+     try {
+-      const { media } = await loadHlsMediaPlaylist(url);
++      let playlist;
++      try {
++        playlist = await loadHlsMediaPlaylist(url);
++      } catch (error) {
++        if (error?.status !== 400 || !videoId) throw error;
++        postHlsStatus('VKR_HLS_DOWNLOAD_REFRESHING', { quality });
++        const refreshedUrl = await requestFreshQualityUrl(videoId, quality);
++        if (!refreshedUrl) {
++          throw new Error('VK отклонил устаревшую ссылку, а новую получить не удалось.');
++        }
++        playlist = await loadHlsMediaPlaylist(refreshedUrl);
++      }
++      const { media } = playlist;
+       if (media.segments.length > HLS_MAX_SEGMENTS) {
+         throw new Error(`Слишком много HLS-фрагментов: ${media.segments.length}.`);
+       }
+@@ -945,7 +988,7 @@
+       btn.addEventListener('click', (e) => {
+         e.preventDefault();
+         if (hlsCore?.isHlsUrl(url)) {
+-          void downloadHlsVideo(url, title, quality, btn);
++          void downloadHlsVideo(url, title, quality, btn, getCurrentClipId());
+           return;
+         }
+         window.postMessage({
+diff --git a/manifest.json b/manifest.json
+index ea92413..a631098 100644
+--- a/manifest.json
++++ b/manifest.json
+@@ -1,7 +1,7 @@
+ {
+   "manifest_version": 3,
+   "name": "VK Reposter Pro",
+-  "version": "4.6.2",
++  "version": "4.6.3",
+   "description": "Безопасная очередь постинга и отложенных комментариев для сообществ ВКонтакте",
+   "permissions": [
+     "storage",
+diff --git a/package.json b/package.json
+index 77a6deb..04aa0f0 100644
+--- a/package.json
++++ b/package.json
+@@ -1,6 +1,6 @@
+ {
+   "name": "vk-reposter-pro",
+-  "version": "4.6.2",
++  "version": "4.6.3",
+   "description": "VK Reposter Pro — расширение для репоста в ВКонтакте",
+   "private": true,
+   "scripts": {
+diff --git a/popup.html b/popup.html
+index 3bac7bd..67fe1d8 100644
+--- a/popup.html
++++ b/popup.html
+@@ -49,7 +49,7 @@
+         <div class="logo">
+           <div id="logo-lottie" class="logo__lottie"></div>
+         </div>
+-        <div class="version">v4.6.2</div>
++        <div class="version">v4.6.3</div>
+       </div>
+     </header>
+ 
+diff --git a/tests/clip-download-contract.test.js b/tests/clip-download-contract.test.js
+index dbb668e..d0d7c39 100644
+--- a/tests/clip-download-contract.test.js
++++ b/tests/clip-download-contract.test.js
+@@ -62,3 +62,12 @@ test("HLS quality buttons assemble media instead of downloading a text playlist"
+   assert.match(content, /VKR_HLS_DOWNLOAD_DONE/);
+   assert.doesNotMatch(injection, /href\s*=\s*url[^\n]*\.click\(/);
+ });
++
++test("expired IP-bound HLS links are refreshed once before reporting an error", () => {
++  assert.match(injection, /VKR_REFRESH_VIDEO_QUALITIES/);
++  assert.match(injection, /requestFreshQualityUrl/);
++  assert.match(injection, /error\?\.status !== 400/);
++  assert.match(content, /forceRefresh/);
++  assert.match(content, /cache:\s*["']no-store["']/);
++  assert.match(content, /requestId/);
++});
+diff --git a/tests/manifest-security.test.js b/tests/manifest-security.test.js
+index cde3364..c37fd9b 100644
+--- a/tests/manifest-security.test.js
++++ b/tests/manifest-security.test.js
+@@ -20,7 +20,7 @@ const scheduled = fs.readFileSync(
+ const content = fs.readFileSync(path.join(root, "content.js"), "utf8");
+ 
+ test("manifest has no cookie interception, OAuth impersonation, or global hosts", () => {
+-  assert.equal(manifest.version, "4.6.2");
++  assert.equal(manifest.version, "4.6.3");
+   for (const permission of [
+     "cookies",
+     "declarativeNetRequest",

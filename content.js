@@ -8,7 +8,7 @@
 // ========== CONSTANTS ==========
 const BUTTON_CLASS = "vkr-btn";
 const PROCESSED_ATTR = "data-vkr-checked";
-const VKR_VERSION = "4.6.2";
+const VKR_VERSION = "4.6.3";
 const GROUP_SETS_STORAGE_KEY = "vkr_group_sets_v1";
 const groupSetsCore = globalThis.VkrGroupSetsCore;
 const POST_SELECTORS = '[data-post-id], div[id^="post-"], article[data-post-id], .post, .wall_item, .feed_row, .Post, [data-testid="post-root"], [data-testid="post"]';
@@ -150,15 +150,16 @@ function parseQualitiesFromText(text) {
   return qualities;
 }
 
-async function fetchClipSourcesById(clipId) {
+async function fetchClipSourcesById(clipId, { forceRefresh = false } = {}) {
   if (!/^-?\d+_\d+$/.test(String(clipId || ""))) return null;
-  if (clipSourcesSessionCache.has(clipId)) return clipSourcesSessionCache.get(clipId);
+  if (!forceRefresh && clipSourcesSessionCache.has(clipId)) return clipSourcesSessionCache.get(clipId);
   try {
     const endpoint = new URL("/al_video.php", location.origin);
     endpoint.searchParams.set("act", "show");
     endpoint.searchParams.set("al", "1");
     endpoint.searchParams.set("video", clipId);
-    const response = await fetch(endpoint.toString());
+    if (forceRefresh) endpoint.searchParams.set("_vkr", String(Date.now()));
+    const response = await fetch(endpoint.toString(), { cache: "no-store" });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const qualities = parseQualitiesFromText(await response.text());
     if (Object.keys(qualities).length) {
@@ -196,12 +197,14 @@ window.addEventListener("message", async function (event) {
     return;
   }
 
-  if (type === "VKR_REQUEST_VIDEO_QUALITIES") {
+  if (type === "VKR_REQUEST_VIDEO_QUALITIES" || type === "VKR_REFRESH_VIDEO_QUALITIES") {
     const videoId = String(event.data.videoId || "");
+    const forceRefresh = type === "VKR_REFRESH_VIDEO_QUALITIES" || event.data.forceRefresh === true;
+    const requestId = String(event.data.requestId || "");
     chrome.runtime.sendMessage({ type: "vkr_get_video_qualities", videoId }, async (response) => {
       let { ok, files, title, error } = response || {};
       if (!ok || !hasVideoQualities(files)) {
-        const sources = await fetchClipSourcesById(videoId);
+        const sources = await fetchClipSourcesById(videoId, { forceRefresh });
         if (sources) {
           files = Object.fromEntries(Object.entries(sources).map(([quality, url]) => [`url${quality}`, url]));
           ok = true;
@@ -209,7 +212,7 @@ window.addEventListener("message", async function (event) {
           error = null;
         }
       }
-      window.postMessage({ type: "VKR_RESPONSE_VIDEO_QUALITIES", videoId, ok: Boolean(ok), files: files || null, title: title || null, error: error || null }, "*");
+      window.postMessage({ type: "VKR_RESPONSE_VIDEO_QUALITIES", requestId, videoId, ok: Boolean(ok), files: files || null, title: title || null, error: error || null }, "*");
     });
     return;
   }
@@ -227,6 +230,11 @@ window.addEventListener("message", async function (event) {
 
   if (type === "VKR_HLS_DOWNLOAD_PROGRESS") {
     showToast(`⬇️ Клип ${String(event.data.quality || "")}: ${Number(event.data.percent) || 0}%`, "info");
+    return;
+  }
+
+  if (type === "VKR_HLS_DOWNLOAD_REFRESHING") {
+    showToast(`🔄 VK обновляет ссылку на клип ${String(event.data.quality || "")} после смены сети…`, "info");
     return;
   }
 

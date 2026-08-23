@@ -1,0 +1,77 @@
+VK Reposter Pro — HLS CDN refresh verification
+
+CHANGED BRANCH/FIELD
+branch: safe-v4
+base commit: a19cc4c77e1a130ee504c23eedd2380b2e025623
+version field: 4.6.2 -> 4.6.3
+behavior field: an HTTP 400 from an IP/session-bound VK HLS URL now triggers one forced quality refresh and one automatic playlist retry.
+original injection.js SHA256: 76404F61D18F5C9D71936B6767BBC0F95CAAF1F3316D80637A8E4E957D061B7C
+modified injection.js SHA256: 0AEB05B39424E211289635244CBE316C9016C8AB8D4180C55CBFCD56C4937BDE
+
+FOUR ARTIFACT PATHS
+MODIFIED_FILE: C:\Users\USER\Desktop\Новая папка (5)\verification\hls-cdn-refresh-v4.6.3\MODIFIED_FILE.injection.js
+DIFF_FILE: C:\Users\USER\Desktop\Новая папка (5)\verification\hls-cdn-refresh-v4.6.3\changes.diff
+VERIFICATION: C:\Users\USER\Desktop\Новая папка (5)\verification\hls-cdn-refresh-v4.6.3\VERIFICATION.txt
+ROLLBACK: C:\Users\USER\Desktop\Новая папка (5)\verification\hls-cdn-refresh-v4.6.3\ROLLBACK.sh
+
+BASELINE
+command: npm test
+working directory/input: C:\Users\USER\Desktop\Новая папка (5), commit a19cc4c77e1a130ee504c23eedd2380b2e025623
+literal result:
+> vk-reposter-pro@4.6.2 test
+ℹ tests 112
+ℹ pass 112
+ℹ fail 0
+> vk-reposter-safe-server@4.4.0 test
+ℹ tests 44
+ℹ pass 44
+ℹ fail 0
+BASELINE_EXIT=0
+exit status: 0
+
+RED REGRESSION
+command: node --test tests/clip-download-contract.test.js
+working directory/input: C:\Users\USER\Desktop\Новая папка (5), new refresh contract before implementation
+literal result:
+✖ expired IP-bound HLS links are refreshed once before reporting an error
+ℹ pass 4
+ℹ fail 1
+RED_EXIT=1
+exit status: 1 (expected red phase)
+
+MODIFIED
+command: npm run verify
+working directory/input: C:\Users\USER\Desktop\Новая папка (5), version 4.6.3 working tree
+literal result:
+> vk-reposter-pro@4.6.3 verify
+ℹ tests 113
+ℹ pass 113
+ℹ fail 0
+> vk-reposter-safe-server@4.4.0 test
+ℹ tests 44
+ℹ pass 44
+ℹ fail 0
+> vk-reposter-pro@4.6.3 check:js
+> vk-reposter-safe-server@4.4.0 check
+MODIFIED_EXIT=0
+exit status: 0
+
+ROLLBACK
+command: "C:\Program Files\Git\bin\bash.exe" ./ROLLBACK.sh && node --test tests/clip-download-contract.test.js
+working directory/input: C:\Users\USER\Desktop\vkpooster-v463-rollback-20260823-1, modified diff applied to a detached copy of a19cc4c77e1a130ee504c23eedd2380b2e025623
+literal result:
+ROLLBACK_RESULT=restored_to_a19cc4c77e1a130ee504c23eedd2380b2e025623
+restored manifest version: 4.6.2
+✔ clip quality panel is packaged and bridged to validated direct downloads
+✔ popup restores the clip download switch
+✔ clip downloads accept VK okcdn media URLs without accepting lookalike hosts
+✔ HLS quality buttons assemble media instead of downloading a text playlist
+ℹ tests 4
+ℹ pass 4
+ℹ fail 0
+ROLLBACK_EXIT=0
+exit status: 0
+restored behavior/status: forced CDN refresh contract was removed, the baseline 4.6.2 download behavior and four baseline contract tests were restored, and the temporary rollback worktree was removed.
+
+LIVE WORKTREE STATUS
+C:\Users\USER\Desktop\Новая папка (5) remains modified at version 4.6.3; ROLLBACK.sh was tested only in the separate copy.

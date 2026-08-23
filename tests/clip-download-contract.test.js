@@ -62,3 +62,12 @@ test("HLS quality buttons assemble media instead of downloading a text playlist"
   assert.match(content, /VKR_HLS_DOWNLOAD_DONE/);
   assert.doesNotMatch(injection, /href\s*=\s*url[^\n]*\.click\(/);
 });
+
+test("expired IP-bound HLS links are refreshed once before reporting an error", () => {
+  assert.match(injection, /VKR_REFRESH_VIDEO_QUALITIES/);
+  assert.match(injection, /requestFreshQualityUrl/);
+  assert.match(injection, /error\?\.status !== 400/);
+  assert.match(content, /forceRefresh/);
+  assert.match(content, /cache:\s*["']no-store["']/);
+  assert.match(content, /requestId/);
+});
