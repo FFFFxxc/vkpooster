@@ -9,6 +9,7 @@ const root = path.resolve(__dirname, "..");
 const manifest = JSON.parse(fs.readFileSync(path.join(root, "manifest.json"), "utf8"));
 const background = fs.readFileSync(path.join(root, "background.js"), "utf8");
 const content = fs.readFileSync(path.join(root, "content.js"), "utf8");
+const injection = fs.readFileSync(path.join(root, "injection.js"), "utf8");
 const popup = fs.readFileSync(path.join(root, "popup.html"), "utf8");
 const popupAuth = fs.readFileSync(path.join(root, "popup-auth.js"), "utf8");
 
@@ -50,4 +51,14 @@ test("clip downloads accept VK okcdn media URLs without accepting lookalike host
   assert.equal(isAllowedVkVideoUrl("https://okcdn.ru.evil.example/video.mp4"), false);
   assert.equal(isAllowedVkVideoUrl("https://evilokcdn.ru/video.mp4"), false);
   assert.equal(isAllowedVkVideoUrl("http://vkvd630.okcdn.ru/video.mp4"), false);
+});
+
+test("HLS quality buttons assemble media instead of downloading a text playlist", () => {
+  const mainWorldDownloader = manifest.content_scripts.find((entry) =>
+    entry.world === "MAIN" && (entry.js || []).includes("injection.js"));
+  assert.deepEqual(mainWorldDownloader.js, ["hls-download-core.js", "injection.js"]);
+  assert.match(injection, /downloadHlsVideo/);
+  assert.match(injection, /VKR_HLS_DOWNLOAD_PROGRESS/);
+  assert.match(content, /VKR_HLS_DOWNLOAD_DONE/);
+  assert.doesNotMatch(injection, /href\s*=\s*url[^\n]*\.click\(/);
 });

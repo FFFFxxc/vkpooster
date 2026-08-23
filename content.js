@@ -1,14 +1,14 @@
 /**
  * VK Reposter Pro - Content Script
  * Modern UI with Glassmorphism Design
- * @version 4.6.1
+ * @version 4.6.2
  * @updated 2026-08-09
  */
 
 // ========== CONSTANTS ==========
 const BUTTON_CLASS = "vkr-btn";
 const PROCESSED_ATTR = "data-vkr-checked";
-const VKR_VERSION = "4.6.1";
+const VKR_VERSION = "4.6.2";
 const GROUP_SETS_STORAGE_KEY = "vkr_group_sets_v1";
 const groupSetsCore = globalThis.VkrGroupSetsCore;
 const POST_SELECTORS = '[data-post-id], div[id^="post-"], article[data-post-id], .post, .wall_item, .feed_row, .Post, [data-testid="post-root"], [data-testid="post"]';
@@ -217,6 +217,27 @@ window.addEventListener("message", async function (event) {
   if (type === "VKR_GET_VIDEO_DOWNLOAD_SETTING") {
     const data = await chrome.storage.local.get("vkr_video_download");
     window.postMessage({ type: "VKR_VIDEO_DOWNLOAD_SETTING", videoDownload: data.vkr_video_download !== false }, "*");
+    return;
+  }
+
+  if (type === "VKR_HLS_DOWNLOAD_STARTED") {
+    showToast(`⬇️ Собираю клип ${String(event.data.quality || "")} из видеофрагментов…`, "info");
+    return;
+  }
+
+  if (type === "VKR_HLS_DOWNLOAD_PROGRESS") {
+    showToast(`⬇️ Клип ${String(event.data.quality || "")}: ${Number(event.data.percent) || 0}%`, "info");
+    return;
+  }
+
+  if (type === "VKR_HLS_DOWNLOAD_DONE") {
+    const megabytes = (Number(event.data.bytes) / (1024 * 1024)).toFixed(1);
+    showToast(`✅ Клип сохранён: ${megabytes} МБ (.${String(event.data.extension || "mp4")})`, "success");
+    return;
+  }
+
+  if (type === "VKR_HLS_DOWNLOAD_ERROR") {
+    showToast(`❌ ${String(event.data.error || "Не удалось скачать клип")}`, "error");
     return;
   }
 

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "VK Reposter Pro",
-  "version": "4.6.1",
+  "version": "4.6.2",
   "description": "Безопасная очередь постинга и отложенных комментариев для сообществ ВКонтакте",
   "permissions": [
     "storage",
@@ -44,7 +44,7 @@
     },
     {
       "matches": ["*://vk.com/*", "*://*.vk.com/*", "*://vk.ru/*", "*://*.vk.ru/*"],
-      "js": ["injection.js"],
+      "js": ["hls-download-core.js", "injection.js"],
       "world": "MAIN",
       "run_at": "document_idle"
     },

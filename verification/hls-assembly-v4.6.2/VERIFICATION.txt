@@ -1,0 +1,87 @@
+VK REPOSTER PRO 4.6.2 — HLS CLIP ASSEMBLY VERIFICATION
+
+branch: safe-v4
+base_commit: f4cf59aa490b5a2fead98e3e6faee0ae2a9bf9f2
+changed_field: injection.js -> HLS quality download path -> downloadHlsVideo assembles playlist segments instead of downloading the .m3u8 text response
+result: HLS media playlists are parsed, init/segment URLs are resolved, fragments are fetched in bounded parallel order, progress is shown, and the completed clip is saved as .ts or .mp4 according to its container.
+server_change: none
+render_deploy_required: no
+
+ORIGINAL_HASH
+file: C:\Users\USER\Desktop\Новая папка (5)\injection.js
+sha256_before: 8F00557D82437FA93555400F7D66516CE7D821D35581D3D4F21A38C64C6F3C6E
+sha256_after: 76404F61D18F5C9D71936B6767BBC0F95CAAF1F3316D80637A8E4E957D061B7C
+
+ARTIFACTS
+MODIFIED_FILE: C:\Users\USER\Desktop\Новая папка (5)\verification\hls-assembly-v4.6.2\MODIFIED_FILE.injection.js
+DIFF_FILE: C:\Users\USER\Desktop\Новая папка (5)\verification\hls-assembly-v4.6.2\changes.diff
+VERIFICATION: C:\Users\USER\Desktop\Новая папка (5)\verification\hls-assembly-v4.6.2\VERIFICATION.txt
+ROLLBACK: C:\Users\USER\Desktop\Новая папка (5)\verification\hls-assembly-v4.6.2\ROLLBACK.sh
+
+BASELINE
+command: npm test
+input: workdir=C:\Users\USER\Desktop\Новая папка (5); commit=f4cf59aa490b5a2fead98e3e6faee0ae2a9bf9f2; extension_version=4.6.1
+literal output/result:
+  ℹ tests 107
+  ℹ pass 107
+  ℹ fail 0
+  ℹ tests 44
+  ℹ pass 44
+  ℹ fail 0
+exit status: 0
+
+RED REGRESSION
+command: node --test tests/hls-download-core.test.js tests/clip-download-contract.test.js
+input: .m3u8 quality URL with no HLS assembly module or downloadHlsVideo integration
+literal output/result:
+  ✖ HLS quality buttons assemble media instead of downloading a text playlist
+  ✖ media playlist resolves init and ordered segment URLs
+  ✖ master playlist chooses the highest bandwidth variant
+  ✖ playlist rejects encrypted streams instead of saving unusable bytes
+  ✖ container detection keeps transport streams playable and fMP4 as MP4
+  ℹ pass 3
+  ℹ fail 5
+exit status: 1
+
+MODIFIED
+command: npm run verify
+input: workdir=C:\Users\USER\Desktop\Новая папка (5); extension_version=4.6.2; HLS media/master playlists, init segments, ordered relative segments, encrypted stream rejection, MPEG-TS and fMP4 container samples
+literal output/result:
+  ✔ HLS quality buttons assemble media instead of downloading a text playlist
+  ✔ media playlist resolves init and ordered segment URLs
+  ✔ master playlist chooses the highest bandwidth variant
+  ✔ playlist rejects encrypted streams instead of saving unusable bytes
+  ✔ container detection keeps transport streams playable and fMP4 as MP4
+  ℹ tests 112
+  ℹ pass 112
+  ℹ fail 0
+  ℹ tests 44
+  ℹ pass 44
+  ℹ fail 0
+  > vk-reposter-pro@4.6.2 check:js
+  > vk-reposter-safe-server@4.4.0 check
+exit status: 0
+
+ROLLBACK
+command: & 'C:\Program Files\Git\bin\bash.exe' 'C:/Users/USER/Desktop/Новая папка (5)/verification/hls-assembly-v4.6.2/ROLLBACK.sh' 'C:/Users/USER/Desktop/vkpooster-v462-rollback-20260823-1'; Push-Location 'C:\Users\USER\Desktop\vkpooster-v462-rollback-20260823-1'; npm test; Pop-Location
+input: TARGET_WORKTREE=C:\Users\USER\Desktop\vkpooster-v462-rollback-20260823-1; patch=changes.diff; precondition=modified patch applied to detached copy of base commit
+literal output/result:
+  ROLLBACK_OK base=f4cf59aa490b5a2fead98e3e6faee0ae2a9bf9f2 target=C:/Users/USER/Desktop/vkpooster-v462-rollback-20260823-1 restored=direct-m3u8-text-download-version-4.6.1
+  ℹ tests 107
+  ℹ pass 107
+  ℹ fail 0
+  ℹ tests 44
+  ℹ pass 44
+  ℹ fail 0
+exit status: 0
+
+RESTORED BEHAVIOR/STATUS
+command: $m=Get-Content manifest.json -Raw|ConvertFrom-Json; Write-Output ('ROLLBACK_VERSION='+$m.version+' HLS_CORE_EXISTS='+(Test-Path 'hls-download-core.js')+' INJECTION_HAS_ASSEMBLER='+((Get-Content injection.js -Raw).Contains('downloadHlsVideo')))
+input: workdir=C:\Users\USER\Desktop\vkpooster-v462-rollback-20260823-1
+literal output/result: ROLLBACK_VERSION=4.6.1 HLS_CORE_EXISTS=False INJECTION_HAS_ASSEMBLER=False
+exit status: 0
+
+PRIMARY WORKTREE FINAL STATE
+behavior: .m3u8 playlists are assembled into playable media downloads with progress instead of being saved as .txt
+version: 4.6.2
+status: modified behavior intentionally retained
