@@ -1,0 +1,79 @@
+VK REPOSTER PRO 4.6.1 — OKCDN CLIP DOWNLOAD VERIFICATION
+
+branch: safe-v4
+base_commit: 7350ea66e2bafaf1b5de2c97f099cf549ea12c5d
+changed_field: background.js -> isAllowedVkVideoUrl -> suffixes now includes okcdn.ru
+result: https://vkvd630.okcdn.ru video URLs are accepted; deceptive lookalike hosts and non-HTTPS URLs remain rejected.
+server_change: none
+render_deploy_required: no
+
+ORIGINAL_HASH
+file: C:\Users\USER\Desktop\Новая папка (5)\background.js
+sha256_before: E18EFD6E57D409F4638D5BF29A82FF4F726E7EC386823A9B10BAC86975974589
+sha256_after: 6E07D302B335492424C134671ED0E384BD8A803C96880AA42B4A0E18E16AD951
+
+ARTIFACTS
+MODIFIED_FILE: C:\Users\USER\Desktop\Новая папка (5)\verification\clip-okcdn-v4.6.1\MODIFIED_FILE.background.js
+DIFF_FILE: C:\Users\USER\Desktop\Новая папка (5)\verification\clip-okcdn-v4.6.1\changes.diff
+VERIFICATION: C:\Users\USER\Desktop\Новая папка (5)\verification\clip-okcdn-v4.6.1\VERIFICATION.txt
+ROLLBACK: C:\Users\USER\Desktop\Новая папка (5)\verification\clip-okcdn-v4.6.1\ROLLBACK.sh
+
+BASELINE
+command: npm test
+input: workdir=C:\Users\USER\Desktop\Новая папка (5); commit=7350ea66e2bafaf1b5de2c97f099cf549ea12c5d; extension_version=4.6.0
+literal output/result:
+  ℹ tests 106
+  ℹ pass 106
+  ℹ fail 0
+  ℹ tests 44
+  ℹ pass 44
+  ℹ fail 0
+exit status: 0
+
+RED REGRESSION
+command: node --test tests/clip-download-contract.test.js
+input: https://vkvd630.okcdn.ru/video.mp4?sig=vk before production change
+literal output/result:
+  ✖ clip downloads accept VK okcdn media URLs without accepting lookalike hosts
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  false !== true
+exit status: 1
+
+MODIFIED
+command: npm run verify
+input: workdir=C:\Users\USER\Desktop\Новая папка (5); extension_version=4.6.1; validator inputs=vkvd630.okcdn.ru MP4/M3U8 plus deceptive host and HTTP cases
+literal output/result:
+  ✔ clip downloads accept VK okcdn media URLs without accepting lookalike hosts
+  ℹ tests 107
+  ℹ pass 107
+  ℹ fail 0
+  ℹ tests 44
+  ℹ pass 44
+  ℹ fail 0
+  > vk-reposter-pro@4.6.1 check:js
+  > vk-reposter-safe-server@4.4.0 check
+exit status: 0
+
+ROLLBACK
+command: & 'C:\Program Files\Git\bin\bash.exe' 'C:/Users/USER/Desktop/Новая папка (5)/verification/clip-okcdn-v4.6.1/ROLLBACK.sh' 'C:/Users/USER/Desktop/vkpooster-v461-rollback-20260823-1'; Push-Location 'C:\Users\USER\Desktop\vkpooster-v461-rollback-20260823-1'; npm test; Pop-Location
+input: TARGET_WORKTREE=C:\Users\USER\Desktop\vkpooster-v461-rollback-20260823-1; patch=changes.diff; precondition=modified patch applied to detached copy of base commit
+literal output/result:
+  ROLLBACK_OK base=7350ea66e2bafaf1b5de2c97f099cf549ea12c5d target=C:/Users/USER/Desktop/vkpooster-v461-rollback-20260823-1 restored=okcdn-rejected-and-version-4.6.0
+  ℹ tests 106
+  ℹ pass 106
+  ℹ fail 0
+  ℹ tests 44
+  ℹ pass 44
+  ℹ fail 0
+exit status: 0
+
+RESTORED BEHAVIOR/STATUS
+command: node -e "extract isAllowedVkVideoUrl from background.js; print validator result and manifest version"
+input: workdir=C:\Users\USER\Desktop\vkpooster-v461-rollback-20260823-1; URL=https://vkvd630.okcdn.ru/video.mp4
+literal output/result: ROLLBACK_VALIDATOR_OKCDN=false VERSION=4.6.0
+exit status: 0
+
+PRIMARY WORKTREE FINAL STATE
+behavior: okcdn URL accepted
+version: 4.6.1
+status: modified behavior intentionally retained

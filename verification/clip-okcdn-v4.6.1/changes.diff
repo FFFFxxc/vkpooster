@@ -1,0 +1,140 @@
+diff --git a/README.md b/README.md
+index 0ccf904..3d5a537 100644
+--- a/README.md
++++ b/README.md
+@@ -1,9 +1,11 @@
+-# VK Reposter Pro 4.6.0
++# VK Reposter Pro 4.6.1
+ 
+ Расширение для последовательной публикации в сообщества VK, отложенных постов,
+ комментариев и Историй, загрузки Клипов, аналитики и управляемой очистки данных.
+ 
+-## Главное в 4.6.0
++## Главное в 4.6.1
++
++- скачивание клипов принимает фактический CDN VK `*.okcdn.ru` и по-прежнему отклоняет похожие посторонние домены;
+ 
+ - серверные посты можно редактировать до выполнения: менять текст, режим,
+   автокомментарий и время старта очереди;
+diff --git a/background.js b/background.js
+index 901d456..a6c8d18 100644
+--- a/background.js
++++ b/background.js
+@@ -182,7 +182,7 @@ function isAllowedVkVideoUrl(rawUrl) {
+     const url = new URL(String(rawUrl || ""));
+     if (url.protocol !== "https:") return false;
+     const host = url.hostname.toLowerCase();
+-    const suffixes = ["vk.com", "vk.ru", "vkvideo.ru", "vk-cdn.net", "vkuseraudio.net", "vkuserlive.net", "vkuser.net", "userapi.com", "mycdn.me"];
++    const suffixes = ["vk.com", "vk.ru", "vkvideo.ru", "vk-cdn.net", "vkuseraudio.net", "vkuserlive.net", "vkuser.net", "userapi.com", "mycdn.me", "okcdn.ru"];
+     return suffixes.some((suffix) => host === suffix || host.endsWith(`.${suffix}`));
+   } catch {
+     return false;
+diff --git a/content.js b/content.js
+index 1ba51c1..3b25f10 100644
+--- a/content.js
++++ b/content.js
+@@ -1,14 +1,14 @@
+ /**
+  * VK Reposter Pro - Content Script
+  * Modern UI with Glassmorphism Design
+- * @version 4.6.0
++ * @version 4.6.1
+  * @updated 2026-08-09
+  */
+ 
+ // ========== CONSTANTS ==========
+ const BUTTON_CLASS = "vkr-btn";
+ const PROCESSED_ATTR = "data-vkr-checked";
+-const VKR_VERSION = "4.6.0";
++const VKR_VERSION = "4.6.1";
+ const GROUP_SETS_STORAGE_KEY = "vkr_group_sets_v1";
+ const groupSetsCore = globalThis.VkrGroupSetsCore;
+ const POST_SELECTORS = '[data-post-id], div[id^="post-"], article[data-post-id], .post, .wall_item, .feed_row, .Post, [data-testid="post-root"], [data-testid="post"]';
+diff --git a/manifest.json b/manifest.json
+index c2cd418..a660458 100644
+--- a/manifest.json
++++ b/manifest.json
+@@ -1,7 +1,7 @@
+ {
+   "manifest_version": 3,
+   "name": "VK Reposter Pro",
+-  "version": "4.6.0",
++  "version": "4.6.1",
+   "description": "Безопасная очередь постинга и отложенных комментариев для сообществ ВКонтакте",
+   "permissions": [
+     "storage",
+diff --git a/package.json b/package.json
+index d2f62f2..6248816 100644
+--- a/package.json
++++ b/package.json
+@@ -1,6 +1,6 @@
+ {
+   "name": "vk-reposter-pro",
+-  "version": "4.6.0",
++  "version": "4.6.1",
+   "description": "VK Reposter Pro — расширение для репоста в ВКонтакте",
+   "private": true,
+   "scripts": {
+diff --git a/popup.html b/popup.html
+index 4b43dc2..30170a9 100644
+--- a/popup.html
++++ b/popup.html
+@@ -49,7 +49,7 @@
+         <div class="logo">
+           <div id="logo-lottie" class="logo__lottie"></div>
+         </div>
+-        <div class="version">v4.6.0</div>
++        <div class="version">v4.6.1</div>
+       </div>
+     </header>
+ 
+diff --git a/tests/clip-download-contract.test.js b/tests/clip-download-contract.test.js
+index ffefed4..15b1b58 100644
+--- a/tests/clip-download-contract.test.js
++++ b/tests/clip-download-contract.test.js
+@@ -12,6 +12,12 @@ const content = fs.readFileSync(path.join(root, "content.js"), "utf8");
+ const popup = fs.readFileSync(path.join(root, "popup.html"), "utf8");
+ const popupAuth = fs.readFileSync(path.join(root, "popup-auth.js"), "utf8");
+ 
++function loadVideoUrlValidator() {
++  const source = background.match(/function isAllowedVkVideoUrl\(rawUrl\) \{[\s\S]*?\n\}/)?.[0];
++  assert.ok(source, "background.js must expose the clip URL validator");
++  return Function(`return (${source})`)();
++}
++
+ test("clip quality panel is packaged and bridged to validated direct downloads", () => {
+   assert.equal(fs.existsSync(path.join(root, "injection.js")), true);
+   assert.equal(manifest.permissions.includes("downloads"), true);
+@@ -29,3 +35,19 @@ test("popup restores the clip download switch", () => {
+   assert.match(popupAuth, /vkr_video_download/);
+   assert.match(popupAuth, /video-download-toggle/);
+ });
++
++test("clip downloads accept VK okcdn media URLs without accepting lookalike hosts", () => {
++  const isAllowedVkVideoUrl = loadVideoUrlValidator();
++
++  assert.equal(
++    isAllowedVkVideoUrl("https://vkvd630.okcdn.ru/video.mp4?sig=vk"),
++    true,
++  );
++  assert.equal(
++    isAllowedVkVideoUrl("https://vkvd630.okcdn.ru/video.m3u8?sig=vk"),
++    true,
++  );
++  assert.equal(isAllowedVkVideoUrl("https://okcdn.ru.evil.example/video.mp4"), false);
++  assert.equal(isAllowedVkVideoUrl("https://evilokcdn.ru/video.mp4"), false);
++  assert.equal(isAllowedVkVideoUrl("http://vkvd630.okcdn.ru/video.mp4"), false);
++});
+diff --git a/tests/manifest-security.test.js b/tests/manifest-security.test.js
+index 29fc3cc..9f49226 100644
+--- a/tests/manifest-security.test.js
++++ b/tests/manifest-security.test.js
+@@ -20,7 +20,7 @@ const scheduled = fs.readFileSync(
+ const content = fs.readFileSync(path.join(root, "content.js"), "utf8");
+ 
+ test("manifest has no cookie interception, OAuth impersonation, or global hosts", () => {
+-  assert.equal(manifest.version, "4.6.0");
++  assert.equal(manifest.version, "4.6.1");
+   for (const permission of [
+     "cookies",
+     "declarativeNetRequest",
